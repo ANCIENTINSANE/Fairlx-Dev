@@ -33,8 +33,11 @@ export const useVerifyEmail = () => {
       const response = await client.api.auth["verify-email"].$post({ json });
       const data = await response.json();
       
-      if (!response.ok && 'error' in data) {
-        throw new Error(String(data.error));
+      if (!response.ok) {
+        const errorMsg = 'error' in data ? String(data.error) : 
+                        'message' in data ? String(data.message) : 
+                        "Verification failed";
+        throw new Error(errorMsg);
       }
       
       return data;

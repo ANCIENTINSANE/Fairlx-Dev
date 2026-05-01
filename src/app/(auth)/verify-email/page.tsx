@@ -105,9 +105,18 @@ const VerifyEmailContent = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button asChild variant="outline" className="w-full">
+          <div className="p-3 bg-red-50 border border-red-100 rounded-md text-red-700 text-sm">
+            <p className="font-medium mb-1">Detailed error:</p>
+            <p>{errorMessage || "The link is invalid or has already been used."}</p>
+          </div>
+          <Button asChild variant="primary" className="w-full">
             <Link href="/sign-in">
               Back to Login
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link href="/verify-email-needed">
+              Request New Verification Email
             </Link>
           </Button>
         </CardContent>

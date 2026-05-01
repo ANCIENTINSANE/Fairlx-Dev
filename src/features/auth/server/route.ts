@@ -746,6 +746,7 @@ const app = new Hono()
    */
   .post("/verify-email", zValidator("json", verifyEmailSchema), async (c) => {
     const { userId, secret } = c.req.valid("json");
+    console.log(`[Auth] Verifying email for user: ${userId}, secret length: ${secret?.length || 0}`);
 
     try {
       // Create a lightweight client without admin credentials because verification
@@ -815,6 +816,7 @@ const app = new Hono()
         autoAuthenticated: true,
       });
     } catch (error: unknown) {
+      console.error("[Auth] Verification error:", error);
       const appwriteError = error as { code?: number; type?: string; message?: string };
 
       // Handle specific verification errors
