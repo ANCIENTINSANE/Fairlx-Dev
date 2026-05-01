@@ -13,6 +13,7 @@ const VerifyEmailContent = () => {
   const searchParams = useSearchParams();
   const verifyEmail = useVerifyEmail();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const hasAttempted = useRef(false);
   useEffect(() => {
     // Prevent multiple attempts
@@ -25,6 +26,7 @@ const VerifyEmailContent = () => {
 
     if (!userId || (!secret && !token)) {
       setStatus("error");
+      setErrorMessage("Missing verification parameters in the URL.");
       return;
     }
 
@@ -38,10 +40,12 @@ const VerifyEmailContent = () => {
             setStatus("success");
           } else {
             setStatus("error");
+            setErrorMessage('error' in data ? String(data.error) : "Verification failed. The link might be invalid or expired.");
           }
         },
-        onError: () => {
+        onError: (error) => {
           setStatus("error");
+          setErrorMessage(error.message || "An unexpected error occurred during verification.");
         },
       }
     );
@@ -97,7 +101,7 @@ const VerifyEmailContent = () => {
             Verification Failed
           </CardTitle>
           <CardDescription>
-            The verification link is invalid or has expired. Please try requesting a new verification email.
+            {errorMessage || "The verification link is invalid or has expired. Please try requesting a new verification email."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
