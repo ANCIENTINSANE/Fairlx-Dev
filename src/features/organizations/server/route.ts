@@ -213,13 +213,13 @@ const app = new Hono()
                     });
 
                     // 2. Wallet
-                    console.log(`[org-creation] Setting up wallet for org ${organization.$id}...`);
+                    // console.log(`[org-creation] Setting up wallet for org ${organization.$id}...`);
                     const wallet = await getOrCreateWallet(adminDatabases, {
                         organizationId: organization.$id,
                     });
 
                     // 3. Credit Trial
-                    console.log(`[org-creation] Crediting trial to wallet ${wallet.$id} (Amount: ${TRIAL_CREDIT_USD})...`);
+                    // console.log(`[org-creation] Crediting trial to wallet ${wallet.$id} (Amount: ${TRIAL_CREDIT_USD})...`);
                     const trialExpiresAt = new Date();
                     trialExpiresAt.setDate(trialExpiresAt.getDate() + TRIAL_CREDIT_DAYS);
 
@@ -234,12 +234,12 @@ const app = new Hono()
                         }
                     );
 
-                    console.log(`[org-creation] Trial credit result:`, creditResult);
+                    // console.log(`[org-creation] Trial credit result:`, creditResult);
 
                     if (creditResult.success) {
                         // Even if alreadyCredited is true, we want to ensure the organization doc reflects this status
                         // For Cloud users, the organization is created in the Cloud DB, so we can update it using adminDatabases.
-                        console.log(`[org-creation] Updating organization ${organization.$id} with trial status...`);
+                        // console.log(`[org-creation] Updating organization ${organization.$id} with trial status...`);
                         await adminDatabases.updateDocument(
                             DATABASE_ID,
                             ORGANIZATIONS_ID,
@@ -250,7 +250,7 @@ const app = new Hono()
                                 isTrialExpired: false,
                             }
                         );
-                        console.log(`[org-creation] Organization ${organization.$id} trial status updated.`);
+                        // console.log(`[org-creation] Organization ${organization.$id} trial status updated.`);
                     } else {
                         console.error(`[org-creation] Trial credit failed: ${creditResult.error}`);
                     }

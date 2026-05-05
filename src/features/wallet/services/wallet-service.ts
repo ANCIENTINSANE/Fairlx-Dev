@@ -464,14 +464,14 @@ export async function deductFromWallet(
         } catch (error) {
             // Check if error is an optimistic lock failure
             const isOptimisticLockError = error instanceof Error && error.message.includes("Optimistic lock failure");
-            
+
             if (isOptimisticLockError && attempts < MAX_RETRIES) {
                 // Wait briefly before retrying (exponential backoff: 50ms, 100ms, 200ms...)
                 const delay = Math.pow(2, attempts - 1) * 50;
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
             }
-            
+
             throw error;
         }
     }
@@ -985,12 +985,12 @@ export async function creditTrialToWallet(
 
     const idempotencyKey = `trial-credit-${options.organizationId}`;
     try {
-        console.log(`[wallet-service] Attempting to credit trial to wallet ${walletId} (amount: ${amount})...`);
+        // console.log(`[wallet-service] Attempting to credit trial to wallet ${walletId} (amount: ${amount})...`);
         const { acquireProcessingLock, releaseProcessingLock } = await import("@/lib/processed-events-registry");
 
         // 1. Lock to prevent concurrent credit attempts
         if (!(await acquireProcessingLock(databases, `wallet_trial_credit:${idempotencyKey}`, "wallet"))) {
-            console.log(`[wallet-service] Lock already held for ${idempotencyKey}, assuming already credited.`);
+            // console.log(`[wallet-service] Lock already held for ${idempotencyKey}, assuming already credited.`);
             return { success: true, alreadyCredited: true };
         }
 
@@ -1002,7 +1002,7 @@ export async function creditTrialToWallet(
         );
 
         if (existing.total > 0) {
-            console.log(`[wallet-service] Transaction already exists for ${idempotencyKey}.`);
+            // console.log(`[wallet-service] Transaction already exists for ${idempotencyKey}.`);
             return { success: true, alreadyCredited: true };
         }
 
@@ -1013,7 +1013,7 @@ export async function creditTrialToWallet(
         const amountFixed = Number(amount.toFixed(6));
         const balanceAfter = Number((balanceBefore + amountFixed).toFixed(6));
 
-        console.log(`[wallet-service] Updating wallet ${walletId}: ${balanceBefore} -> ${balanceAfter}`);
+        // console.log(`[wallet-service] Updating wallet ${walletId}: ${balanceBefore} -> ${balanceAfter}`);
 
         const now = new Date().toISOString();
 
@@ -1058,7 +1058,7 @@ export async function creditTrialToWallet(
             lastTopUpAt: now,
         });
 
-        console.log(`[wallet-service] Trial credit successful for ${walletId}. Transaction: ${transaction.$id}`);
+        // console.log(`[wallet-service] Trial credit successful for ${walletId}. Transaction: ${transaction.$id}`);
 
         return { success: true, transaction };
     } catch (error: any) {
