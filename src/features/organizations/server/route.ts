@@ -213,11 +213,13 @@ const app = new Hono()
                     });
 
                     // 2. Wallet
+                    console.log(`[org-creation] Setting up wallet for org ${organization.$id}...`);
                     const wallet = await getOrCreateWallet(adminDatabases, {
                         organizationId: organization.$id,
                     });
 
-                    // 3. Trial credit
+                    // 3. Credit Trial
+                    console.log(`[org-creation] Crediting trial to wallet ${wallet.$id} (Amount: ${TRIAL_CREDIT_USD})...`);
                     const trialExpiresAt = new Date();
                     trialExpiresAt.setDate(trialExpiresAt.getDate() + TRIAL_CREDIT_DAYS);
 
@@ -232,9 +234,12 @@ const app = new Hono()
                         }
                     );
 
-                    // 4. Update org document with trial tracking fields
-                    if (creditResult.success && !creditResult.alreadyCredited) {
+                    console.log(`[org-creation] Trial credit result:`, creditResult);
+
+                    if (creditResult.success) {
+                        // Even if alreadyCredited is true, we want to ensure the organization doc reflects this status
                         // For Cloud users, the organization is created in the Cloud DB, so we can update it using adminDatabases.
+                        console.log(`[org-creation] Updating organization ${organization.$id} with trial status...`);
                         await adminDatabases.updateDocument(
                             DATABASE_ID,
                             ORGANIZATIONS_ID,
@@ -245,10 +250,18 @@ const app = new Hono()
                                 isTrialExpired: false,
                             }
                         );
+                        console.log(`[org-creation] Organization ${organization.$id} trial status updated.`);
+                    } else {
+                        console.error(`[org-creation] Trial credit failed: ${creditResult.error}`);
                     }
-                } catch (trialError) {
+                } catch (trialError: any) {
                     // Non-blocking: org creation succeeds even if trial credit fails
-                    console.error("[org-creation] Trial credit setup failed (non-blocking):", trialError);
+                    console.error("[org-creation] Trial credit setup failed (non-blocking):", {
+                        message: trialError?.message || "Unknown error",
+                        code: trialError?.code,
+                        response: trialError?.response,
+                        stack: trialError?.stack
+                    });
                 }
             }
 

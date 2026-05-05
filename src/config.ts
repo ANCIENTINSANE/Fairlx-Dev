@@ -122,15 +122,19 @@ export const BILLING_CURRENCY = process.env.BILLING_CURRENCY || "USD";
 
 // ===============================
 // Trial Credit Configuration
-// ===============================
 /** Trial credit amount in USD (e.g., 30 = $30.00). Configurable via env. */
-export const TRIAL_CREDIT_USD = parseFloat(
-    process.env.NEXT_PUBLIC_TRIAL_CREDIT_USD || 
-    process.env.TRIAL_CREDIT_USD || 
-    "30"
-);
-/** Trial duration in days. After expiry, orgs without billing or balance are locked. */
-export const TRIAL_CREDIT_DAYS = parseInt(process.env.TRIAL_CREDIT_DAYS || "60");
+export const TRIAL_CREDIT_USD = (() => {
+    const val = process.env.NEXT_PUBLIC_TRIAL_CREDIT_USD || process.env.TRIAL_CREDIT_USD || "30";
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? 30 : parsed;
+})();
+
+/** Trial duration in days. Configurable via env. */
+export const TRIAL_CREDIT_DAYS = (() => {
+    const val = process.env.TRIAL_CREDIT_DAYS || "60";
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) ? 60 : parsed;
+})();
 
 // ===============================
 // Wallet Security Configuration

@@ -247,23 +247,41 @@ export async function getOrCreateWallet(
     }
 
     // Create new wallet with zero balance
-    const wallet = await databases.createDocument<Wallet>(
-        DATABASE_ID,
-        WALLETS_ID,
-        ID.unique(),
-        {
-            userId: options.userId || null,
-            organizationId: options.organizationId || null,
-            billingAccountId,
-            balance: 0,
-            currency,
-            lockedBalance: 0,
-            status: WalletStatus.ACTIVE,
-            version: 0,
-        }
-    );
+    // Wrapped in try/catch to handle race condition: multiple concurrent calls
+    // may all pass the existence check above and try to create simultaneously.
+    try {
+        const wallet = await databases.createDocument<Wallet>(
+            DATABASE_ID,
+            WALLETS_ID,
+            ID.unique(),
+            {
+                userId: options.userId || null,
+                organizationId: options.organizationId || null,
+                billingAccountId,
+                balance: 0,
+                currency,
+                lockedBalance: 0,
+                status: WalletStatus.ACTIVE,
+                version: 0,
+            }
+        );
 
-    return wallet;
+        return wallet;
+    } catch (createError: unknown) {
+        // Handle race condition: another concurrent call created the wallet first
+        const appwriteErr = createError as { code?: number };
+        if (appwriteErr.code === 409) {
+            const retryResult = await databases.listDocuments<Wallet>(
+                DATABASE_ID,
+                WALLETS_ID,
+                [...queries, Query.limit(1)]
+            );
+            if (retryResult.total > 0) {
+                return retryResult.documents[0];
+            }
+        }
+        throw createError;
+    }
 }
 
 /**
@@ -399,6 +417,7 @@ export async function topUpWallet(
                 metadata: JSON.stringify({
                     paymentId: options.paymentId,
                 }),
+
             }
         );
 
@@ -555,6 +574,7 @@ async function deductFromWalletInternal(
                 idempotencyKey: options.idempotencyKey,
                 signature,
                 description: options.description || "Usage charge",
+
             }
         );
 
@@ -657,6 +677,7 @@ export async function holdFromWallet(
                 idempotencyKey: options.idempotencyKey,
                 signature,
                 description: options.description || "Funds held for pending operation",
+
             }
         );
 
@@ -743,6 +764,7 @@ export async function releaseHold(
                 idempotencyKey: options.idempotencyKey,
                 signature,
                 description: options.description || "Held funds released",
+
             }
         );
 
@@ -835,6 +857,7 @@ export async function confirmHold(
                 signature,
                 description: options.description || "Held funds confirmed as debit",
                 metadata: JSON.stringify({ confirmedFromHold: true }),
+
             }
         );
 
@@ -920,6 +943,7 @@ export async function refundToWallet(
                 idempotencyKey: options.idempotencyKey,
                 signature,
                 description: options.reason || "Refund",
+
             }
         );
 
@@ -954,39 +978,43 @@ export async function creditTrialToWallet(
         description: string;
         trialExpiresAt: Date;
     }
-): Promise<{ success: boolean; alreadyCredited?: boolean; error?: string }> {
+): Promise<{ success: boolean; alreadyCredited?: boolean; error?: string; transaction?: WalletTransaction }> {
     if (amount <= 0) {
         return { success: false, error: "Amount must be positive" };
     }
 
     const idempotencyKey = `trial-credit-${options.organizationId}`;
-    const { acquireProcessingLock, releaseProcessingLock } = await import("@/lib/processed-events-registry");
-
-    // Distributed lock — prevents two concurrent creation calls from double-crediting
-    if (!(await acquireProcessingLock(databases, `wallet_trial_credit:${idempotencyKey}`, "wallet"))) {
-        return { success: true, alreadyCredited: true };
-    }
-
     try {
-        // Idempotency check — has this trial credit already been recorded?
-        const existing = await databases.listDocuments(
-            DATABASE_ID,
-            WALLET_TRANSACTIONS_ID,
-            [
-                Query.equal("idempotencyKey", idempotencyKey),
-                Query.limit(1),
-            ]
-        );
-        if (existing.total > 0) {
+        console.log(`[wallet-service] Attempting to credit trial to wallet ${walletId} (amount: ${amount})...`);
+        const { acquireProcessingLock, releaseProcessingLock } = await import("@/lib/processed-events-registry");
+
+        // 1. Lock to prevent concurrent credit attempts
+        if (!(await acquireProcessingLock(databases, `wallet_trial_credit:${idempotencyKey}`, "wallet"))) {
+            console.log(`[wallet-service] Lock already held for ${idempotencyKey}, assuming already credited.`);
             return { success: true, alreadyCredited: true };
         }
 
-        // Fetch current wallet for balance
+        // 2. Check if already credited in ledger (idempotency)
+        const existing = await databases.listDocuments<WalletTransaction>(
+            DATABASE_ID,
+            WALLET_TRANSACTIONS_ID,
+            [Query.equal("idempotencyKey", idempotencyKey), Query.limit(1)]
+        );
+
+        if (existing.total > 0) {
+            console.log(`[wallet-service] Transaction already exists for ${idempotencyKey}.`);
+            return { success: true, alreadyCredited: true };
+        }
+
+        // 3. Perform the credit
         const wallet = await databases.getDocument<Wallet>(DATABASE_ID, WALLETS_ID, walletId);
 
         const balanceBefore = Number(wallet.balance.toFixed(6));
         const amountFixed = Number(amount.toFixed(6));
         const balanceAfter = Number((balanceBefore + amountFixed).toFixed(6));
+
+        console.log(`[wallet-service] Updating wallet ${walletId}: ${balanceBefore} -> ${balanceAfter}`);
+
         const now = new Date().toISOString();
 
         // 1. Generate tamper-evident signature
@@ -1000,9 +1028,8 @@ export async function creditTrialToWallet(
             timestamp: now,
         });
 
-        // 2. Write immutable transaction record FIRST
-        // If this fails (e.g. schema error), the balance isn't touched
-        await databases.createDocument<WalletTransaction>(
+        // Write transaction first (immutable ledger)
+        const transaction = await databases.createDocument<WalletTransaction>(
             DATABASE_ID,
             WALLET_TRANSACTIONS_ID,
             ID.unique(),
@@ -1014,25 +1041,33 @@ export async function creditTrialToWallet(
                 balanceBefore,
                 balanceAfter,
                 currency: wallet.currency,
-                referenceId: options.organizationId,
                 idempotencyKey,
-                signature,
-                description: options.description,
+
+                description: options.description || "Trial credit",
                 metadata: JSON.stringify({
-                    trialExpiresAt: options.trialExpiresAt.toISOString(),
-                    isTrialCredit: true,
+                    trialExpiresAt: options.trialExpiresAt?.toISOString(),
+                    organizationId: options.organizationId,
                 }),
+                signature,
             }
         );
 
-        // 3. Update wallet balance with optimistic locking
+        // Update wallet balance with optimistic locking
         await updateWalletWithVersion(databases, walletId, wallet.version, {
             balance: balanceAfter,
             lastTopUpAt: now,
         });
 
-        return { success: true };
-    } catch (error) {
+        console.log(`[wallet-service] Trial credit successful for ${walletId}. Transaction: ${transaction.$id}`);
+
+        return { success: true, transaction };
+    } catch (error: any) {
+        console.error(`[wallet-service] Error in creditTrialToWallet:`, {
+            message: error?.message,
+            code: error?.code,
+            stack: error?.stack
+        });
+        const { releaseProcessingLock } = await import("@/lib/processed-events-registry");
         await releaseProcessingLock(databases, `wallet_trial_credit:${idempotencyKey}`, "wallet");
         throw error;
     }

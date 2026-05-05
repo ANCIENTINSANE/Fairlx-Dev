@@ -1294,7 +1294,6 @@ const app = new Hono()
                         trafficTotalGB,
                         storageAvgGB,
                         computeTotalUnits,
-                        createdAt: new Date().toISOString(),
                         isFinalized: false,
                     }
                 );
