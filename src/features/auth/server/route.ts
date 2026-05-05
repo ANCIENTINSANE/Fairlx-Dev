@@ -138,7 +138,7 @@ const app = new Hono()
       setCookie(c, AUTH_COOKIE, session.secret, {
         path: "/",
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.NODE_ENV === "production" || c.req.header("x-forwarded-proto") === "https",
         sameSite: "lax",
         maxAge: 60 * 60 * 24 * 30,
       });
@@ -746,6 +746,7 @@ const app = new Hono()
    */
   .post("/verify-email", zValidator("json", verifyEmailSchema), async (c) => {
     const { userId, secret } = c.req.valid("json");
+    console.log(`[Auth] Verifying email for user: ${userId}, secret length: ${secret?.length || 0}`);
 
     try {
       // Create a lightweight client without admin credentials because verification
@@ -798,7 +799,7 @@ const app = new Hono()
       setCookie(c, AUTH_COOKIE, session.secret, {
         path: "/",
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.NODE_ENV === "production" || c.req.header("x-forwarded-proto") === "https",
         sameSite: "lax",
         maxAge: 60 * 60 * 24 * 30, // 30 days
       });
@@ -815,6 +816,7 @@ const app = new Hono()
         autoAuthenticated: true,
       });
     } catch (error: unknown) {
+      console.error("[Auth] Verification error:", error);
       const appwriteError = error as { code?: number; type?: string; message?: string };
 
       // Handle specific verification errors
@@ -1351,7 +1353,7 @@ const app = new Hono()
       setCookie(c, AUTH_COOKIE, session.secret, {
         path: "/",
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.NODE_ENV === "production" || c.req.header("x-forwarded-proto") === "https",
         sameSite: "lax",
         maxAge: 60 * 60 * 24 * 30,
       });
@@ -1443,7 +1445,7 @@ const app = new Hono()
       setCookie(c, AUTH_COOKIE, session.secret, {
         path: "/",
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.NODE_ENV === "production" || c.req.header("x-forwarded-proto") === "https",
         sameSite: "lax",
         maxAge: 60 * 60 * 24 * 30, // 30 days
       });
