@@ -10,16 +10,17 @@ import {
 } from "@/config";
 import { sessionMiddleware } from "@/lib/session-middleware";
 import { getMember } from "@/features/members/utils";
-import { trackUsage, createIdempotencyKey } from "@/lib/track-usage";
-import { ResourceType, UsageSource, UsageModule } from "@/features/usage/types";
+import { logAIUsage } from "@/lib/usage-metering";
+import { getAIModelPricing, calculateAICallCostUSD } from "@/lib/ai-model-pricing";
+import { UsageModule } from "@/features/usage/types";
 
-import { generateDocumentationSchema } from "../schemas";
+import { generateDocumentationSchema, refineDocumentationSchema, saveDocumentationSchema } from "../schemas";
 import { GitHubRepository, CodeDocumentation } from "../types";
-import { githubAPI } from "../lib/github-api";
+import { githubAPI, GitHubAPI } from "../lib/github-api";
 import { geminiAPI } from "../lib/gemini-api";
 
 const app = new Hono()
-  // Generate documentation for a project
+  // Generate documentation for a project (returns for preview)
   .post(
     "/generate",
     sessionMiddleware,
@@ -68,15 +69,17 @@ const app = new Hono()
 
         const repository = repositories.documents[0];
 
-        try {
+          // Initialize GitHub API with repository-specific token
+          const repoApi = new GitHubAPI(repository.accessToken);
+
           // Get repository info
-          const repoInfo = await githubAPI.getRepository(
+          const repoInfo = await repoApi.getRepository(
             repository.owner,
             repository.repositoryName
           );
 
           // Fetch files from repository (limit to 50 for performance)
-          const files = await githubAPI.getAllFiles(
+          const files = await repoApi.getAllFiles(
             repository.owner,
             repository.repositoryName,
             repository.branch,
@@ -92,10 +95,10 @@ const app = new Hono()
           const fileStructure = githubAPI.generateFileTree(files);
           const mermaidDiagram = githubAPI.generateMermaidDiagram(files);
 
-          // Generate comprehensive documentation in ONE Gemini API call
+          // Generate comprehensive documentation
           const filesToDocument = files.slice(0, 20);
 
-          const documentation = await geminiAPI.generateDocumentation(
+          const aiResponse = await geminiAPI.generateDocumentation(
             {
               name: repository.repositoryName,
               description: repoInfo.description || undefined,
@@ -104,75 +107,42 @@ const app = new Hono()
             filesToDocument
           );
 
-          // Track usage for GitHub documentation generation (non-blocking)
-          trackUsage({
+          // Calculate model-aware cost and log with full token data
+          const pricing = await getAIModelPricing(databases, aiResponse.model);
+          const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens);
+
+          logAIUsage({
+            databases,
             workspaceId: project.workspaceId,
             projectId,
-            module: UsageModule.GITHUB,
-            resourceType: ResourceType.COMPUTE,
-            units: 1 + filesToDocument.length, // 1 base + files processed
-            source: UsageSource.AI,
+            model: aiResponse.model,
+            promptTokens: aiResponse.tokenUsage.promptTokens,
+            completionTokens: aiResponse.tokenUsage.completionTokens,
+            totalTokens: aiResponse.tokenUsage.totalTokens,
+            costUSD,
+            units: aiResponse.tokenUsage.totalTokens,
             metadata: {
               operation: "generate_documentation",
               repositoryName: repository.repositoryName,
               filesProcessed: filesToDocument.length,
-              documentationLength: documentation.length,
+              aiTier: pricing.tier,
+              module: UsageModule.GITHUB,
             },
-            idempotencyKey: createIdempotencyKey(UsageModule.GITHUB, "doc_gen", projectId),
+            sourceContext: {
+              type: "project",
+              displayName: repository.repositoryName,
+            },
           });
 
-          // Save or update documentation
-          const existingDocs = await databases.listDocuments<CodeDocumentation>(
-            DATABASE_ID,
-            CODE_DOCS_ID,
-            [Query.equal("projectId", projectId), Query.limit(1)]
-          );
-
-          let doc: CodeDocumentation;
-
-          if (existingDocs.total > 0) {
-            doc = await databases.updateDocument<CodeDocumentation>(
-              DATABASE_ID,
-              CODE_DOCS_ID,
-              existingDocs.documents[0].$id,
-              {
-                content: documentation,
-                fileStructure,
-                mermaidDiagram,
-                generatedAt: new Date().toISOString(),
-              }
-            );
-          } else {
-            doc = await databases.createDocument<CodeDocumentation>(
-              DATABASE_ID,
-              CODE_DOCS_ID,
-              ID.unique(),
-              {
-                projectId,
-                workspaceId: project.workspaceId,
-                content: documentation,
-                fileStructure,
-                mermaidDiagram,
-                generatedAt: new Date().toISOString(),
-              }
-            );
-          }
-
-          return c.json({ data: doc });
-        } catch (error: unknown) {
-          // Update repository status to error
-          await databases.updateDocument(
-            DATABASE_ID,
-            GITHUB_REPOS_ID,
-            repository.$id,
-            {
-              status: "error",
-              error: error instanceof Error ? error.message : "Failed to generate documentation",
-            }
-          );
-
-          throw error;
-        }
+          return c.json({ 
+            data: {
+              content: aiResponse.text,
+              fileStructure,
+              mermaidDiagram,
+              projectId,
+              workspaceId: project.workspaceId,
+            } 
+          });
       } catch (error) {
         console.error("[GitHub Doc Gen Error]:", error);
         return c.json(
@@ -182,6 +152,126 @@ const app = new Hono()
           },
           500
         );
+      }
+    }
+  )
+
+  // Refine documentation based on user feedback
+  .post(
+    "/refine",
+    sessionMiddleware,
+    zValidator("json", refineDocumentationSchema),
+    async (c) => {
+      try {
+        const databases = c.get("databases");
+        const user = c.get("user");
+        const { projectId, prompt, currentContent } = c.req.valid("json");
+
+        // Verify project and membership
+        const project = await databases.getDocument(DATABASE_ID, PROJECTS_ID, projectId);
+        if (!project) return c.json({ error: "Project not found" }, 404);
+
+        const member = await getMember({ databases, workspaceId: project.workspaceId, userId: user.$id });
+        if (!member) return c.json({ error: "Unauthorized" }, 401);
+
+        // Get linked repo for context
+        const repositories = await databases.listDocuments<GitHubRepository>(
+          DATABASE_ID, GITHUB_REPOS_ID, [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+        if (repositories.total === 0) return c.json({ error: "No repository linked" }, 400);
+        
+        const repository = repositories.documents[0];
+        
+        // Initialize GitHub API with repository-specific token
+        const repoApi = new GitHubAPI(repository.accessToken);
+        
+        // Fetch a few files for context
+        const files = await repoApi.getAllFiles(repository.owner, repository.repositoryName, repository.branch, "", 10);
+
+        const aiResponse = await geminiAPI.refineDocumentation(
+          currentContent,
+          prompt,
+          files.map((f: { path: string; content: string }) => ({ path: f.path, content: f.content }))
+        );
+
+        // Calculate model-aware cost and log with full token data
+        const pricing = await getAIModelPricing(databases, aiResponse.model);
+        const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens);
+
+        logAIUsage({
+          databases,
+          workspaceId: project.workspaceId,
+          projectId,
+          model: aiResponse.model,
+          promptTokens: aiResponse.tokenUsage.promptTokens,
+          completionTokens: aiResponse.tokenUsage.completionTokens,
+          totalTokens: aiResponse.tokenUsage.totalTokens,
+          costUSD,
+          units: aiResponse.tokenUsage.totalTokens,
+          metadata: {
+            operation: "refine_documentation",
+            promptLength: prompt.length,
+            aiTier: pricing.tier,
+            module: UsageModule.GITHUB,
+          },
+          sourceContext: {
+            type: "project",
+            displayName: repository.repositoryName,
+          },
+        });
+
+        return c.json({ data: { content: aiResponse.text } });
+      } catch (error) {
+        return c.json({ error: "Failed to refine documentation", message: error instanceof Error ? error.message : "Unknown error" }, 500);
+      }
+    }
+  )
+
+  // Save documentation to database
+  .post(
+    "/save",
+    sessionMiddleware,
+    zValidator("json", saveDocumentationSchema),
+    async (c) => {
+      try {
+        const databases = c.get("databases");
+        const user = c.get("user");
+        const { projectId, content, fileStructure, mermaidDiagram } = c.req.valid("json");
+ 
+        const project = await databases.getDocument(DATABASE_ID, PROJECTS_ID, projectId);
+        if (!project) return c.json({ error: "Project not found" }, 404);
+ 
+        const member = await getMember({ databases, workspaceId: project.workspaceId, userId: user.$id });
+        if (!member) return c.json({ error: "Unauthorized" }, 401);
+ 
+        // Get existing or create new
+        const existingDocs = await databases.listDocuments<CodeDocumentation>(
+          DATABASE_ID, CODE_DOCS_ID, [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+ 
+        let doc: CodeDocumentation;
+        const updateData = { 
+          content, 
+          fileStructure, 
+          mermaidDiagram, 
+          generatedAt: new Date().toISOString() 
+        };
+
+        if (existingDocs.total > 0) {
+          doc = await databases.updateDocument<CodeDocumentation>(
+            DATABASE_ID, CODE_DOCS_ID, existingDocs.documents[0].$id,
+            updateData
+          );
+        } else {
+          doc = await databases.createDocument<CodeDocumentation>(
+            DATABASE_ID, CODE_DOCS_ID, ID.unique(),
+            { ...updateData, projectId, workspaceId: project.workspaceId }
+          );
+        }
+
+        return c.json({ data: doc });
+      } catch {
+        return c.json({ error: "Failed to save documentation" }, 500);
       }
     }
   )
@@ -197,48 +287,20 @@ const app = new Hono()
         const user = c.get("user");
         const { projectId } = c.req.valid("query");
 
-        // Get the project to verify workspace membership
-        const project = await databases.getDocument(
-          DATABASE_ID,
-          PROJECTS_ID,
-          projectId
-        );
+        const project = await databases.getDocument(DATABASE_ID, PROJECTS_ID, projectId);
+        if (!project) return c.json({ error: "Project not found" }, 404);
 
-        if (!project) {
-          return c.json({ error: "Project not found" }, 404);
-        }
+        const member = await getMember({ databases, workspaceId: project.workspaceId, userId: user.$id });
+        if (!member) return c.json({ error: "Unauthorized" }, 401);
 
-        // Check if user is a member of the workspace
-        const member = await getMember({
-          databases,
-          workspaceId: project.workspaceId,
-          userId: user.$id,
-        });
-
-        if (!member) {
-          return c.json({ error: "Unauthorized" }, 401);
-        }
-
-        // Get documentation
         const docs = await databases.listDocuments<CodeDocumentation>(
-          DATABASE_ID,
-          CODE_DOCS_ID,
-          [Query.equal("projectId", projectId), Query.limit(1)]
+          DATABASE_ID, CODE_DOCS_ID, [Query.equal("projectId", projectId), Query.limit(1)]
         );
 
-        if (docs.total === 0) {
-          return c.json({ data: null });
-        }
-
+        if (docs.total === 0) return c.json({ data: null });
         return c.json({ data: docs.documents[0] });
-      } catch (error: unknown) {
-        return c.json(
-          {
-            error: "Failed to fetch documentation",
-            message: error instanceof Error ? error.message : "Unknown error",
-          },
-          500
-        );
+      } catch {
+        return c.json({ error: "Failed to fetch documentation" }, 500);
       }
     }
   );

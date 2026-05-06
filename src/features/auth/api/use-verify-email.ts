@@ -31,7 +31,16 @@ export const useVerifyEmail = () => {
   const mutation = useMutation<ResponseType, Error, RequestType>({
     mutationFn: async ({ json }) => {
       const response = await client.api.auth["verify-email"].$post({ json });
-      return await response.json();
+      const data = await response.json();
+      
+      if (!response.ok) {
+        const errorMsg = 'error' in data ? String(data.error) : 
+                        'message' in data ? String(data.message) : 
+                        "Verification failed";
+        throw new Error(errorMsg);
+      }
+      
+      return data;
     },
     onSuccess: (data) => {
       if ('success' in data && data.success) {

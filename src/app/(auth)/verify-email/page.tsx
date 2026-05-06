@@ -13,6 +13,7 @@ const VerifyEmailContent = () => {
   const searchParams = useSearchParams();
   const verifyEmail = useVerifyEmail();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const hasAttempted = useRef(false);
   useEffect(() => {
     // Prevent multiple attempts
@@ -25,6 +26,7 @@ const VerifyEmailContent = () => {
 
     if (!userId || (!secret && !token)) {
       setStatus("error");
+      setErrorMessage("Missing verification parameters in the URL.");
       return;
     }
 
@@ -38,10 +40,12 @@ const VerifyEmailContent = () => {
             setStatus("success");
           } else {
             setStatus("error");
+            setErrorMessage('error' in data ? String(data.error) : "Verification failed. The link might be invalid or expired.");
           }
         },
-        onError: () => {
+        onError: (error) => {
           setStatus("error");
+          setErrorMessage(error.message || "An unexpected error occurred during verification.");
         },
       }
     );
@@ -97,13 +101,22 @@ const VerifyEmailContent = () => {
             Verification Failed
           </CardTitle>
           <CardDescription>
-            The verification link is invalid or has expired. Please try requesting a new verification email.
+            {errorMessage || "The verification link is invalid or has expired. Please try requesting a new verification email."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button asChild variant="outline" className="w-full">
+          <div className="p-3 bg-red-50 border border-red-100 rounded-md text-red-700 text-sm">
+            <p className="font-medium mb-1">Detailed error:</p>
+            <p>{errorMessage || "The link is invalid or has already been used."}</p>
+          </div>
+          <Button asChild variant="primary" className="w-full">
             <Link href="/sign-in">
               Back to Login
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link href="/verify-email-needed">
+              Request New Verification Email
             </Link>
           </Button>
         </CardContent>
