@@ -171,6 +171,7 @@ const app = new Hono()
             ID.unique(),
             {
               workflowId: workflow.$id,
+              workspaceId: workflow.workspaceId,
               name: status.name,
               key: status.key,
               icon: status.icon,
@@ -198,6 +199,7 @@ const app = new Hono()
               ID.unique(),
               {
                 workflowId: workflow.$id,
+                workspaceId: workflow.workspaceId,
                 fromStatusId: newFromId,
                 toStatusId: newToId,
                 name: transition.name,
@@ -222,6 +224,7 @@ const app = new Hono()
             ID.unique(),
             {
               workflowId: workflow.$id,
+              workspaceId: workflow.workspaceId,
               name: statusDef.name,
               key: statusDef.key,
               icon: statusDef.icon,
@@ -250,13 +253,14 @@ const app = new Hono()
                 WORKFLOW_TRANSITIONS_ID,
                 ID.unique(),
                 {
-                  workflowId: workflow.$id,
-                  fromStatusId: fromId,
-                  toStatusId: toId,
-                  name: transitionDef.name || null,
-                  allowedTeamIds: transitionDef.allowedTeamIds || null,
-                  requiresApproval: transitionDef.requiresApproval || false,
-                }
+  workflowId: workflow.$id,
+  workspaceId: workflow.workspaceId,
+  fromStatusId: fromId,
+  toStatusId: toId,
+  name: transitionDef.name || null,
+  allowedTeamIds: transitionDef.allowedTeamIds || null,
+  requiresApproval: transitionDef.requiresApproval || false,
+}
               );
             }
           }
@@ -643,6 +647,7 @@ const app = new Hono()
         ID.unique(),
         {
           workflowId,
+          workspaceId: workflow.workspaceId,
           name: statusData.name,
           key: statusData.key,
           icon: statusData.icon || "Circle",
@@ -974,6 +979,7 @@ const app = new Hono()
         ID.unique(),
         {
           workflowId,
+          workspaceId: workflow.workspaceId,
           fromStatusId: transitionData.fromStatusId,
           toStatusId: transitionData.toStatusId,
           name: transitionData.name || null,
@@ -1924,6 +1930,7 @@ const app = new Hono()
               ID.unique(),
               {
                 workflowId,
+                workspaceId: workflow.workspaceId,
                 name: projectStatus.name,
                 key: projectStatus.key,
                 icon: projectStatus.icon,
