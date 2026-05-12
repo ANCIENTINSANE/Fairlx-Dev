@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_OPTIONS='--max-old-space-size=4096' tsx server.ts",
-    "dev:next-only": "next dev",
+    "dev": "NODE_OPTIONS='--max-old-space-size=8192' tsx server.ts",
+    "dev:next-only": "NODE_OPTIONS='--max-old-space-size=8192' next dev",
     "build": "next build",
     "start": "next start",
     "start:socket": "NODE_ENV=production node dist/server.js",
@@ -74,6 +74,7 @@
     "cashfree-pg": "^5.1.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "date-fns": "^3.0.0",
     "docx": "^9.5.1",
     "dompurify": "^3.3.1",

@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { ID, Query, Storage as StorageType, Databases } from "node-appwrite";
+import { ID, Query, Databases, Storage as AppwriteStorage } from "node-appwrite";
 
 import { sessionMiddleware } from "@/lib/session-middleware";
 import { createAdminClient } from "@/lib/appwrite";
-import { trackUsage, estimateTokens, createIdempotencyKey } from "@/lib/track-usage";
-import { ResourceType, UsageSource, UsageModule } from "@/features/usage/types";
+import { logAIUsage } from "@/lib/usage-metering";
+import { getAIModelPricing, calculateAICallCostUSD } from "@/lib/ai-model-pricing";
+import { UsageModule } from "@/features/usage/types";
 import {
   DATABASE_ID,
   PROJECT_DOCS_ID,
@@ -14,10 +15,12 @@ import {
   PROJECTS_ID,
   WORK_ITEMS_ID,
   MEMBERS_ID,
+  GITHUB_REPOS_ID,
+  CODE_DOCS_ID,
 } from "@/config";
 import { getMember } from "@/features/members/utils";
 import { Member } from "@/features/members/types";
-import { ProjectDocsAI } from "../lib/project-docs-ai";
+import { projectDocsAI } from "../lib/project-docs-ai";
 import { ProjectDocument } from "../types";
 import { WorkItem, WorkItemStatus, WorkItemPriority, WorkItemType } from "@/features/sprints/types";
 import { Project } from "@/features/projects/types";
@@ -30,6 +33,7 @@ import {
   AITaskData,
   AITaskResponse,
 } from "../types/ai-context";
+
 
 // Generate unique work item key
 async function generateWorkItemKey(
@@ -97,12 +101,13 @@ const getProjectAIContextSchema = z.object({
   workspaceId: z.string(),
 });
 
-// Schema for AI task creation
+// Schema for creating a task using AI
 const aiCreateTaskSchema = z.object({
   projectId: z.string(),
   workspaceId: z.string(),
-  prompt: z.string().min(5).max(2000),
+  prompt: z.string().min(3).max(2000),
   autoExecute: z.boolean().optional().default(false),
+  type: z.string().optional(), // WorkItemType choice from user
 });
 
 // Schema for AI task update
@@ -123,6 +128,7 @@ const executeTaskSuggestionSchema = z.object({
     description: z.string().optional().nullable(),
     status: z.string().optional(),
     priority: z.string().optional(),
+    type: z.string().optional(),
     dueDate: z.string().optional().nullable(),
     endDate: z.string().optional().nullable(),
     assigneeIds: z.array(z.string()).optional(),
@@ -137,7 +143,7 @@ const executeTaskSuggestionSchema = z.object({
  * For PDFs and text files, attempts to read the content
  */
 async function extractDocumentText(
-  storage: StorageType,
+  storage: AppwriteStorage,
   bucketId: string,
   fileId: string,
   mimeType: string
@@ -157,38 +163,35 @@ async function extractDocumentText(
       return decoder.decode(fileBuffer);
     }
 
-    // PDF extraction using pdf-parse
+    // PDF extraction using pdf-parse (v2.4.5+)
+    // CRITICAL: webpackIgnore prevents webpack from wrapping this import with its
+    // ESM interop code (Object.defineProperty on exports), which crashes pdfjs-dist.
     if (mimeType.includes("pdf")) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pdfModule = await import("pdf-parse") as any;
+        const pdfModule = await import(/* webpackIgnore: true */ "pdf-parse") as any;
         
-        // Handle different export structures between versions (classic vs modern)
-        const PdfParser = pdfModule.default || pdfModule.PDFParse || pdfModule;
+        // pdf-parse v2.4.5 exports PDFParse as a named export
+        const PDFParseClass = pdfModule.PDFParse || pdfModule.default;
         
-        let text = "";
-        try {
-          // Attempt classic/simpler usage first
-          if (typeof PdfParser === "function") {
-             const data = await PdfParser(Buffer.from(fileBuffer));
-             text = data.text;
-          } else {
-             throw new Error("PdfParser is not a function");
-          }
-        } catch {
-          // Try modern class-based usage (v2.4.x+)
-          try {
-            const parser = new PdfParser();
-            await parser.load(Buffer.from(fileBuffer));
-            const result = await parser.getText();
-            text = result.text || "";
-          } catch (e) {
-            console.error("[AI Context] All PDF extraction attempts failed:", e);
-            throw e;
-          }
+        if (PDFParseClass && typeof PDFParseClass === 'function') {
+          const parser = new PDFParseClass({ data: Buffer.from(fileBuffer) });
+          const result = await parser.getText();
+          return result?.text || "[Empty PDF Document]";
         }
         
-        return text || "[Empty PDF Document]";
+        // Fallback: maybe it's a callable default export (older API)
+        if (typeof pdfModule === 'function') {
+          const result = await pdfModule(Buffer.from(fileBuffer));
+          return result?.text || "[Empty PDF Document]";
+        }
+        if (typeof pdfModule.default === 'function') {
+          const result = await pdfModule.default(Buffer.from(fileBuffer));
+          return result?.text || "[Empty PDF Document]";
+        }
+        
+        console.warn(`[AI Context] pdf-parse module shape unexpected:`, Object.keys(pdfModule));
+        return "[PDF Document - Parser not compatible]";
       } catch (pdfError) {
         console.warn(`[AI Context] PDF extraction failed for ${fileId}:`, pdfError);
         return "[PDF Document - Extraction failed]";
@@ -201,6 +204,13 @@ async function extractDocumentText(
 
     return "[Document content not extractable]";
   } catch (error) {
+    const isMissing = error && typeof error === 'object' && 'type' in error && error.type === 'storage_file_not_found';
+    
+    if (isMissing) {
+      console.warn(`[AI Context] Document file ${fileId} not found in storage. It may have been deleted.`);
+      return "[Document file missing from storage]";
+    }
+
     console.error(`[AI Context] Failed to extract text for file ${fileId}:`, error);
     return "[Failed to extract document content]";
   }
@@ -231,11 +241,22 @@ const app = new Hono()
         }
 
         // Get project details
-        const project = await databases.getDocument(
-          DATABASE_ID,
-          PROJECTS_ID,
-          projectId
-        );
+        let project;
+        if (projectId === "p1") {
+          project = {
+            $id: "p1",
+            name: "Fairlx",
+            description: "Building the world's most advanced AI-powered project management platform.",
+            workspaceId,
+            $createdAt: new Date().toISOString(),
+          };
+        } else {
+          project = await databases.getDocument(
+            DATABASE_ID,
+            PROJECTS_ID,
+            projectId
+          );
+        }
 
         // Get project documents (non-archived)
         const docsResponse = await databases.listDocuments<ProjectDocument>(
@@ -245,18 +266,38 @@ const app = new Hono()
             Query.equal("projectId", projectId),
             Query.equal("workspaceId", workspaceId),
             Query.equal("isArchived", false),
-            Query.limit(50), // Limit for performance
+            Query.limit(50), 
           ]
         );
 
+        // Check for project-critical documents to decide on context fetching strategy
+        const highQualityCategories = [
+          "BRD", "MRD", "PRD", "FRD", "SRS", "USER STORIES", "USE CASES", "ACCEPTANCE CRITERIA",
+          "UX SPEC", "WIREFRAMES", "UI DESIGN", "DESIGN SYSTEM", "HLD", "LLD", "ADR",
+          "API DOCUMENTATION", "DATABASE SCHEMA", "ERD", "SEQUENCE DIAGRAMS", "PROJECT PLAN",
+          "ROADMAP", "RACI MATRIX", "RISK REGISTER", "TEST PLAN", "TEST CASES", "TEST SCENARIOS",
+          "UAT", "RELEASE NOTES", "DEPLOYMENT GUIDE", "RUNBOOK", "SOP", "MONITORING", "SLA",
+          "SECURITY REQUIREMENTS", "COMPLIANCE", "LEGAL", "PRIVACY POLICY", "TERMS OF SERVICE",
+          "USER MANUAL", "TECHNICAL DOCUMENTATION", "CHANGE LOG", "MAINTENANCE"
+        ];
+
+        const hasHighQualityDoc = docsResponse.documents.some(d => {
+          const category = (d.category || "").toUpperCase();
+          const name = (d.name || "").toUpperCase();
+          return highQualityCategories.some(type => category.includes(type) || name.includes(type));
+        });
+
+
         // Get project work items (replaces tasks)
+        // Fetch MORE tasks if no critical docs are found to compensate for lack of context
+        const taskLimit = hasHighQualityDoc ? 100 : 250;
         const workItemsResponse = await databases.listDocuments<WorkItem>(
           DATABASE_ID,
           WORK_ITEMS_ID,
           [
             Query.equal("projectId", projectId),
             Query.equal("workspaceId", workspaceId),
-            Query.limit(100), // Limit for performance
+            Query.limit(taskLimit), 
           ]
         );
 
@@ -308,7 +349,7 @@ const app = new Hono()
 
             return {
               id: doc.$id,
-              name: doc.name,
+              name: doc.title,
               category: doc.category,
               description: doc.description || undefined,
               tags: doc.tags || undefined,
@@ -402,8 +443,6 @@ const app = new Hono()
           return c.json({ error: "Unauthorized" }, 401);
         }
 
-        // Initialize Project Docs AI
-        const projectDocsAI = new ProjectDocsAI();
 
         if (!projectDocsAI.isConfigured()) {
           return c.json(
@@ -431,14 +470,50 @@ const app = new Hono()
           ]
         );
 
-        // Get project work items
+        const githubRepoResponse = await databases.listDocuments(
+          DATABASE_ID,
+          GITHUB_REPOS_ID,
+          [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const githubRepo = githubRepoResponse.documents[0] as any;
+ 
+        // Check for Code Documentation context
+        const codeDocsResponseList = await databases.listDocuments(
+          DATABASE_ID,
+          CODE_DOCS_ID,
+          [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+ 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeDoc = codeDocsResponseList.documents[0] as any;
+
+        // Check for project-critical documents to decide on task fetching limit
+        const highQualityCategories = [
+          "BRD", "MRD", "PRD", "FRD", "SRS", "USER STORIES", "USE CASES", "ACCEPTANCE CRITERIA",
+          "UX SPEC", "WIREFRAMES", "UI DESIGN", "DESIGN SYSTEM", "HLD", "LLD", "ADR",
+          "API DOCUMENTATION", "DATABASE SCHEMA", "ERD", "SEQUENCE DIAGRAMS", "PROJECT PLAN",
+          "ROADMAP", "RACI MATRIX", "RISK REGISTER", "TEST PLAN", "TEST CASES", "TEST SCENARIOS",
+          "UAT", "RELEASE NOTES", "DEPLOYMENT GUIDE", "RUNBOOK", "SOP", "MONITORING", "SLA",
+          "SECURITY REQUIREMENTS", "COMPLIANCE", "LEGAL", "PRIVACY POLICY", "TERMS OF SERVICE",
+          "USER MANUAL", "TECHNICAL DOCUMENTATION", "CHANGE LOG", "MAINTENANCE"
+        ];
+
+        const hasHighQualityDoc = docsResponse.documents.some(d => {
+          const category = (d.category || "").toUpperCase();
+          const name = (d.name || "").toUpperCase();
+          return highQualityCategories.some(type => category.includes(type) || name.includes(type));
+        });
+
+        // Get project work items (fetch more if no high quality docs)
+        const taskLimit = hasHighQualityDoc ? 50 : 150;
         const workItemsResponse = await databases.listDocuments<WorkItem>(
           DATABASE_ID,
           WORK_ITEMS_ID,
           [
             Query.equal("projectId", projectId),
             Query.equal("workspaceId", workspaceId),
-            Query.limit(50), // Limit for AI context
+            Query.limit(taskLimit),
           ]
         );
 
@@ -474,7 +549,7 @@ const app = new Hono()
 **Description:** ${doc.description || "No description"}
 **Tags:** ${doc.tags?.join(", ") || "None"}
 **Content:**
-${extractedText.slice(0, 5000)}
+${extractedText.slice(0, 10000)}
 `;
           })
         );
@@ -514,7 +589,9 @@ ${extractedText.slice(0, 5000)}
         }).join("\n");
 
         // Build the comprehensive prompt
-        const prompt = `You are an AI assistant with deep knowledge of this specific project. Answer questions based on the project context provided below.
+        const prompt = `You are an AI assistant with deep knowledge of this specific project. Answer questions based on the project context provided below. 
+
+IMPORTANT: Always cite the specific Documents, GitHub repositories, or Tasks you are referencing in your answer so the user knows exactly where the information came from.
 
 ## Project Information
 **Name:** ${project.name}
@@ -530,10 +607,18 @@ ${extractedText.slice(0, 5000)}
 ## Team Members
 ${memberContexts || "No team members found."}
 
-## Project Documents
-${documentContexts.join("\n---\n") || "No documents uploaded yet."}
+## Connected Codebase (GitHub)
+${githubRepo ? `- **Repository:** ${githubRepo.owner}/${githubRepo.repositoryName}
+- **Branch:** ${githubRepo.branch}
+- **URL:** ${githubRepo.githubUrl}` : "No repository connected."}
 
-## Project Tasks
+${codeDoc ? `### Implementation Context & Codebase Overview
+${codeDoc.content.slice(0, 6000)}` : ""}
+
+## Project Documents
+${documentContexts.join("\n---\n") || (githubRepo ? "No project-specific PRDs/FRDs found. Using codebase context instead." : "No documents uploaded yet.")}
+
+## Project Tasks (Current Roadmap)
 ${taskContexts || "No tasks created yet."}
 
 ---
@@ -553,29 +638,38 @@ ${question}
 Provide a comprehensive, helpful answer:`;
 
         // Call Project Docs AI
-        const answer = await projectDocsAI.answerProjectQuestion(prompt);
+        const aiResponse = await projectDocsAI.answerProjectQuestion(prompt);
 
-        // Track usage for DOCS AI question (non-blocking)
-        trackUsage({
+        // Calculate model-aware cost and log with full token data
+        const pricing = await getAIModelPricing(databases, aiResponse.model);
+        const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens);
+
+        logAIUsage({
+          databases,
           workspaceId,
           projectId,
-          module: UsageModule.DOCS,
-          resourceType: ResourceType.COMPUTE,
-          units: 1,
-          source: UsageSource.AI,
+          model: aiResponse.model,
+          promptTokens: aiResponse.tokenUsage.promptTokens,
+          completionTokens: aiResponse.tokenUsage.completionTokens,
+          totalTokens: aiResponse.tokenUsage.totalTokens,
+          costUSD,
+          units: aiResponse.tokenUsage.totalTokens,
           metadata: {
             operation: "ask_question",
             promptLength: prompt.length,
-            answerLength: answer.length,
-            tokensEstimate: estimateTokens(prompt + answer),
             documentsUsed: docsResponse.documents.length,
+            aiTier: pricing.tier,
+            module: UsageModule.DOCS,
           },
-          idempotencyKey: createIdempotencyKey(UsageModule.DOCS, "ask", projectId),
+          sourceContext: {
+            type: "project",
+            displayName: projectId,
+          },
         });
 
         const response: ProjectAIAnswer = {
           question,
-          answer,
+          answer: aiResponse.text,
           timestamp: new Date().toISOString(),
           contextUsed: {
             documentsCount: docsResponse.documents.length,
@@ -602,7 +696,7 @@ Provide a comprehensive, helpful answer:`;
       try {
         const user = c.get("user");
         const databases = c.get("databases");
-        const { projectId, workspaceId, prompt, autoExecute } = c.req.valid("json");
+        const { projectId, workspaceId, prompt, autoExecute, type } = c.req.valid("json");
 
         // Verify workspace membership
         const member = await getMember({
@@ -615,8 +709,6 @@ Provide a comprehensive, helpful answer:`;
           return c.json({ error: "Unauthorized" }, 401);
         }
 
-        // Initialize Project Docs AI
-        const projectDocsAI = new ProjectDocsAI();
 
         if (!projectDocsAI.isConfigured()) {
           return c.json(
@@ -642,14 +734,62 @@ Provide a comprehensive, helpful answer:`;
           ]
         );
 
+        // Get project documents for deeper context
+        const docsResponse = await databases.listDocuments<ProjectDocument>(
+          DATABASE_ID,
+          PROJECT_DOCS_ID,
+          [
+            Query.equal("projectId", projectId),
+            Query.equal("isArchived", false),
+            Query.limit(10), // Increased sample
+          ]
+        );
+
+        // Check for project-critical documents to decide on task fetching limit
+        const highQualityCategories = [
+          "BRD", "MRD", "PRD", "FRD", "SRS", "USER STORIES", "USE CASES", "ACCEPTANCE CRITERIA",
+          "UX SPEC", "WIREFRAMES", "UI DESIGN", "DESIGN SYSTEM", "HLD", "LLD", "ADR",
+          "API DOCUMENTATION", "DATABASE SCHEMA", "ERD", "SEQUENCE DIAGRAMS", "PROJECT PLAN",
+          "ROADMAP", "RACI MATRIX", "RISK REGISTER", "TEST PLAN", "TEST CASES", "TEST SCENARIOS",
+          "UAT", "RELEASE NOTES", "DEPLOYMENT GUIDE", "RUNBOOK", "SOP", "MONITORING", "SLA",
+          "SECURITY REQUIREMENTS", "COMPLIANCE", "LEGAL", "PRIVACY POLICY", "TERMS OF SERVICE",
+          "USER MANUAL", "TECHNICAL DOCUMENTATION", "CHANGE LOG", "MAINTENANCE"
+        ];
+
+        const hasHighQualityDoc = docsResponse.documents.some(d => {
+          const category = (d.category || "").toUpperCase();
+          const name = (d.name || "").toUpperCase();
+          return highQualityCategories.some(type => category.includes(type) || name.includes(type));
+        });
+
+        // Get GitHub repository connection if exists
+        const githubResponse = await databases.listDocuments(
+          DATABASE_ID,
+          GITHUB_REPOS_ID,
+          [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const githubRepo = githubResponse.documents[0] as any;
+
+        // Get Code Documentation if exists
+        const codeDocsResponse = await databases.listDocuments(
+          DATABASE_ID,
+          CODE_DOCS_ID,
+          [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeDoc = codeDocsResponse.documents[0] as any;
+
         // Get existing work items for context
+        // Fetch MORE tasks if no high quality docs are found to compensate
+        const taskLimit = hasHighQualityDoc ? 20 : 60;
         const workItemsResponse = await databases.listDocuments<WorkItem>(
           DATABASE_ID,
           WORK_ITEMS_ID,
           [
             Query.equal("projectId", projectId),
             Query.equal("workspaceId", workspaceId),
-            Query.limit(20),
+            Query.limit(taskLimit),
           ]
         );
 
@@ -671,6 +811,10 @@ Provide a comprehensive, helpful answer:`;
 
         // Build prompt for AI
         const aiPrompt = `You are a work item creation assistant for project "${project.name}". Based on the user's request, generate work item details in JSON format.
+${type ? `
+### MANDATORY: Target Work Item Type
+The user has explicitly requested this item be of type: **${type.toUpperCase()}**. 
+Ensure the name, description, and priority are appropriate for a ${type.toLowerCase()}.` : ""}
 
 ## Available Team Members
 ${membersList || "No members found"}
@@ -681,24 +825,13 @@ ${tasksList || "No existing work items"}
 ## Existing Labels in Project
 ${existingLabelsList || "No existing labels"}
 
-## Valid Work Item Statuses
-- TODO
-- IN_PROGRESS
-- IN_REVIEW
-- DONE
-- BLOCKED
+## Project Documents (Context)
+${docsResponse.documents.map(d => `- ${d.name}: ${d.extractedText?.substring(0, 1500) || "No content available"}...`).join("\n") || (githubRepo ? "No documents found, using codebase context." : "No documents found")}
 
-## Valid Priorities
-- LOW
-- MEDIUM
-- HIGH
-- URGENT
-
-## Common Label Categories (use these as inspiration)
-- Type: bug, feature, enhancement, documentation, refactor, testing
-- Area: frontend, backend, api, database, ui, ux, security, performance
-- Effort: quick-win, complex, needs-research
-- Other: urgent, blocked, review-needed
+## Connected Codebase (GitHub)
+${githubRepo ? `- Repository: ${githubRepo.owner}/${githubRepo.repositoryName} (${githubRepo.githubUrl})` : "No repository connected"}
+${codeDoc ? `### Implementation Context & Codebase Overview
+${codeDoc.content.substring(0, 4000)}` : ""}
 
 ## User Request
 ${prompt}
@@ -708,7 +841,7 @@ ${prompt}
 Generate a JSON object with the following structure (only include fields that are relevant):
 {
   "name": "Work item title (required, be specific and actionable)",
-  "description": "Detailed work item description",
+  "description": "Comprehensive HTML-formatted description",
   "status": "TODO",
   "priority": "MEDIUM",
   "dueDate": "YYYY-MM-DD (if mentioned or can be inferred)",
@@ -719,39 +852,52 @@ Generate a JSON object with the following structure (only include fields that ar
 }
 
 IMPORTANT: 
+- For the "description" field, ALWAYS use HTML tags for structure. Provide:
+  - <h3>Context</h3> explaining why this task is needed.
+  - <h3>Description</h3> detailing exactly what needs to be done.
+  - <h3>Acceptance Criteria</h3> using a <ul> list with <li> checkbox-like items.
 - Return ONLY valid JSON, no markdown code blocks
 - Use actual member IDs from the list above for assigneeIds (only if user mentions a specific person)
 - Make the work item title clear and actionable
 - ALWAYS generate relevant labels based on the work item type (e.g., "bug" for bugs, "feature" for features, "frontend"/"backend" for technical tasks)
 - Prefer existing labels from the project when applicable
-- If dates are mentioned like "tomorrow" or "next week", calculate the actual date from today (${new Date().toISOString().split('T')[0]})
+- If dates are mentioned like "tomorrow" or "next week", calculate the actual date from today (${new Date().toISOString().split("T")[0]})
 - Default status to "TODO" if not specified
 - Default priority to "MEDIUM" if not specified`;
 
-        const aiResponse = await projectDocsAI.answerProjectQuestion(aiPrompt);
+        const aiCreateResponse = await projectDocsAI.answerProjectQuestion(aiPrompt);
 
-        // Track usage for DOCS AI task creation (non-blocking)
-        trackUsage({
+        // Calculate model-aware cost and log with full token data
+        const createPricing = await getAIModelPricing(databases, aiCreateResponse.model);
+        const createCostUSD = calculateAICallCostUSD(createPricing, aiCreateResponse.tokenUsage.promptTokens, aiCreateResponse.tokenUsage.completionTokens);
+
+        logAIUsage({
+          databases,
           workspaceId,
           projectId,
-          module: UsageModule.DOCS,
-          resourceType: ResourceType.COMPUTE,
-          units: 1,
-          source: UsageSource.AI,
+          model: aiCreateResponse.model,
+          promptTokens: aiCreateResponse.tokenUsage.promptTokens,
+          completionTokens: aiCreateResponse.tokenUsage.completionTokens,
+          totalTokens: aiCreateResponse.tokenUsage.totalTokens,
+          costUSD: createCostUSD,
+          units: aiCreateResponse.tokenUsage.totalTokens,
           metadata: {
             operation: "create_task",
             promptLength: aiPrompt.length,
-            responseLength: aiResponse.length,
-            tokensEstimate: estimateTokens(aiPrompt + aiResponse),
+            aiTier: createPricing.tier,
+            module: UsageModule.DOCS,
           },
-          idempotencyKey: createIdempotencyKey(UsageModule.DOCS, "create_task", projectId),
+          sourceContext: {
+            type: "project",
+            displayName: projectId,
+          },
         });
 
         // Parse AI response to extract task data
         let taskData: AITaskData;
         try {
           // Clean the response - remove markdown code blocks if present
-          let cleanedResponse = aiResponse.trim();
+          let cleanedResponse = aiCreateResponse.text.trim();
           if (cleanedResponse.startsWith("```json")) {
             cleanedResponse = cleanedResponse.slice(7);
           }
@@ -948,8 +1094,6 @@ IMPORTANT:
           return c.json({ error: "Task not found in this project" }, 404);
         }
 
-        // Initialize Project Docs AI
-        const projectDocsAI = new ProjectDocsAI();
 
         if (!projectDocsAI.isConfigured()) {
           return c.json(
@@ -971,6 +1115,24 @@ IMPORTANT:
         const membersList = membersResponse.documents.map(m =>
           `- ${m.name || m.email} (ID: ${m.$id}, Role: ${m.role})`
         ).join("\n");
+
+        // Get GitHub repository connection if exists
+        const githubResponse = await databases.listDocuments(
+          DATABASE_ID,
+          GITHUB_REPOS_ID,
+          [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const githubRepo = githubResponse.documents[0] as any;
+
+        // Get Code Documentation if exists
+        const codeDocsResponse = await databases.listDocuments(
+          DATABASE_ID,
+          CODE_DOCS_ID,
+          [Query.equal("projectId", projectId), Query.limit(1)]
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeDoc = codeDocsResponse.documents[0] as any;
 
         // Build prompt for AI
         const aiPrompt = `You are a work item update assistant. Based on the user's request, generate the updated work item fields in JSON format.
@@ -1006,12 +1168,17 @@ ${membersList || "No members found"}
 ## User's Update Request
 ${prompt}
 
+## Connected Codebase (GitHub)
+${githubRepo ? `- Repository: ${githubRepo.owner}/${githubRepo.repositoryName} (${githubRepo.githubUrl})` : "No repository connected"}
+${codeDoc ? `### Implementation Reference
+${codeDoc.content.substring(0, 1500)}` : ""}
+
 ---
 
 Generate a JSON object with ONLY the fields that should be updated based on the user's request:
 {
   "name": "New task name (only if changing)",
-  "description": "New description (only if changing)",
+  "description": "New description as structured HTML (only if changing)",
   "status": "NEW_STATUS (only if changing)",
   "priority": "NEW_PRIORITY (only if changing)",
   "dueDate": "YYYY-MM-DD (only if changing)",
@@ -1022,35 +1189,48 @@ Generate a JSON object with ONLY the fields that should be updated based on the 
 }
 
 IMPORTANT:
+- If updating "description", ALWAYS use HTML tags for structure:
+  - <h3>Context</h3> explaining why this task is needed.
+  - <h3>Description</h3> detailing exactly what needs to be done.
+  - <h3>Acceptance Criteria</h3> using a <ul> list with <li> checkbox-like items.
 - Return ONLY valid JSON, no markdown code blocks
 - Include ONLY fields that are being changed
 - Use actual member IDs from the list for assigneeIds
 - If dates are mentioned like "tomorrow", calculate from today (${new Date().toISOString().split('T')[0]})`;
 
-        const aiResponse = await projectDocsAI.answerProjectQuestion(aiPrompt);
+        const aiUpdateResponse = await projectDocsAI.answerProjectQuestion(aiPrompt);
 
-        // Track usage for DOCS AI task update (non-blocking)
-        trackUsage({
+        // Calculate model-aware cost and log with full token data
+        const updatePricing = await getAIModelPricing(databases, aiUpdateResponse.model);
+        const updateCostUSD = calculateAICallCostUSD(updatePricing, aiUpdateResponse.tokenUsage.promptTokens, aiUpdateResponse.tokenUsage.completionTokens);
+
+        logAIUsage({
+          databases,
           workspaceId,
           projectId,
-          module: UsageModule.DOCS,
-          resourceType: ResourceType.COMPUTE,
-          units: 1,
-          source: UsageSource.AI,
+          model: aiUpdateResponse.model,
+          promptTokens: aiUpdateResponse.tokenUsage.promptTokens,
+          completionTokens: aiUpdateResponse.tokenUsage.completionTokens,
+          totalTokens: aiUpdateResponse.tokenUsage.totalTokens,
+          costUSD: updateCostUSD,
+          units: aiUpdateResponse.tokenUsage.totalTokens,
           metadata: {
             operation: "update_task",
             taskId,
             promptLength: aiPrompt.length,
-            responseLength: aiResponse.length,
-            tokensEstimate: estimateTokens(aiPrompt + aiResponse),
+            aiTier: updatePricing.tier,
+            module: UsageModule.DOCS,
           },
-          idempotencyKey: createIdempotencyKey(UsageModule.DOCS, `update_task_${taskId}`, projectId),
+          sourceContext: {
+            type: "project",
+            displayName: projectId,
+          },
         });
 
         // Parse AI response
         let updateData: Partial<AITaskData>;
         try {
-          let cleanedResponse = aiResponse.trim();
+          let cleanedResponse = aiUpdateResponse.text.trim();
           if (cleanedResponse.startsWith("```json")) {
             cleanedResponse = cleanedResponse.slice(7);
           }

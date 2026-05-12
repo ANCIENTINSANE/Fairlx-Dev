@@ -102,7 +102,8 @@ const app = new Hono()
             byCategory,
           },
         });
-      } catch {
+      } catch (error) {
+        console.error("[ProjectDocs] Fetch failed:", error);
         return c.json({ error: "Failed to fetch documents" }, 500);
       }
     }
@@ -192,15 +193,17 @@ const app = new Hono()
         const storageProvider = getStorageProvider(storage);
         await storageProvider.uploadFile(PROJECT_DOCS_BUCKET_ID, fileId, file);
 
+        const url = storageProvider.getPublicUrl(PROJECT_DOCS_BUCKET_ID, fileId);
+
         // Create document record
         const document = await databases.createDocument<ProjectDocument>(
           DATABASE_ID,
           PROJECT_DOCS_ID,
           ID.unique(),
           {
-            name,
+            title: name,
+            name: name, // Add name back if required by schema
             description: description || "",
-            fileName: file.name,
             size: file.size,
             mimeType: file.type,
             fileId,
@@ -214,16 +217,14 @@ const app = new Hono()
           }
         );
 
-        // Get URL for the uploaded file
-        const url = storageProvider.getPublicUrl(PROJECT_DOCS_BUCKET_ID, fileId);
-
         return c.json({
           data: {
             ...document,
             url,
           },
         });
-      } catch {
+      } catch (error) {
+        console.error("[ProjectDocs] Upload failed:", error);
         return c.json({ error: "Failed to upload document" }, 500);
       }
     }
@@ -274,11 +275,15 @@ const app = new Hono()
           DATABASE_ID,
           PROJECT_DOCS_ID,
           documentId,
-          updates
+          {
+            ...updates,
+            name: updates.title, // Keep name in sync with title
+          }
         );
 
         return c.json({ data: updatedDocument });
-      } catch {
+      } catch (error) {
+        console.error("[ProjectDocs] Update failed:", error);
         return c.json({ error: "Failed to update document" }, 500);
       }
     }
@@ -400,7 +405,8 @@ const app = new Hono()
             url,
           },
         });
-      } catch {
+      } catch (error) {
+        console.error("[ProjectDocs] Replace failed:", error);
         return c.json({ error: "Failed to replace document" }, 500);
       }
     }
@@ -462,7 +468,8 @@ const app = new Hono()
         await databases.deleteDocument(DATABASE_ID, PROJECT_DOCS_ID, documentId);
 
         return c.json({ data: { success: true } });
-      } catch {
+      } catch (error) {
+        console.error("[ProjectDocs] Delete failed:", error);
         return c.json({ error: "Failed to delete document" }, 500);
       }
     }
@@ -519,7 +526,8 @@ const app = new Hono()
             "Content-Type": document.mimeType || "application/octet-stream",
           },
         });
-      } catch {
+      } catch (error) {
+        console.error("[ProjectDocs] Download failed:", error);
         return c.json({ error: "Failed to download document" }, 500);
       }
     }
@@ -591,7 +599,8 @@ const app = new Hono()
             uploader,
           },
         });
-      } catch {
+      } catch (error) {
+        console.error("[ProjectDocs] Get failed:", error);
         return c.json({ error: "Failed to get document" }, 500);
       }
     }

@@ -14,6 +14,7 @@ import { Models } from "node-appwrite";
  * HOLD: Funds reserved for pending async operations
  * RELEASE: Reserved funds returned to available balance
  * REWARD_CREDIT: Funds credited from promotional rewards (e.g., GitHub Star Reward)
+ * TRIAL_CREDIT: Welcome trial credit granted to new organizations
  */
 export enum WalletTransactionType {
     TOPUP = "TOPUP",
@@ -23,6 +24,7 @@ export enum WalletTransactionType {
     HOLD = "HOLD",
     RELEASE = "RELEASE",
     REWARD_CREDIT = "REWARD_CREDIT",
+    TRIAL_CREDIT = "TRIAL_CREDIT",
 }
 
 // ===============================
@@ -61,6 +63,9 @@ export type Wallet = Models.Document & {
 
     /** Organization ID (for ORG accounts) */
     organizationId?: string;
+
+    /** Billing Account ID (required) */
+    billingAccountId: string;
 
     /** Available balance in USD (supports high precision, e.g. $0.000001) */
     balance: number;

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { client } from "@/lib/rpc";
+import { useTourActive, DUMMY_PROJECT_AI_CONTEXT } from "@/lib/tour-dummy-data";
 import { ProjectAIContext, ProjectAIAnswer, AITaskResponse } from "../types/ai-context";
 
 // Query key factory
@@ -12,9 +13,17 @@ export const PROJECT_AI_QUERY_KEYS = {
 
 // Hook to get AI context for a project
 export const useGetProjectAIContext = (projectId: string, workspaceId: string) => {
+  const isTourActive = useTourActive();
+
   return useQuery<{ data: ProjectAIContext }>({
-    queryKey: PROJECT_AI_QUERY_KEYS.context(projectId),
+    queryKey: [...PROJECT_AI_QUERY_KEYS.context(projectId), isTourActive],
     queryFn: async () => {
+      // DUMMY DATA FOR TOUR
+      if (isTourActive) {
+        console.log("[Tour] Returning dummy project AI context");
+        return { data: DUMMY_PROJECT_AI_CONTEXT as ProjectAIContext };
+      }
+
       const response = await client.api["project-docs"].ai.context.$get({
         query: { projectId, workspaceId },
       });
@@ -63,11 +72,11 @@ export const useAICreateTask = () => {
   return useMutation<
     AITaskResponse,
     Error,
-    { projectId: string; workspaceId: string; prompt: string; autoExecute?: boolean }
+    { projectId: string; workspaceId: string; prompt: string; autoExecute?: boolean; type?: string }
   >({
-    mutationFn: async ({ projectId, workspaceId, prompt, autoExecute }) => {
+    mutationFn: async ({ projectId, workspaceId, prompt, autoExecute, type }) => {
       const response = await client.api["project-docs"].ai["create-task"].$post({
-        json: { projectId, workspaceId, prompt, autoExecute },
+        json: { projectId, workspaceId, prompt, autoExecute, type },
       });
 
       if (!response.ok) {

@@ -63,8 +63,8 @@ export const OPTIONAL_CONFIG_CATEGORIES = [
         ],
     },
     {
-        category: "AI (Gemini)",
-        keys: ["GEMINI_API_KEY"],
+        category: "AI (Google Gemini)",
+        keys: ["GEMINI_API_KEY", "GEMINI_MODEL"],
     },
     {
         category: "Payment (Cashfree)",

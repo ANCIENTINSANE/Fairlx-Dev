@@ -38,6 +38,7 @@ export const verificationHelper = {
                 userId,
                 token,
                 expiresAt,
+                type: "email",
             }
         );
 

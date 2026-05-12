@@ -148,6 +148,13 @@ const app = new Hono()
                     ownerId: user.$id,
                     createdBy: user.$id,
                     billingStartAt: new Date().toISOString(),
+                    billingSettings: JSON.stringify({
+                        legal: {
+                            currentVersion: "v1",
+                            acceptedAt: new Date().toISOString(),
+                            acceptedBy: user.$id
+                        }
+                    }),
                 }
             );
 
@@ -169,6 +176,8 @@ const app = new Hono()
             // Update user prefs to set accountType = ORG
             const account = c.get("account");
             const currentPrefs = user.prefs || {};
+            const isByob = !!currentPrefs.byobOrgSlug;
+
             await account.updatePrefs({
                 ...currentPrefs,
                 accountType: "ORG",
@@ -190,6 +199,71 @@ const app = new Hono()
 
             // CRITICAL: Invalidate lifecycle cache
             await invalidateCache(CK.authLifecycle(user.$id));
+
+            // ─── Trial Credit & Billing Setup (non-blocking) ───────────
+            if (!isByob) {
+                try {
+                    const { TRIAL_CREDIT_USD, TRIAL_CREDIT_DAYS } = await import("@/config");
+                    const { setupOrganizationBilling } = await import("@/features/billing/services/billing-service");
+                    const { getOrCreateWallet, creditTrialToWallet } = await import("@/features/wallet/services/wallet-service");
+
+                    // 1. Billing account
+                    await setupOrganizationBilling(organization.$id, {
+                        billingEmail: user.email,
+                    });
+
+                    // 2. Wallet
+                    // console.log(`[org-creation] Setting up wallet for org ${organization.$id}...`);
+                    const wallet = await getOrCreateWallet(adminDatabases, {
+                        organizationId: organization.$id,
+                    });
+
+                    // 3. Credit Trial
+                    // console.log(`[org-creation] Crediting trial to wallet ${wallet.$id} (Amount: ${TRIAL_CREDIT_USD})...`);
+                    const trialExpiresAt = new Date();
+                    trialExpiresAt.setDate(trialExpiresAt.getDate() + TRIAL_CREDIT_DAYS);
+
+                    const creditResult = await creditTrialToWallet(
+                        adminDatabases,
+                        wallet.$id,
+                        TRIAL_CREDIT_USD,
+                        {
+                            organizationId: organization.$id,
+                            description: `Welcome trial credit — $${TRIAL_CREDIT_USD} free for ${TRIAL_CREDIT_DAYS} days`,
+                            trialExpiresAt,
+                        }
+                    );
+
+                    // console.log(`[org-creation] Trial credit result:`, creditResult);
+
+                    if (creditResult.success) {
+                        // Even if alreadyCredited is true, we want to ensure the organization doc reflects this status
+                        // For Cloud users, the organization is created in the Cloud DB, so we can update it using adminDatabases.
+                        // console.log(`[org-creation] Updating organization ${organization.$id} with trial status...`);
+                        await adminDatabases.updateDocument(
+                            DATABASE_ID,
+                            ORGANIZATIONS_ID,
+                            organization.$id,
+                            {
+                                trialCreditGranted: true,
+                                trialCreditExpiresAt: trialExpiresAt.toISOString(),
+                                isTrialExpired: false,
+                            }
+                        );
+                        // console.log(`[org-creation] Organization ${organization.$id} trial status updated.`);
+                    } else {
+                        console.error(`[org-creation] Trial credit failed: ${creditResult.error}`);
+                    }
+                } catch (trialError: any) {
+                    // Non-blocking: org creation succeeds even if trial credit fails
+                    console.error("[org-creation] Trial credit setup failed (non-blocking):", {
+                        message: trialError?.message || "Unknown error",
+                        code: trialError?.code,
+                        response: trialError?.response,
+                        stack: trialError?.stack
+                    });
+                }
+            }
 
             return c.json({ data: organization });
         }

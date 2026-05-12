@@ -266,6 +266,7 @@ export async function generateInvoice(
                 periodStart: billingAccount.billingCycleStart,
                 periodEnd: billingAccount.billingCycleEnd,
             }),
+            createdAt: new Date().toISOString(),
         }
     );
 
@@ -434,6 +435,7 @@ async function startGracePeriod(databases: Databases, billingAccountId: string):
                 gracePeriodEnd: gracePeriodEnd.toISOString(),
                 daysRemaining: GRACE_PERIOD_DAYS,
             }),
+            createdAt: new Date().toISOString(),
         }
     );
 }
@@ -519,6 +521,7 @@ export async function suspendAccount(
             billingAccountId,
             eventType: BillingAuditEventType.ACCOUNT_SUSPENDED,
             metadata: JSON.stringify({ reason }),
+            createdAt: new Date().toISOString(),
         }
     );
 }
@@ -568,6 +571,7 @@ export async function restoreAccount(
                 reason,
                 previousStatus,
             }),
+            createdAt: new Date().toISOString(),
         }
     );
 }
@@ -618,6 +622,8 @@ export async function setupOrganizationBilling(
         ID.unique(),
         {
             type: BillingAccountType.ORG,
+            ownerId: organizationId,
+            ownerType: "organization",
             organizationId,
             userId: null,
             cashfreeCustomerId: options.cashfreeCustomerId || null,
@@ -640,6 +646,7 @@ export async function setupOrganizationBilling(
                 type: BillingAccountType.ORG,
                 organizationId,
             }),
+            createdAt: new Date().toISOString(),
         }
     );
 
@@ -685,6 +692,8 @@ export async function setupPersonalBilling(
         ID.unique(),
         {
             type: BillingAccountType.PERSONAL,
+            ownerId: userId,
+            ownerType: "personal",
             userId,
             organizationId: null,
             cashfreeCustomerId: options.cashfreeCustomerId || null,
@@ -707,6 +716,7 @@ export async function setupPersonalBilling(
                 type: BillingAccountType.PERSONAL,
                 userId,
             }),
+            createdAt: new Date().toISOString(),
         }
     );
 

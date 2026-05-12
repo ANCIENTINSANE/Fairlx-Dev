@@ -56,7 +56,13 @@ export async function ensureCollection(
 ): Promise<void> {
     try {
         await databases.getCollection(databaseId, collectionId);
-        logger.skipped('collection', name);
+        // Important: Update permissions even if collection exists
+        if (permissions) {
+            await databases.updateCollection(databaseId, collectionId, name, permissions);
+            logger.updated('collection permissions', name);
+        } else {
+            logger.skipped('collection', name);
+        }
     } catch (err) {
         if (isAppwriteError(err, 404)) {
             try {
@@ -309,8 +315,35 @@ export async function ensureEnumAttribute(
     array: boolean = false
 ): Promise<void> {
     try {
-        await databases.getAttribute(databaseId, collectionId, key);
-        logger.skipped('attribute', key);
+        const existing = await databases.getAttribute(databaseId, collectionId, key) as Models.AttributeEnum;
+
+        // Check if elements match — if not, recreate the attribute
+        const existingElements = (existing as unknown as { elements?: string[] }).elements || [];
+        const desired = [...elements].sort();
+        const current = [...existingElements].sort();
+        const needsUpdate = desired.length !== current.length || desired.some((v, i) => v !== current[i]);
+
+        if (needsUpdate) {
+            logger.info(`Enum attribute '${key}' has stale values [${current.join(',')}], recreating with [${desired.join(',')}]...`);
+
+            // Delete old attribute, wait for Appwrite to process, then recreate
+            await databases.deleteAttribute(databaseId, collectionId, key);
+            await sleep(2000); // Appwrite needs time to fully remove the attribute
+
+            await databases.createEnumAttribute(
+                databaseId,
+                collectionId,
+                key,
+                elements,
+                required,
+                defaultValue,
+                array
+            );
+            logger.created('attribute', `${key} (updated enum values)`);
+            await sleep(200);
+        } else {
+            logger.skipped('attribute', key);
+        }
     } catch (err) {
         if (isAppwriteError(err, 404)) {
             try {
