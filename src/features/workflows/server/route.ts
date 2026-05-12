@@ -186,7 +186,6 @@ const app = new Hono()
             {
               workspaceId: workflow.workspaceId,
               workflowId: workflow.$id,
-              workspaceId: workflow.workspaceId,
               name: status.name,
               key: status.key,
               icon: status.icon,
@@ -217,7 +216,6 @@ const app = new Hono()
               {
                 workspaceId: workflow.workspaceId,
                 workflowId: workflow.$id,
-                workspaceId: workflow.workspaceId,
                 fromStatusId: newFromId,
                 toStatusId: newToId,
                 name: transition.name,
@@ -235,24 +233,59 @@ const app = new Hono()
         // Handle initialization from explicit statuses, project columns, OR default template
         let statusesInitialized = false;
 
-        for (const statusDef of template.statuses) {
-          const status = await databases.createDocument<WorkflowStatus>(
-            DATABASE_ID,
-            WORKFLOW_STATUSES_ID,
-            ID.unique(),
-            {
-              workflowId: workflow.$id,
-              workspaceId: workflow.workspaceId,
-              name: statusDef.name,
-              key: statusDef.key,
-              icon: statusDef.icon,
-              color: statusDef.color,
-              statusType: statusDef.statusType,
-              position: statusDef.position,
-              positionX: statusDef.positionX || (statusDef.position * 250),
-              positionY: statusDef.positionY || 100,
-              isInitial: statusDef.isInitial,
-              isFinal: statusDef.isFinal,
+        if (statuses && statuses.length > 0) {
+          const statusIdMap: Record<string, string> = {};
+
+          for (let i = 0; i < statuses.length; i++) {
+            const statusDef = statuses[i];
+            const normalizedKey = statusDef.key || statusDef.name.toLowerCase().replace(/[\s_-]+/g, "_").toUpperCase();
+            
+            const status = await databases.createDocument<WorkflowStatus>(
+              DATABASE_ID,
+              WORKFLOW_STATUSES_ID,
+              ID.unique(),
+              {
+                workspaceId: workflow.workspaceId,
+                workflowId: workflow.$id,
+                name: statusDef.name,
+                key: normalizedKey,
+                icon: statusDef.icon || "Circle",
+                color: statusDef.color || "#6B7280",
+                statusType: statusDef.statusType || StatusType.OPEN,
+                category: statusDef.statusType === StatusType.CLOSED ? "done" : (statusDef.statusType === StatusType.OPEN ? "todo" : "in_progress"),
+                position: statusDef.position ?? i,
+                positionX: i * 280 + 100, // Normalized grid
+                positionY: 200,
+                isInitial: statusDef.isInitial ?? (i === 0),
+                isFinal: statusDef.isFinal ?? (statusDef.statusType === StatusType.CLOSED),
+              },
+              permissions
+            );
+            statusIdMap[normalizedKey] = status.$id;
+          }
+
+          // Create explicit transitions if provided
+          if (transitions && transitions.length > 0) {
+            for (const transitionDef of transitions) {
+              const fromId = statusIdMap[transitionDef.fromStatusKey];
+              const toId = statusIdMap[transitionDef.toStatusKey];
+              if (fromId && toId) {
+                await databases.createDocument<WorkflowTransition>(
+                  DATABASE_ID,
+                  WORKFLOW_TRANSITIONS_ID,
+                  ID.unique(),
+                  {
+                    workspaceId: workflow.workspaceId,
+                    workflowId: workflow.$id,
+                    fromStatusId: fromId,
+                    toStatusId: toId,
+                    name: transitionDef.name || null,
+                    allowedTeamIds: transitionDef.allowedTeamIds || null,
+                    requiresApproval: transitionDef.requiresApproval || false,
+                  },
+                  permissions
+                );
+              }
             }
           }
           statusesInitialized = true;
@@ -288,14 +321,21 @@ const app = new Hono()
                 WORKFLOW_STATUSES_ID,
                 ID.unique(),
                 {
-  workflowId: workflow.$id,
-  workspaceId: workflow.workspaceId,
-  fromStatusId: fromId,
-  toStatusId: toId,
-  name: transitionDef.name || null,
-  allowedTeamIds: transitionDef.allowedTeamIds || null,
-  requiresApproval: transitionDef.requiresApproval || false,
-}
+                  workspaceId: workflow.workspaceId,
+                  workflowId: workflow.$id,
+                  name: column.name,
+                  key: normalizedKey,
+                  icon: column.icon || "Circle",
+                  color: column.color || "#6B7280",
+                  statusType: statusType,
+                  category: category,
+                  position: i, // Use index for standard ordering
+                  positionX: i * 280 + 100, // Grid spacing
+                  positionY: 200,
+                  isInitial: i === 0, // First column is the entry point
+                  isFinal: statusType === StatusType.CLOSED,
+                },
+                permissions
               );
             }
             statusesInitialized = true;
@@ -748,28 +788,6 @@ const app = new Hono()
         position = (allStatuses.documents[0]?.position ?? -1) + 1;
       }
 
-      const status = await databases.createDocument<WorkflowStatus>(
-        DATABASE_ID,
-        WORKFLOW_STATUSES_ID,
-        ID.unique(),
-        {
-          workflowId,
-          workspaceId: workflow.workspaceId,
-          name: statusData.name,
-          key: statusData.key,
-          icon: statusData.icon || "Circle",
-          color: statusData.color,
-          statusType: statusData.statusType || StatusType.OPEN,
-          description: statusData.description || null,
-          position,
-          positionX: statusData.positionX || 0,
-          positionY: statusData.positionY || 0,
-          isInitial: statusData.isInitial || false,
-          isFinal: statusData.isFinal || false,
-        }
-      );
-
-      // Auto-sync: Create custom columns in all projects that use this workflow
       try {
         const status = await databases.createDocument<WorkflowStatus>(
           DATABASE_ID,
@@ -1121,7 +1139,6 @@ const app = new Hono()
         {
           workspaceId: workflow.workspaceId,
           workflowId,
-          workspaceId: workflow.workspaceId,
           fromStatusId: transitionData.fromStatusId,
           toStatusId: transitionData.toStatusId,
           name: transitionData.name || null,
@@ -2073,7 +2090,6 @@ const app = new Hono()
               {
                 workspaceId: workflow.workspaceId,
                 workflowId,
-                workspaceId: workflow.workspaceId,
                 name: projectStatus.name,
                 key: projectStatus.key,
                 icon: projectStatus.icon,
