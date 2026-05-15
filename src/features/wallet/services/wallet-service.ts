@@ -1061,11 +1061,11 @@ export async function creditTrialToWallet(
         // console.log(`[wallet-service] Trial credit successful for ${walletId}. Transaction: ${transaction.$id}`);
 
         return { success: true, transaction };
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         console.error(`[wallet-service] Error in creditTrialToWallet:`, {
-            message: error?.message,
-            code: error?.code,
-            stack: error?.stack
+            message: errorMessage,
+            error
         });
         const { releaseProcessingLock } = await import("@/lib/processed-events-registry");
         await releaseProcessingLock(databases, `wallet_trial_credit:${idempotencyKey}`, "wallet");

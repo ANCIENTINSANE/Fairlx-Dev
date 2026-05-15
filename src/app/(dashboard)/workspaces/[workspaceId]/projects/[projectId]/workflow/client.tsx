@@ -32,7 +32,6 @@ import { useGetWorkflow } from "@/features/workflows/api/use-get-workflow";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
 import { useCreateWorkflowModal } from "@/features/workflows/hooks/use-create-workflow-modal";
 import { CreateWorkflowModal } from "@/features/workflows/components/create-workflow-modal";
-import { StatusType, STATUS_TYPE_CONFIG } from "@/features/workflows/types";
 
 export const ProjectWorkflowClient = () => {
   const router = useRouter();
