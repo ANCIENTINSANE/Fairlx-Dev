@@ -254,13 +254,12 @@ const app = new Hono()
                     } else {
                         console.error(`[org-creation] Trial credit failed: ${creditResult.error}`);
                     }
-                } catch (trialError: any) {
+                } catch (trialError: unknown) {
                     // Non-blocking: org creation succeeds even if trial credit fails
+                    const errorMessage = trialError instanceof Error ? trialError.message : String(trialError);
                     console.error("[org-creation] Trial credit setup failed (non-blocking):", {
-                        message: trialError?.message || "Unknown error",
-                        code: trialError?.code,
-                        response: trialError?.response,
-                        stack: trialError?.stack
+                        message: errorMessage,
+                        error: trialError
                     });
                 }
             }
