@@ -191,7 +191,7 @@ const app = new Hono()
               icon: status.icon,
               color: status.color,
               statusType: status.statusType,
-              category: status.statusType === StatusType.CLOSED ? "done" : (status.statusType === StatusType.OPEN ? "todo" : "in_progress"),
+              category: status.statusType === StatusType.CLOSED ? "DONE" : (status.statusType === StatusType.OPEN ? "TODO" : "IN_PROGRESS"),
               description: status.description,
               position: status.position,
               positionX: status.positionX || 0,
@@ -252,7 +252,7 @@ const app = new Hono()
                 icon: statusDef.icon || "Circle",
                 color: statusDef.color || "#6B7280",
                 statusType: statusDef.statusType || StatusType.OPEN,
-                category: statusDef.statusType === StatusType.CLOSED ? "done" : (statusDef.statusType === StatusType.OPEN ? "todo" : "in_progress"),
+                category: statusDef.statusType === StatusType.CLOSED ? "DONE" : (statusDef.statusType === StatusType.OPEN ? "TODO" : "IN_PROGRESS"),
                 position: statusDef.position ?? i,
                 positionX: i * 280 + 100, // Normalized grid
                 positionY: 200,
@@ -305,15 +305,15 @@ const app = new Hono()
               
               // Map status type based on name
               let statusType = StatusType.IN_PROGRESS;
-              let category = "in_progress";
+              let category = "IN_PROGRESS";
               const lowerName = column.name.toLowerCase();
               
               if (lowerName.includes("todo") || lowerName.includes("backlog") || lowerName.includes("open") || i === 0) {
                 statusType = StatusType.OPEN;
-                category = "todo";
+                category = "TODO";
               } else if (lowerName.includes("done") || lowerName.includes("close") || lowerName.includes("finish") || lowerName.includes("completed")) {
                 statusType = StatusType.CLOSED;
-                category = "done";
+                category = "DONE";
               }
 
               await databases.createDocument<WorkflowStatus>(
@@ -360,7 +360,7 @@ const app = new Hono()
                 icon: statusDef.icon,
                 color: statusDef.color,
                 statusType: statusDef.statusType,
-                category: statusDef.key === "DONE" ? "done" : (statusDef.statusType === StatusType.OPEN ? "todo" : "in_progress"),
+                category: ["TODO","ASSIGNED","IN_PROGRESS","IN_REVIEW","DONE","CUSTOM"].includes(statusDef.key) ? statusDef.key : (statusDef.statusType === StatusType.CLOSED ? "DONE" : (statusDef.statusType === StatusType.OPEN ? "TODO" : "IN_PROGRESS")),
                 position: statusDef.position,
                 positionX: statusDef.positionX || (statusDef.position * 250),
                 positionY: statusDef.positionY || 100,
@@ -801,7 +801,7 @@ const app = new Hono()
             icon: statusData.icon || "Circle",
             color: statusData.color,
             statusType: statusData.statusType || StatusType.OPEN,
-            category: (statusData.statusType || StatusType.OPEN) === StatusType.CLOSED ? "done" : ((statusData.statusType || StatusType.OPEN) === StatusType.OPEN ? "todo" : "in_progress"),
+            category: (statusData.statusType || StatusType.OPEN) === StatusType.CLOSED ? "DONE" : ((statusData.statusType || StatusType.OPEN) === StatusType.OPEN ? "TODO" : "IN_PROGRESS"),
             description: statusData.description || "",
             position,
             positionX: statusData.positionX || 0,
@@ -2095,7 +2095,7 @@ const app = new Hono()
                 icon: projectStatus.icon,
                 color: projectStatus.color,
                 statusType: StatusType.OPEN,
-                category: "todo",
+                category: "TODO",
                 description: null,
                 position: newPosition,
                 // If visible, place on canvas; otherwise off canvas
