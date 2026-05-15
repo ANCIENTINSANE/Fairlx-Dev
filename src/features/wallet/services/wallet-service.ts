@@ -986,7 +986,7 @@ export async function creditTrialToWallet(
     const idempotencyKey = `trial-credit-${options.organizationId}`;
     try {
         // console.log(`[wallet-service] Attempting to credit trial to wallet ${walletId} (amount: ${amount})...`);
-        const { acquireProcessingLock, releaseProcessingLock } = await import("@/lib/processed-events-registry");
+        const { acquireProcessingLock } = await import("@/lib/processed-events-registry");
 
         // 1. Lock to prevent concurrent credit attempts
         if (!(await acquireProcessingLock(databases, `wallet_trial_credit:${idempotencyKey}`, "wallet"))) {
