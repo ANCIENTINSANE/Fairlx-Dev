@@ -94,15 +94,12 @@ const isWorkflowPage = /^\/workspaces\/[^\/]+\/spaces\/[^\/]+\/workflows\/[^\/]+
         <div className="lg:pl-[264px] w-full flex flex-col min-h-screen">
           <Navbar />
           <div className="flex-1 overflow-y-auto bg-background">
-            <div className="mx-auto max-w-screen-2xl">
-              <main className={cn(
-                "flex flex-col",
-                isTaskDetailPage ? "py-0 px-0" : "py-8 px-6",
-                isWorkflowPage ? "py-0 px-0" : "py-8 px-6"
-              )}>
-                {children}
-              </main>
-            </div>
+            <main className={cn(
+              "flex flex-col",
+              isTaskDetailPage || isWorkflowPage ? "py-0 px-0" : "py-8 px-6"
+            )}>
+              {children}
+            </main>
           </div>
         </div>
       </div>
