@@ -4,74 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
-- `packages/fairlx-mcp/src/tools/write.ts`
-- `src/components/query-provider.tsx`
-- `src/features/agent/api/use-agent-context.ts`
-- `src/features/agent/api/use-agent-runs.ts`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-context-meter.tsx`
-- `src/features/agent/components/agent-crew-panel.tsx`
-- `src/features/agent/components/agent-floating-chat.tsx`
-- `src/features/agent/components/agent-permission-picker.tsx`
-- `src/features/agent/components/agent-run-hud.tsx`
-- `src/features/agent/components/mcp-servers-card.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/constants.ts`
-- `src/features/agent/hooks/use-agent-mutation-sync.ts`
-- `src/features/agent/lib/agent-core.test.ts`
-- `src/features/agent/lib/attachments.test.ts`
-- `src/features/agent/lib/attachments.ts`
-- `src/features/agent/lib/brain/brain.test.ts`
-- `src/features/agent/lib/brain/compress.ts`
-- `src/features/agent/lib/brain/definitions.ts`
-- `src/features/agent/lib/brain/select.ts`
-- `src/features/agent/lib/context-meter.test.ts`
-- `src/features/agent/lib/context-meter.ts`
-- `src/features/agent/lib/mcp-bridge.ts`
-- `src/features/agent/lib/model-context.test.ts`
-- `src/features/agent/lib/model-context.ts`
-- `src/features/agent/lib/mutation-sync.test.ts`
-- `src/features/agent/lib/mutation-sync.ts`
-- `src/features/agent/lib/platform-credentials.ts`
-- `src/features/agent/lib/prompt-budget.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/run-usage.test.ts`
-- `src/features/agent/lib/run-usage.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/session-context.ts`
-- `src/features/agent/lib/subagent-tree.test.ts`
-- `src/features/agent/lib/subagent-tree.ts`
-- `src/features/agent/lib/tool-loop.test.ts`
-- `src/features/agent/lib/tool-loop.ts`
-- `src/features/agent/lib/tool-schemas.ts`
-- `src/features/agent/lib/tools-scope.test.ts`
-- `src/features/agent/lib/tools.ts`
-- `src/features/agent/lib/transcript.ts`
-- `src/features/agent/lib/write-guard.test.ts`
-- `src/features/agent/lib/write-guard.ts`
-- `src/features/project-docs/api/use-project-docs.ts`
-- `src/features/projects/api/use-get-project.ts`
-- `src/features/projects/api/use-get-projects.ts`
-- `src/features/sprints/api/use-get-sprints.ts`
-- `src/features/sprints/api/use-get-work-item.ts`
-- `src/features/sprints/api/use-get-work-items.ts`
-- `src/hooks/use-fairlx-query-sync.ts`
-- `src/lib/ai-billing.test.ts`
-- `src/lib/fairlx-query-sync.test.ts`
-- `src/lib/fairlx-query-sync.ts`
-- `src/lib/query-config.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `fa5e86a` | fix: keep agent board writes safe, visible, and in the right sprint | ANCIENTINSANE |
 | 2026-09-06 | `8c49ee0` | Merge stemlen/main into fork main to sync upstream before contribution. | ANCIENTINSANE |
 | 2026-09-06 | `c719487` | feat: researched project docs, agent context fitting, and usage billing | ANCIENTINSANE |
 | 2026-09-05 | `8b787ea` | chore: bump version to 0.2.102 [skip ci] | github-actions[bot] |
@@ -165,6 +102,5 @@ Files in this commit:
 | 2026-08-28 | `5cc9f57` | fix: align org usage costs to USD billing with local display currency | ANCIENTINSANE |
 | 2026-08-28 | `1fa59fc` | chore: bump version to 0.2.69 [skip ci] | github-actions[bot] |
 | 2026-08-28 | `16d13e5` | Merge pull request #287 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-28 | `3a527cd` | Merge branch 'stemlen:main' into main | Surendra Codes |
 
-Last generated: 2026-09-06T11:30:41.307Z
+Last generated: 2026-09-06T11:30:47.471Z

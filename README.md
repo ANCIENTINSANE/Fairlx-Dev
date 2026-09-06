@@ -18,43 +18,19 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-06T11:30:41.336Z
+**Last updated:** 2026-09-06T11:30:47.502Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
-- `packages/fairlx-mcp/src/tools/write.ts`
-- `src/components/query-provider.tsx`
-- `src/features/agent/api/use-agent-context.ts`
-- `src/features/agent/api/use-agent-runs.ts`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-context-meter.tsx`
-- `src/features/agent/components/agent-crew-panel.tsx`
-- `src/features/agent/components/agent-floating-chat.tsx`
-- `src/features/agent/components/agent-permission-picker.tsx`
-- `src/features/agent/components/agent-run-hud.tsx`
-- `src/features/agent/components/mcp-servers-card.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/constants.ts`
-- `src/features/agent/hooks/use-agent-mutation-sync.ts`
-- `src/features/agent/lib/agent-core.test.ts`
-- `src/features/agent/lib/attachments.test.ts`
-- `src/features/agent/lib/attachments.ts`
-- …and 39 more files
-
 **Latest commits**
 
+- `fa5e86a` fix: keep agent board writes safe, visible, and in the right sprint (2026-09-06)
 - `8c49ee0` Merge stemlen/main into fork main to sync upstream before contribution. (2026-09-06)
 - `c719487` feat: researched project docs, agent context fitting, and usage billing (2026-09-06)
 - `8b787ea` chore: bump version to 0.2.102 [skip ci] (2026-09-05)
 - `66e7390` Merge pull request #305 from Happyesss/main (2026-09-05)
 - `f06ca01` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
 - `c81e03c` Merge pull request #304 from Happyesss/contrib/context-meter (2026-09-05)
-- `3de0bd4` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
 <!-- docs:latest:end -->
 
 ---
