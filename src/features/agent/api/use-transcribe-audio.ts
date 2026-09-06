@@ -15,8 +15,8 @@ export function useTranscribeAudio() {
       if (!response.ok) {
         await readError(response, "Couldn't transcribe audio.");
       }
-      const { data } = await response.json();
-      return data.text;
+      const json = await response.json() as { data: { text: string } };
+      return json.data.text;
     },
     onError: (error) => {
       toast.error(error.message || "Couldn't transcribe audio.");

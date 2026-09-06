@@ -597,18 +597,16 @@ function WorkflowViewInner() {
 
   if (!runId) {
     return (
-      <div className="relative h-full min-h-0 overflow-hidden bg-background">
-        <div className="absolute inset-0 overflow-y-auto custom-scrollbar px-8 pt-12 pb-56">
-          <div className="max-w-3xl mx-auto space-y-3">
-            <h1 className="text-3xl font-bold text-foreground">Start an Agent Run</h1>
-            <p className="text-sm text-muted-foreground">
+      <div className="relative h-full min-h-0 overflow-y-auto custom-scrollbar bg-background p-6 sm:p-8 flex flex-col">
+        <div className="max-w-3xl mx-auto w-full my-auto pb-16 space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-bold text-foreground tracking-tight">Start an Agent Run</h1>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
               Ask the Agent to inspect Fairlx work, search repositories, plan sprints, or ship code changes.
             </p>
           </div>
-        </div>
-        <FloatingComposer>
           <AgentCommandInput showQuickActions placeholder="Plan, Build, / for skills, @ for context" />
-        </FloatingComposer>
+        </div>
       </div>
     );
   }

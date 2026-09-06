@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
+
 import {
   ArrowUpRight,
   Check,
@@ -1169,22 +1169,25 @@ export function AgentChatThread({
                   </div>
                 );
               }
-              const isCurrentSteps = isLast && block === turn.blocks.filter((item) => item.kind === "steps").at(-1);
-              return (
-                <div key={block.lead?.id ?? `steps-${turnIndex}-${blockIndex}`} className="flex flex-col gap-3">
-                  <StepsCard
-                    lead={block.lead}
-                    steps={block.steps}
-                    running={turnRunning && isCurrentSteps}
-                    awaiting={awaiting && isCurrentSteps}
-                    workItems={workItems}
-                    members={members}
-                    workspaceId={run.workspaceId}
-                    projectId={run.projectId}
-                  />
-                  {cta}
-                </div>
-              );
+              if (block.kind === "steps") {
+                const isCurrentSteps = isLast && block === turn.blocks.filter((item) => item.kind === "steps").at(-1);
+                return (
+                  <div key={block.lead?.id ?? `steps-${turnIndex}-${blockIndex}`} className="flex flex-col gap-3">
+                    <StepsCard
+                      lead={block.lead}
+                      steps={block.steps}
+                      running={turnRunning && isCurrentSteps}
+                      awaiting={awaiting && isCurrentSteps}
+                      workItems={workItems}
+                      members={members}
+                      workspaceId={run.workspaceId}
+                      projectId={run.projectId}
+                    />
+                    {cta}
+                  </div>
+                );
+              }
+              return null;
             })}
 
             {turn.usage.some((event) => event.type === "llm_usage" || event.type === "context_meter") ? (
