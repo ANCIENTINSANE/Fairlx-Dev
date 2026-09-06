@@ -4,24 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `src/features/agent/api/use-transcribe-audio.ts`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-home.tsx`
-- `src/features/agent/components/daily-cockpit.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/billing/components/wallet-billing-alerts.tsx`
-- `src/features/project-docs/server/route.ts`
-- `src/lib/ai-pricing-sync-job.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `3a0d23c` | feat: implement dismissible Linear-inspired suggestion cards in AgentCommandInput and reorder AgentHome layout | Happyesss |
 | 2026-09-06 | `412c5b9` | chore: bump version to 0.2.104 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `03593e4` | Merge pull request #307 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-06 | `fe9d2a6` | fix: resolve sprints by name and fold duplicate sprint numbers | ANCIENTINSANE |
@@ -113,6 +100,5 @@ Files in this commit:
 | 2026-08-30 | `2d5db2e` | Merge pull request #289 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-08-30 | `15a2169` | chore: bump version to 0.2.71 [skip ci] | github-actions[bot] |
 | 2026-08-30 | `e490237` | feat: add support for subtask, saved view, and webhook management tools to MCP registry | Happyesss |
-| 2026-08-30 | `904542e` | Merge branch 'stemlen:main' into main | Shashank Kumar Rathour |
 
-Last generated: 2026-09-06T16:38:56.662Z
+Last generated: 2026-09-06T16:39:01.742Z
