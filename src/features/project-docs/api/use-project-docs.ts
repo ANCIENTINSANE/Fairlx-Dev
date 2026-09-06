@@ -73,6 +73,7 @@ export const useGetProjectDocuments = (
       return await response.json() as DocumentsResponse;
     },
     enabled: !!projectId && !!workspaceId,
+    refetchOnWindowFocus: true,
   });
 };
 
@@ -94,6 +95,7 @@ export const useGetProjectDocument = (documentId: string, workspaceId: string) =
       return await response.json() as DocumentResponse;
     },
     enabled: !!documentId && !!workspaceId,
+    refetchOnWindowFocus: true,
   });
 };
 

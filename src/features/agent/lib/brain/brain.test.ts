@@ -33,6 +33,12 @@ describe("selectToolsForTurn", () => {
     expect(names.has("fairlx_work_item_bulk_update")).toBe(true);
     expect(names.has("fairlx_sprint_list")).toBe(true);
     expect(names.has("fairlx_work_item_update")).toBe(true);
+    expect(names.has("fairlx_project_create")).toBe(true);
+    expect(names.has("fairlx_project_list")).toBe(true);
+    expect(names.has("fairlx_sprint_create")).toBe(true);
+    expect(names.has("fairlx_sprint_plan")).toBe(true);
+    expect(names.has("fairlx_sprint_update")).toBe(true);
+    expect(names.has("fairlx_work_item_delete")).toBe(true);
   });
 
   it("keeps invite tools and drops mail_send for add-by-email-id prompts", () => {
@@ -46,19 +52,36 @@ describe("selectToolsForTurn", () => {
     expect(names.has("mail_send")).toBe(false);
   });
 
-  it("keeps bulk assign tools for unassign-all and assign-sprint prompts", () => {
+  it("keeps bulk assign tools for unassign-all and assign-sprint prompts and still exposes delete", () => {
     const names = wantedToolNames(
       "remove all assignees for all work items in all sprints and assign all workitems in sprint 1 to Fogef only",
     );
     expect(names.has("fairlx_work_item_bulk_update")).toBe(true);
     expect(names.has("fairlx_sprint_list")).toBe(true);
+    expect(names.has("fairlx_work_item_delete")).toBe(true);
   });
 
-  it("keeps sprint create tools for planning prompts", () => {
+  it("keeps sprint create tools and work-item delete on planning prompts", () => {
     const names = wantedToolNames("Plan all sprints, work items, and epics from the spec");
     expect(names.has("fairlx_sprint_create")).toBe(true);
+    expect(names.has("fairlx_sprint_plan")).toBe(true);
     expect(names.has("fairlx_work_item_create")).toBe(true);
     expect(names.has("fairlx_work_item_bulk_update")).toBe(true);
+    expect(names.has("fairlx_work_item_delete")).toBe(true);
+  });
+
+  it("still exposes delete tools when creating a board so the model can choose not to use them", () => {
+    const create = wantedToolNames("Create a project and add every work item, epic, and sprint in detail");
+    expect(create.has("fairlx_work_item_delete")).toBe(true);
+    expect(create.has("fairlx_work_item_create")).toBe(true);
+    const tools = [
+      tool("fairlx_work_item_delete"),
+      tool("fairlx_sprint_delete"),
+      tool("fairlx_work_item_create"),
+      tool("delegate_agent"),
+    ];
+    const selected = selectToolsForTurn(tools, "Plan all sprints and create all work items");
+    expect(selected.map((item) => item.function.name)).toContain("fairlx_work_item_delete");
   });
 
   it("keeps sprint list and work-item delete for backlog delete prompts", () => {
@@ -105,6 +128,23 @@ describe("selectToolsForTurn", () => {
     expect(names).not.toContain("github_list_files");
     expect(names).not.toContain("github_read_file");
   });
+
+  it("keeps project create even when the catalog is huge and there is no project yet", () => {
+    const extras = Array.from({ length: 40 }, (_, index) => tool(`noise_tool_${index}`));
+    const tools = [
+      tool("delegate_agent"),
+      tool("fairlx_project_create"),
+      tool("fairlx_project_list"),
+      tool("web_search"),
+      ...extras,
+    ];
+    const selected = selectToolsForTurn(tools, "I want to build a queen agent harness for Claude and Codex", {
+      hasProject: false,
+    });
+    const names = selected.map((item) => item.function.name);
+    expect(names).toContain("fairlx_project_create");
+    expect(names).toContain("fairlx_project_list");
+  });
 });
 
 describe("compressMessages", () => {
@@ -142,6 +182,39 @@ describe("fitMessagesForModel", () => {
     expect(estimatedFittedTokens("system prompt", messages, 8_000)).toBeLessThan(8_000);
     expect(estimatedFittedTokens("system prompt", messages, 72_000)).toBeLessThan(72_000);
   });
+
+  it("keeps later user instructions after a long tool burst", () => {
+    const now = new Date().toISOString();
+    const users: AgentChatMessage[] = [
+      { id: "u1", role: "user", content: "i want to build a product", createdAt: now },
+      { id: "u2", role: "user", content: "a harness plugin for claude code and codex", createdAt: now },
+      {
+        id: "u3",
+        role: "user",
+        content: "a queen agent routing 70-80 specialists and picking cheap vs large models",
+        createdAt: now,
+      },
+      {
+        id: "u4",
+        role: "user",
+        content: "Create the project and every epic, story, and sprint in detail.",
+        createdAt: now,
+      },
+    ];
+    const tools: AgentChatMessage[] = Array.from({ length: 40 }, (_, index) => ({
+      id: `t${index}`,
+      role: "tool",
+      toolName: "fairlx_work_item_create",
+      toolCallId: `c${index}`,
+      content: JSON.stringify({ workItem: { $id: `wi${index}`, title: `Item ${index}` } }),
+      createdAt: now,
+    }));
+    const fitted = fitMessagesForModel("system", [...users.slice(0, 3), users[3]!, ...tools], 128_000);
+    const userText = fitted.filter((message) => message.role === "user").map((message) => message.content);
+    expect(userText).toContain("i want to build a product");
+    expect(userText.some((text) => text?.includes("queen agent"))).toBe(true);
+    expect(userText.some((text) => text?.includes("every epic"))).toBe(true);
+  });
 });
 
 describe("isolate", () => {
@@ -165,7 +238,9 @@ describe("isolate", () => {
         tool("github_open_pr"),
         tool("mail_send"),
         tool("fairlx_sprint_create"),
+        tool("fairlx_sprint_plan"),
         tool("fairlx_work_item_create"),
+        tool("fairlx_project_create"),
       ],
       "builder",
     );
@@ -173,7 +248,9 @@ describe("isolate", () => {
     expect(names).toContain("github_write_file");
     expect(names).toContain("github_open_pr");
     expect(names).toContain("fairlx_sprint_create");
+    expect(names).toContain("fairlx_sprint_plan");
     expect(names).toContain("fairlx_work_item_create");
+    expect(names).toContain("fairlx_project_create");
     expect(names).not.toContain("mail_send");
     expect(names).not.toContain("delegate_agent");
   });

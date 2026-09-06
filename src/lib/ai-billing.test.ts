@@ -44,6 +44,10 @@ describe("AI token billing", () => {
         const cached = calculateCustomerTokenCostUSD(luna, 1_000_000, 0, 1_000_000);
         expect(cached.providerCostUSD).toBe(0.02);
         expect(cached.costUSD).toBe(0.023);
+
+        const screenshot = calculateCustomerTokenCostUSD(luna, 54_065, 5_395, 25_056);
+        expect(screenshot.providerCostUSD).toBe(0.012777);
+        expect(screenshot.costUSD).toBe(0.014694);
     });
 
     it("does not double-count cached prompt tokens", () => {

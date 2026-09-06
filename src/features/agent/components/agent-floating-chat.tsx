@@ -32,6 +32,7 @@ import {
   useSendAgentMessage,
   useStopAgentRun,
 } from "../api/use-agent-runs";
+import { useAgentMutationSync } from "../hooks/use-agent-mutation-sync";
 import { firstName, greetingForNow } from "../lib/agent-ui";
 import type { AgentRun } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
@@ -92,7 +93,8 @@ function AgentFloatingChatInner() {
   const stickToBottomRef = useRef(true);
   const continuedRef = useRef<string | null>(null);
 
-  const { data: run, isLoading, isError } = useGetAgentRun(open ? runId ?? undefined : undefined);
+  const { data: run, isLoading, isError } = useGetAgentRun(runId ?? undefined);
+  useAgentMutationSync(run);
   const sendMessage = useSendAgentMessage();
   const confirmRun = useConfirmAgentRun();
   const denyRun = useDenyAgentRun();

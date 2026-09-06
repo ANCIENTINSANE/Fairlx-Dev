@@ -4,7 +4,8 @@
  * 
  * SCALING PRINCIPLE: Longer stale times = fewer DB reads.
  * At 1K+ users, every second shaved off polling = ~1K fewer reads/interval.
- * Use Appwrite Realtime or manual invalidation instead of short polling.
+ * Use Appwrite Realtime, Fairlx query-sync (agent MCP writes + other tabs),
+ * or manual invalidation instead of short polling.
  */
 
 export const QUERY_CONFIG = {

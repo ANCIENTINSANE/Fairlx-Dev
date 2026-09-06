@@ -21,12 +21,19 @@ export const CORE_FAIRLX_TOOLS = [
   "fairlx_work_item_create",
   "fairlx_work_item_update",
   "fairlx_work_item_bulk_update",
+  "fairlx_work_item_delete",
   "fairlx_sprint_list",
   "fairlx_sprint_get",
+  "fairlx_sprint_create",
+  "fairlx_sprint_plan",
+  "fairlx_sprint_update",
   "fairlx_comment_list",
   "fairlx_comment_add",
+  "fairlx_workspace_list",
   "fairlx_workspace_members_list",
+  "fairlx_project_list",
   "fairlx_project_get",
+  "fairlx_project_create",
   "fairlx_project_members_list",
 ];
 
@@ -110,6 +117,7 @@ const BUCKETS: Bucket[] = [
       "fairlx_work_item_get",
       "fairlx_sprint_list",
       "fairlx_sprint_create",
+      "fairlx_sprint_plan",
       "fairlx_sprint_update",
       "fairlx_comment_list",
       "fairlx_work_item_create",
@@ -148,6 +156,19 @@ const BUCKETS: Bucket[] = [
   {
     pattern: /\b(notification|inbox|mentions?)\b/i,
     names: ["fairlx_notification_list", "fairlx_notification_mark_read"],
+  },
+  {
+    pattern: /\b(delete|wipe|purge|permanently remove)\b/i,
+    names: [
+      "fairlx_work_item_delete",
+      "fairlx_sprint_delete",
+      "fairlx_project_delete",
+      "fairlx_doc_delete",
+      "fairlx_workspace_member_remove",
+      "fairlx_project_team_member_remove",
+      "fairlx_work_item_list",
+      "fairlx_sprint_list",
+    ],
   },
 ];
 
@@ -202,10 +223,17 @@ export function wantedToolNames(query: string): Set<string> {
 export function selectToolsForTurn<T extends SelectableTool>(
   tools: T[],
   query: string,
-  options?: { hasGithubRepo?: boolean },
+  options?: { hasGithubRepo?: boolean; hasProject?: boolean },
 ): T[] {
   if (!tools.length) return tools;
   const wanted = wantedToolNames(query);
+  if (options?.hasProject === false) {
+    wanted.add("fairlx_project_create");
+    wanted.add("fairlx_project_list");
+    wanted.add("fairlx_sprint_create");
+    wanted.add("fairlx_sprint_plan");
+    wanted.add("fairlx_workspace_list");
+  }
   const skipGithubRead =
     options?.hasGithubRepo === false &&
     !/\b(pr\b|pull request|commit|github|repo|repository|edit the code|patch)\b/i.test(query);

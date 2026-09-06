@@ -47,6 +47,20 @@ import {
   projectTeamUpdate,
 } from "./write-team";
 import { organizationUpdate, departmentCreate, departmentPermissionAdd } from "./organization";
+import {
+  compactSprint,
+  documentSprintId,
+  findSprintForCreate,
+  itemsForSprint,
+  listProjectSprints,
+  loadSprint,
+  planStatsForItems,
+  resolveOptionalSprintId,
+  resolveSprintId,
+  sprintDocumentId,
+  sprintOrdinal,
+  sprintsWithSameNumber,
+} from "./sprint-resolve";
 
 export async function handleWriteTool(
   name: string,
@@ -69,6 +83,8 @@ export async function handleWriteTool(
       return workItemSplit(args, runtime, auth);
     case "fairlx_sprint_create":
       return sprintCreate(args, runtime, auth);
+    case "fairlx_sprint_plan":
+      return sprintPlan(args, runtime, auth);
     case "fairlx_sprint_start":
       return sprintStart(args, runtime, auth);
     case "fairlx_sprint_complete":
@@ -221,7 +237,7 @@ async function workItemCreate(
       status: "TODO",
       priority: optionalString(args, "priority") ?? "MEDIUM",
       description: optionalString(args, "description") ?? "",
-      sprintId: optionalString(args, "sprintId") ?? null,
+      sprintId: await resolveOptionalSprintId(runtime, projectId, args.sprintId),
       assigneeIds,
       storyPoints: typeof args.storyPoints === "number" ? args.storyPoints : undefined,
       dueDate: optionalString(args, "dueDate") ?? undefined,
@@ -475,7 +491,9 @@ async function workItemUpdate(
   }
   if (args.priority !== undefined) patch.priority = requireString(args, "priority");
   if (args.description !== undefined) patch.description = String(args.description);
-  if (args.sprintId !== undefined) patch.sprintId = args.sprintId;
+  if (args.sprintId !== undefined) {
+    patch.sprintId = await resolveOptionalSprintId(runtime, projectId, args.sprintId);
+  }
   const assigneeInput = assigneeInputFromArgs(args);
   if (assigneeInput !== undefined) {
     patch.assigneeIds = await resolveAssigneeIds(runtime, auth, item, assigneeInput);
@@ -585,64 +603,6 @@ async function assignEpicsInProject(
     mapping,
     workItems: updated,
   });
-}
-
-function documentSprintId(doc: Record<string, unknown>): string {
-  if (doc.sprintId == null) return "";
-  const value = String(doc.sprintId).trim();
-  if (!value || value === "null" || value === "undefined") return "";
-  return value;
-}
-
-function sprintOrdinal(name: string): number | undefined {
-  const match = name
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim()
-    .match(/^sprint\s+(\d+)\b/);
-  return match ? Number(match[1]) : undefined;
-}
-
-function sprintNameMatches(name: string, query: string): boolean {
-  const n = name.toLowerCase().replace(/\s+/g, " ").trim();
-  const q = query.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!n || !q) return false;
-  if (n === q) return true;
-  const numbered = q.match(/^(?:sprint\s+)?(\d+)$/);
-  if (numbered) return sprintOrdinal(n) === Number(numbered[1]);
-  if (n.startsWith(q) && (n.length === q.length || /[\s—–-]/.test(n[q.length] ?? ""))) return true;
-  return false;
-}
-
-async function resolveSprintId(
-  runtime: McpRuntime,
-  projectId: string,
-  raw: string,
-): Promise<string> {
-  const query = raw.trim();
-  if (!query) throw invalidParams("sprintId is required");
-  try {
-    const sprint = await runtime.store.get<Record<string, unknown>>(runtime.collections.sprints, query);
-    if (String(sprint.projectId ?? "") === projectId) {
-      return String(sprint.$id ?? sprint.id ?? query);
-    }
-  } catch {
-    // Resolve by sprint name / number next.
-  }
-  const docs = await listAllDocuments(runtime, runtime.collections.sprints, [
-    { type: "equal", field: "projectId", value: projectId },
-  ]);
-  const matches = docs.filter((doc) => sprintNameMatches(String(doc.name ?? ""), query));
-  if (matches.length === 1) return String(matches[0]!.$id ?? matches[0]!.id ?? "");
-  if (matches.length > 1) {
-    throw invalidParams(
-      `Several sprints match "${query}": ${matches
-        .map((doc) => String(doc.name ?? ""))
-        .filter(Boolean)
-        .join(", ")}. Pass the sprint id.`,
-    );
-  }
-  throw notFoundError(`Sprint not found: ${query}`);
 }
 
 function isEmptyAssigneeInput(raw: unknown): boolean {
@@ -789,7 +749,7 @@ async function workItemBulkUpdate(
     const patch: Record<string, unknown> = {};
     if (args.status !== undefined) patch.status = args.status;
     if (!sprintUsedAsScope && explicitIds.length > 0 && args.sprintId !== undefined) {
-      patch.sprintId = args.sprintId;
+      patch.sprintId = await resolveOptionalSprintId(runtime, String(item.projectId), args.sprintId);
     }
     if (clearAssignees) {
       patch.assigneeIds = [];
@@ -893,6 +853,98 @@ async function workItemSplit(
   return run();
 }
 
+async function foldDuplicateNumberedSprints(
+  runtime: McpRuntime,
+  projectId: string,
+  keeper: Record<string, unknown>,
+): Promise<{ id: string; name: string }[]> {
+  const extras = sprintsWithSameNumber(await listProjectSprints(runtime, projectId), keeper);
+  if (extras.length === 0) return [];
+  const keeperId = sprintDocumentId(keeper);
+  const items = await listAllDocuments(runtime, runtime.collections.workItems, [
+    { type: "equal", field: "projectId", value: projectId },
+  ]);
+  const folded: { id: string; name: string }[] = [];
+  for (const extra of extras) {
+    const extraId = sprintDocumentId(extra);
+    const extraName = String(extra.name ?? "");
+    for (const item of items) {
+      const sid = documentSprintId(item);
+      if (sid === extraId || sid === extraName) {
+        await runtime.store.update(runtime.collections.workItems, String(item.$id ?? item.id), {
+          sprintId: keeperId,
+        });
+      }
+    }
+    await runtime.store.delete(runtime.collections.sprints, extraId);
+    folded.push({ id: extraId, name: extraName });
+  }
+  return folded;
+}
+
+async function upsertNamedSprint(
+  args: Record<string, unknown>,
+  runtime: McpRuntime,
+  auth: AuthContext,
+  project: Record<string, unknown>,
+): Promise<{
+  sprint: Record<string, unknown>;
+  alreadyExists: boolean;
+  started: boolean;
+  foldedDuplicates: { id: string; name: string }[];
+}> {
+  const projectId = requireString(args, "projectId");
+  const name = requireString(args, "name");
+  const existing = await listProjectSprints(runtime, projectId);
+  const duplicate = findSprintForCreate(existing, name);
+  if (duplicate) {
+    const sprintId = sprintDocumentId(duplicate);
+    const patch: Record<string, unknown> = { name };
+    if (args.goal !== undefined) patch.goal = String(args.goal);
+    if (args.startDate !== undefined) patch.startDate = String(args.startDate);
+    if (args.endDate !== undefined) patch.endDate = String(args.endDate);
+    const updated = await runtime.store.update<Record<string, unknown>>(
+      runtime.collections.sprints,
+      sprintId,
+      patch,
+    );
+    const foldedDuplicates = await foldDuplicateNumberedSprints(runtime, projectId, updated);
+    return { sprint: updated, alreadyExists: true, started: false, foldedDuplicates };
+  }
+  const isFirstSprint = existing.length === 0;
+  let startOnCreate = isFirstSprint;
+  if (startOnCreate) {
+    try {
+      await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.START_SPRINT, [
+        "sprints:manage",
+      ]);
+    } catch {
+      startOnCreate = false;
+    }
+  }
+  const sprint = await runtime.store.create<Record<string, unknown>>(runtime.collections.sprints, {
+    name,
+    workspaceId: String(project.workspaceId),
+    projectId,
+    goal: optionalString(args, "goal") ?? "",
+    startDate: optionalString(args, "startDate"),
+    endDate: optionalString(args, "endDate"),
+    status: startOnCreate ? "ACTIVE" : "PLANNED",
+    position: existing.length,
+  });
+  if (startOnCreate) {
+    await audit(runtime, {
+      projectId,
+      userId: auth.actorUserId,
+      action: "mcp.sprint.start",
+      resourceType: "sprint",
+      resourceId: sprint.$id,
+    });
+  }
+  const foldedDuplicates = await foldDuplicateNumberedSprints(runtime, projectId, sprint);
+  return { sprint, alreadyExists: false, started: startOnCreate, foldedDuplicates };
+}
+
 async function sprintCreate(
   args: Record<string, unknown>,
   runtime: McpRuntime,
@@ -904,46 +956,72 @@ async function sprintCreate(
     "sprints:manage",
   ]);
   const project = await loadProject(runtime, auth, projectId);
-  const existing = await runtime.store.list<Record<string, unknown>>(runtime.collections.sprints, [
-    { type: "equal", field: "projectId", value: projectId },
-    { type: "limit", value: 1 },
-  ]);
-  const isFirstSprint = existing.total === 0 && existing.documents.length === 0;
-  let startOnCreate = isFirstSprint;
-  if (startOnCreate) {
-    try {
-      await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.START_SPRINT, [
-        "sprints:manage",
-      ]);
-    } catch {
-      startOnCreate = false;
-    }
-  }
   const run = async () => {
-    const sprint = await runtime.store.create<Record<string, unknown>>(runtime.collections.sprints, {
-      name,
-      workspaceId: String(project.workspaceId),
-      projectId,
-      goal: optionalString(args, "goal") ?? "",
-      startDate: optionalString(args, "startDate"),
-      endDate: optionalString(args, "endDate"),
-      status: startOnCreate ? "ACTIVE" : "PLANNED",
-      position: 0,
+    const result = await upsertNamedSprint({ ...args, projectId, name }, runtime, auth, project);
+    return toolResult({
+      sprint: compactSprint(result.sprint),
+      alreadyExists: result.alreadyExists,
+      started: result.started,
+      foldedDuplicates: result.foldedDuplicates,
     });
-    if (startOnCreate) {
-      await audit(runtime, {
-        projectId,
-        userId: auth.actorUserId,
-        action: "mcp.sprint.start",
-        resourceType: "sprint",
-        resourceId: sprint.$id,
-      });
-    }
-    return toolResult({ sprint: withId(sprint), started: startOnCreate });
   };
   const idem = optionalString(args, "idempotencyKey");
   if (idem) return withIdempotency(runtime, idem, "fairlx_sprint_create", run);
   return run();
+}
+
+function plannedSprintRows(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)));
+}
+
+async function sprintPlan(
+  args: Record<string, unknown>,
+  runtime: McpRuntime,
+  auth: AuthContext,
+): Promise<McpToolResult> {
+  const projectId = requireString(args, "projectId");
+  await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.CREATE_SPRINTS, [
+    "sprints:manage",
+  ]);
+  const rows = plannedSprintRows(args.sprints);
+  if (rows.length === 0) throw invalidParams("sprints must be a non-empty array of { name, goal, startDate, endDate }");
+  const project = await loadProject(runtime, auth, projectId);
+  const foldedDuplicates: { id: string; name: string }[] = [];
+  const upserts: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const name = String(row.name ?? "").trim();
+    if (!name) throw invalidParams("each sprint needs a name");
+    const result = await upsertNamedSprint(
+      {
+        projectId,
+        name,
+        goal: row.goal,
+        startDate: row.startDate,
+        endDate: row.endDate,
+      },
+      runtime,
+      auth,
+      project,
+    );
+    foldedDuplicates.push(...result.foldedDuplicates);
+    upserts.push(result.sprint);
+  }
+  const sprints = await listProjectSprints(runtime, projectId);
+  const items = runtime.collections.workItems
+    ? await listAllDocuments(runtime, runtime.collections.workItems, [
+        { type: "equal", field: "projectId", value: projectId },
+      ])
+    : [];
+  const compact = [...sprints]
+    .sort((left, right) => (sprintOrdinal(String(left.name ?? "")) ?? 9999) - (sprintOrdinal(String(right.name ?? "")) ?? 9999))
+    .map((sprint) => compactSprint(sprint, planStatsForItems(sprint, itemsForSprint(items, sprint))));
+  return toolResult({
+    sprints: compact,
+    total: compact.length,
+    upserted: upserts.length,
+    foldedDuplicates,
+  });
 }
 
 async function sprintStart(
@@ -951,13 +1029,11 @@ async function sprintStart(
   runtime: McpRuntime,
   auth: AuthContext
 ): Promise<McpToolResult> {
-  const sprintId = requireString(args, "sprintId");
-  let sprint: Record<string, unknown>;
-  try {
-    sprint = await runtime.store.get<Record<string, unknown>>(runtime.collections.sprints, sprintId);
-  } catch {
-    throw notFoundError("Not found");
-  }
+  const sprintRef = requireString(args, "sprintId");
+  const sprint = await loadSprint(runtime, sprintRef, {
+    projectId: optionalString(args, "projectId") || auth.projectId,
+  });
+  const sprintId = sprintDocumentId(sprint);
   await requireProjectAccess(
     runtime,
     auth,
@@ -977,7 +1053,7 @@ async function sprintStart(
     resourceType: "sprint",
     resourceId: sprintId,
   });
-  return toolResult({ sprint: withId(updated) });
+  return toolResult({ sprint: compactSprint(updated) });
 }
 
 async function sprintComplete(
@@ -985,13 +1061,11 @@ async function sprintComplete(
   runtime: McpRuntime,
   auth: AuthContext
 ): Promise<McpToolResult> {
-  const sprintId = requireString(args, "sprintId");
-  let sprint: Record<string, unknown>;
-  try {
-    sprint = await runtime.store.get<Record<string, unknown>>(runtime.collections.sprints, sprintId);
-  } catch {
-    throw notFoundError("Not found");
-  }
+  const sprintRef = requireString(args, "sprintId");
+  const sprint = await loadSprint(runtime, sprintRef, {
+    projectId: optionalString(args, "projectId") || auth.projectId,
+  });
+  const sprintId = sprintDocumentId(sprint);
   await requireProjectAccess(
     runtime,
     auth,
@@ -1011,7 +1085,7 @@ async function sprintComplete(
     resourceType: "sprint",
     resourceId: sprintId,
   });
-  return toolResult({ sprint: withId(updated) });
+  return toolResult({ sprint: compactSprint(updated) });
 }
 
 async function linkCreate(
@@ -1535,13 +1609,11 @@ async function sprintUpdate(
   runtime: McpRuntime,
   auth: AuthContext
 ): Promise<McpToolResult> {
-  const sprintId = requireString(args, "sprintId");
-  let sprint: Record<string, unknown>;
-  try {
-    sprint = await runtime.store.get<Record<string, unknown>>(runtime.collections.sprints, sprintId);
-  } catch {
-    throw notFoundError("Not found");
-  }
+  const sprintRef = requireString(args, "sprintId");
+  const sprint = await loadSprint(runtime, sprintRef, {
+    projectId: optionalString(args, "projectId") || auth.projectId,
+  });
+  const sprintId = sprintDocumentId(sprint);
   await requireProjectAccess(
     runtime,
     auth,
@@ -1566,7 +1638,7 @@ async function sprintUpdate(
     resourceType: "sprint",
     resourceId: sprintId,
   });
-  return toolResult({ sprint: withId(updated) });
+  return toolResult({ sprint: compactSprint(updated) });
 }
 
 async function listAllWorkspaceMembers(

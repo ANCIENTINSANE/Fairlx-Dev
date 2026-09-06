@@ -12,7 +12,7 @@ import type {
   McpConfig,
 } from "../types";
 import { AGENT_DEFINITIONS } from "./brain/definitions";
-import { compressMessages } from "./brain/compress";
+import { fitMessagesForModel } from "./brain/compress";
 import { selectToolsForTurn } from "./brain/select";
 import { AGENT_SPECIALISTS } from "./graph";
 import { SYSTEM_PROMPT_RULE_LINES, splitSystemPromptBudget } from "./prompt-budget";
@@ -130,6 +130,68 @@ export function formatTokenHeader(totalTokens: number, maxTokens: number): strin
   return `${totalFormatted} / ${maxFormatted} Tokens`;
 }
 
+export function formatExactTokenCount(tokens: number): string {
+  return Math.max(0, Math.round(tokens)).toLocaleString("en-US");
+}
+
+/** Exact occupancy line so the modal and usage card cannot disagree by rounding. */
+export function formatOccupancyHeader(totalTokens: number, maxTokens: number): string {
+  return `${formatExactTokenCount(totalTokens)} / ${formatExactTokenCount(maxTokens)}`;
+}
+
+export function occupancyPercent(used: number, max: number): number {
+  if (max <= 0 || used <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((used / max) * 100)));
+}
+
+export function contextUsageFromBreakdown(
+  breakdown: Partial<Record<ContextCategoryId, number>> | undefined,
+  maxTokens: number,
+): ContextUsageDetails | null {
+  if (!breakdown) return null;
+  const categories: ContextCategory[] = CONTEXT_CATEGORIES_CONFIG.map((cfg) => ({
+    id: cfg.id,
+    name: cfg.name,
+    color: cfg.color,
+    tokens: Math.max(0, Math.round(Number(breakdown[cfg.id]) || 0)),
+  }));
+  const totalTokens = categories.reduce((sum, cat) => sum + cat.tokens, 0);
+  if (totalTokens <= 0) return null;
+  return {
+    totalTokens,
+    maxTokens,
+    percentFull: occupancyPercent(totalTokens, maxTokens),
+    categories,
+  };
+}
+
+export function occupancyFromMeter(meter?: {
+  tokens: number;
+  maxInputTokens: number;
+  breakdown?: Partial<Record<ContextCategoryId, number>>;
+}): { tokens: number; maxTokens: number; percent: number } | null {
+  if (!meter || meter.maxInputTokens <= 0) return null;
+  const fromBreakdown = contextUsageFromBreakdown(meter.breakdown, meter.maxInputTokens);
+  const tokens = fromBreakdown?.totalTokens || Math.max(0, Math.round(meter.tokens));
+  if (tokens <= 0) return null;
+  const maxTokens = meter.maxInputTokens;
+  const windowTokens =
+    tokens > maxTokens
+      ? Math.min(
+          maxTokens,
+          Math.max(
+            0,
+            tokens - Math.max(0, Math.round(Number(meter.breakdown?.summarized_conversation) || 0)),
+          ) || maxTokens,
+        )
+      : tokens;
+  return {
+    tokens: windowTokens,
+    maxTokens,
+    percent: occupancyPercent(windowTokens, maxTokens),
+  };
+}
+
 function estimateMessageTokens(message: AgentChatMessage): number {
   let chars = message.content?.length ?? 0;
   chars += message.role.length;
@@ -165,36 +227,25 @@ function partitionTools(tools: OpenAiTool[]): { native: OpenAiTool[]; mcp: OpenA
 function partitionConversation(
   messages: AgentChatMessage[],
   extraText = "",
+  maxInputTokens?: number,
 ): { conversation: number; summarized: number } {
   if (!messages.length && !extraText) {
     return { conversation: 0, summarized: 0 };
   }
 
-  const compressed = compressMessages(messages);
-  let recent = compressed.slice(-CONTEXT_MESSAGE_WINDOW);
-  const firstUser = messages.find((message) => message.role === "user");
-  if (firstUser && !recent.some((message) => message.id === firstUser.id)) {
-    recent = [firstUser, ...recent.filter((message) => message.id !== firstUser.id)].slice(
-      0,
-      CONTEXT_MESSAGE_WINDOW + 1,
-    );
-  }
-
-  const recentIds = new Set(recent.map((message) => message.id));
-  const dropped = messages.filter((message) => !recentIds.has(message.id));
+  const recent = fitMessagesForModel("", messages, maxInputTokens);
   const originalById = new Map(messages.map((message) => [message.id, message]));
 
   let conversation = extraText ? estimateTokensFromText(extraText) : 0;
-  let summarized = dropped.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+  let summarized = 0;
 
   for (const message of recent) {
+    const fittedTokens = estimateMessageTokens(message);
     const original = originalById.get(message.id);
     const wasCompressed =
-      Boolean(original) && original !== message && (original?.content ?? "") !== (message.content ?? "");
-    // Count the original size in Summarized so compaction moves tokens instead of
-    // deleting them from the meter (compressed bodies are only a few hundred chars).
-    if (wasCompressed) summarized += estimateMessageTokens(original!);
-    else conversation += estimateMessageTokens(message);
+      Boolean(original) && (original?.content ?? "") !== (message.content ?? "");
+    if (wasCompressed || message.id.endsWith("-stub")) summarized += fittedTokens;
+    else conversation += fittedTokens;
   }
 
   return { conversation, summarized };
@@ -402,10 +453,15 @@ export function computeContextBreakdown(params: {
   mcp?: McpConfig;
   extraConversationText?: string;
   includeSubagents?: boolean;
+  maxInputTokens?: number;
 }): Record<ContextCategoryId, number> {
   const { identity, rules } = splitSystemPromptBudget(params.system);
   const { native, mcp } = partitionTools(params.tools);
-  const { conversation, summarized } = partitionConversation(params.messages, params.extraConversationText);
+  const { conversation, summarized } = partitionConversation(
+    params.messages,
+    params.extraConversationText,
+    params.maxInputTokens,
+  );
   const includeSubagents = params.includeSubagents ?? true;
 
   return {
@@ -505,7 +561,7 @@ export function calculateContextUsage(params: {
     maxInputTokens ||
     meter?.maxInputTokens ||
     matchedModel?.maxInputTokens ||
-    64000;
+    128000;
 
   const mode = resolveRunMode(harness, run);
   const extraConversation = [
@@ -519,6 +575,9 @@ export function calculateContextUsage(params: {
   if (!hasChatContent) {
     return emptyUsage(maxTokens);
   }
+
+  const occupancyMax = meter?.maxInputTokens || maxTokens;
+  const extraTokens = extraConversation.trim() ? estimateTokensFromText(extraConversation) : 0;
 
   const live = computeContextBreakdown({
     system: systemPromptForPreview({
@@ -536,39 +595,24 @@ export function calculateContextUsage(params: {
     mcp,
     extraConversationText: extraConversation,
     includeSubagents: mode === "agent" && subagentsWereUsed(run),
+    maxInputTokens: occupancyMax,
   });
   if (!skillsWereLoaded(run?.messages ?? [], chips)) {
     live.skills = 0;
   }
 
-  const meterChat = Math.max(
-    (meter?.breakdown?.conversation ?? 0) + (meter?.breakdown?.summarized_conversation ?? 0),
-    chatTokenTotal(run?.contextPeak),
-  );
-  const liveChat = live.conversation + live.summarized_conversation;
-  const vanishedChat = Math.max(0, Math.round(meterChat - liveChat));
-  if (vanishedChat > 0) {
-    live.summarized_conversation += vanishedChat;
+  const fromMeter = contextUsageFromBreakdown(meter?.breakdown, occupancyMax);
+  if (
+    fromMeter &&
+    (run?.messages?.length ?? 0) > 0 &&
+    extraTokens <= 0 &&
+    fromMeter.totalTokens <= occupancyMax
+  ) {
+    const liveTotal = Object.values(live).reduce((sum, value) => sum + value, 0);
+    if (liveTotal >= fromMeter.totalTokens * 0.75) return fromMeter;
   }
 
-  const breakdown = live;
-
-  const categories: ContextCategory[] = CONTEXT_CATEGORIES_CONFIG.map((cfg) => ({
-    id: cfg.id,
-    name: cfg.name,
-    color: cfg.color,
-    tokens: Math.max(0, Math.round(breakdown[cfg.id] ?? 0)),
-  }));
-
-  const totalTokens = categories.reduce((sum, cat) => sum + cat.tokens, 0);
-  const percentFull = maxTokens > 0 ? Math.min(100, Math.max(0, Math.round((totalTokens / maxTokens) * 100))) : 0;
-
-  return {
-    totalTokens,
-    maxTokens,
-    percentFull,
-    categories,
-  };
+  return contextUsageFromBreakdown(live, occupancyMax) ?? emptyUsage(maxTokens);
 }
 
 export function activeSubagents(events: AgentToolEvent[]) {

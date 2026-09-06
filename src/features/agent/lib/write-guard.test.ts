@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   confirmationSummary,
+  conversationDeleteIntent,
+  destructiveToolBlockReason,
   findPendingConfirmation,
+  isDestructiveToolCall,
   isWriteToolCall,
   needsConfirmation,
   parseConfirmationCall,
   parseWorkItemCall,
+  userRequestedDestructiveDelete,
   writeRiskLevel,
 } from "./write-guard";
 import type { AgentToolCall } from "../types";
@@ -90,10 +94,97 @@ describe("write risk and permission type", () => {
     expect(writeRiskLevel(call("github_read_file", { path: "a.ts" }))).toBe("read");
   });
 
-  it("skips Accept when permissionType is all_access", () => {
+  it("skips Accept when permissionType is all_access for non-destructive writes", () => {
     expect(needsConfirmation(call("mail_send", { to: "ada@x.com" }), "all_access")).toBe(false);
     expect(needsConfirmation(call("mail_send", { to: "ada@x.com" }), "staged")).toBe(true);
     expect(needsConfirmation(call("fairlx_work_item_create", { title: "Bug" }), "staged")).toBe(false);
+  });
+
+  it("lets all_access run deletes without Accept, and still requires Accept in staged", () => {
+    expect(isDestructiveToolCall(call("fairlx_work_item_delete", { workItemId: "x" }))).toBe(true);
+    expect(needsConfirmation(call("fairlx_work_item_delete", { workItemId: "x" }), "all_access")).toBe(false);
+    expect(needsConfirmation(call("fairlx_work_item_delete", { workItemId: "x" }), "staged")).toBe(true);
+    expect(needsConfirmation(call("fairlx_sprint_delete", { sprintId: "s1" }), "staged")).toBe(true);
+  });
+});
+
+describe("destructive delete intent", () => {
+  it("does not treat planning or create prompts as delete permission", () => {
+    expect(userRequestedDestructiveDelete("Plan all sprints and create all work items.")).toBe(false);
+    expect(
+      userRequestedDestructiveDelete("Create a project and add each and every work item, epic, and sprint."),
+    ).toBe(false);
+    expect(userRequestedDestructiveDelete("replace the generic names with detailed stories")).toBe(false);
+    expect(userRequestedDestructiveDelete("clean up the old items and make better ones")).toBe(false);
+    expect(userRequestedDestructiveDelete("remove all assignees for all work items in all sprints")).toBe(false);
+    expect(userRequestedDestructiveDelete("Look, why did you delete all those old work items in Sprint 1?")).toBe(
+      false,
+    );
+    expect(userRequestedDestructiveDelete("don't delete anything")).toBe(false);
+  });
+
+  it("treats an explicit delete/remove-records request as permission to offer deletes", () => {
+    expect(userRequestedDestructiveDelete("delete all work items in the backlog")).toBe(true);
+    expect(userRequestedDestructiveDelete("delete AGEN-1")).toBe(true);
+    expect(userRequestedDestructiveDelete("please wipe the old epics in this project")).toBe(true);
+    expect(userRequestedDestructiveDelete("remove fogef from the workspace")).toBe(true);
+  });
+
+  it("revises the full conversation: latest create/plan or objection overrides an older delete ask", () => {
+    expect(conversationDeleteIntent(["Plan all sprints and create all work items."]).status).toBe("not_requested");
+    expect(conversationDeleteIntent(["delete AGEN-1"]).status).toBe("requested");
+    expect(
+      conversationDeleteIntent([
+        "Create the project and every work item",
+        "delete the generic Sprint 1 tickets",
+      ]).allowed,
+    ).toBe(true);
+    expect(
+      conversationDeleteIntent(["delete AGEN-1", "now create more stories for the backlog"]).status,
+    ).toBe("not_requested");
+    expect(
+      conversationDeleteIntent([
+        "delete the backlog items",
+        "Look, why did you delete all those old work items in Sprint 1?",
+      ]).status,
+    ).toBe("forbidden");
+  });
+
+  it("blocks unsolicited deletes even in all_access, and skips Accept in all_access when the chat asked", () => {
+    expect(
+      destructiveToolBlockReason({
+        toolName: "fairlx_work_item_delete",
+        permissionType: "all_access",
+        latestUserText: "Plan all sprints and create all work items.",
+      }),
+    ).toBe("not_requested");
+    expect(
+      destructiveToolBlockReason({
+        toolName: "fairlx_work_item_delete",
+        permissionType: "all_access",
+        latestUserText: "delete AGEN-1",
+      }),
+    ).toBeNull();
+    expect(
+      destructiveToolBlockReason({
+        toolName: "fairlx_work_item_delete",
+        permissionType: "staged",
+        latestUserText: "delete AGEN-1",
+      }),
+    ).toBe("requires_accept");
+    expect(
+      destructiveToolBlockReason({
+        toolName: "fairlx_work_item_delete",
+        latestUserText: "Plan all sprints and create all work items.",
+        userAccepted: true,
+      }),
+    ).toBeNull();
+    expect(
+      destructiveToolBlockReason({
+        toolName: "fairlx_work_item_create",
+        latestUserText: "create everything",
+      }),
+    ).toBeNull();
   });
 });
 

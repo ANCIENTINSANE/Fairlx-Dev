@@ -19,6 +19,7 @@ export const useGetProject = ({
   const query = useQuery({
     queryKey: ["project", sanitizedProjectId, isTourActive],
     enabled: enabled && Boolean(sanitizedProjectId),
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       // DUMMY DATA FOR TOUR - RETURN IMMEDIATELY FOR p1
       if (isTourActive && sanitizedProjectId === "p1") {

@@ -9,6 +9,7 @@ import {
 } from "../constants";
 import type { AgentModel, AgentProviderStored } from "../types";
 import type { AgentLlmApi } from "./openai-responses";
+import { workingContextWindow, withWorkingContextWindow } from "./model-context";
 
 export const PLATFORM_GROK_DEFAULT_ENDPOINT =
   "https://personal-use-g1-resource.openai.azure.com";
@@ -129,8 +130,7 @@ export function getPlatformProviderCredentials(
         vendor: "azure",
         toolCalling: true,
         vision: true,
-        maxInputTokens: 72000,
-        maxOutputTokens: 128000,
+        ...workingContextWindow("grok-4.6"),
       },
     };
   }
@@ -224,14 +224,15 @@ export function overlayPlatformProvider(platform: AgentProviderStored): AgentPro
 
 export function overlayPlatformModel(model: AgentModel): AgentModel {
   if (model.id === GROK_46_MODEL_ID) {
-    return { ...model, modelId: getPlatformGrokDeployment() };
+    return withWorkingContextWindow({ ...model, modelId: getPlatformGrokDeployment() });
   }
   if (model.id === FOUNDRY_GPT_LUNA_MODEL_ID) {
-    return { ...model, modelId: getPlatformFoundryDeployment() };
+    return withWorkingContextWindow({ ...model, modelId: getPlatformFoundryDeployment() });
   }
   if (model.id === DEEPSEEK_FLASH_MODEL_ID) {
-    return { ...model, modelId: getPlatformDeepseekDeployment() };
+    return withWorkingContextWindow({ ...model, modelId: getPlatformDeepseekDeployment() });
   }
+  if (model.isPlatform) return withWorkingContextWindow(model);
   return model;
 }
 

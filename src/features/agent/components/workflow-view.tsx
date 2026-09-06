@@ -9,7 +9,6 @@ import {
   Trash2,
   RotateCcw,
   Pencil,
-  Server,
   GitBranch,
   ExternalLink,
   ChevronDown,
@@ -34,8 +33,7 @@ import { useCreateProjectModal } from "@/features/projects/hooks/use-create-proj
 import { useGetAgentAiConfig } from "../api/use-agent-ai-config";
 import { useGetAgentContext } from "../api/use-agent-context";
 import { useGetAgentHarness, useUpdateAgentHarness } from "../api/use-agent-harness";
-import { useGetAgentMcpConfig } from "../api/use-agent-mcp-config";
-import { AGENT_CONTEXT_QUERY_KEY, isInternalMcpServer } from "../constants";
+import { AGENT_CONTEXT_QUERY_KEY } from "../constants";
 import {
   useConfirmAgentRun,
   useContinueAgentRun,
@@ -46,6 +44,7 @@ import {
   useSendAgentMessage,
   useStopAgentRun,
 } from "../api/use-agent-runs";
+import { useAgentMutationSync } from "../hooks/use-agent-mutation-sync";
 import { selectedModelLabel } from "../lib/client-defaults";
 import { clockTime, relativeTime } from "../lib/agent-ui";
 import { extractBoardProject, withWorkspaceFallback } from "../lib/project-launch";
@@ -53,8 +52,7 @@ import { aggregateLlmUsage, formatCompactUsageLine, looksLikeLlmUsageEvent } fro
 import type { AgentRun, AgentToolEvent } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
 import { AgentCommandInput } from "./agent-command-input";
-import { useAgentUi } from "./agent-ui-context";
-import { ModelPicker } from "./model-picker";
+import { AgentCrewPanel } from "./agent-crew-panel";
 import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 
 
@@ -178,10 +176,8 @@ function WorkflowSidebar({
   tab: "context" | "changes" | "terminal" | "preview";
   onTab: (tab: "context" | "changes" | "terminal" | "preview") => void;
 }) {
-  const { openMcp } = useAgentUi();
   const { data: context } = useGetAgentContext();
   const { data: harness } = useGetAgentHarness();
-  const { data: mcp } = useGetAgentMcpConfig();
   const { data: ai } = useGetAgentAiConfig();
   const workspace = context?.workspaces.find((item) => item.id === run.workspaceId) ?? context?.workspaces[0];
   const workspaceId = run.workspaceId || harness?.settings.defaultWorkspaceId || workspace?.id;
@@ -209,13 +205,16 @@ function WorkflowSidebar({
     }
     return list;
   }, [workspaceProjects, project]);
-  const connected = Object.entries(mcp?.mcpServers ?? {}).filter(
-    ([name, server]) => !isInternalMcpServer(name, server) && !server.disabled
-  ).length;
   const staging = harness?.gitStaging?.items ?? [];
   const live = events
     .filter((event) => event.type !== "context_meter" && !looksLikeLlmUsageEvent(event))
     .slice(-40);
+  const activityLive =
+    run.status === "running" || run.status === "awaiting_confirmation" || run.status === "awaiting_plugin";
+  const [activityOpen, setActivityOpen] = useState(activityLive);
+  useEffect(() => {
+    setActivityOpen(activityLive);
+  }, [activityLive]);
   const usage = aggregateLlmUsage(events);
   const repo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
   const terminals = events.filter((event) => event.type === "terminal");
@@ -271,26 +270,7 @@ function WorkflowSidebar({
                 selectedProject={project}
                 workspaceId={workspace?.id}
               />
-              <div>
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-1">Agent</div>
-                <ModelPicker variant="sidebar" runModelId={run.modelId} />
-              </div>
-              <button
-                type="button"
-                onClick={openMcp}
-                className="flex items-center justify-between p-2 rounded-lg hover:bg-sidebar-accent cursor-pointer border border-transparent hover:border-sidebar-border group transition-colors w-full text-left"
-              >
-                <div className="flex items-center gap-2.5">
-                  <Server className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                  <span className="text-foreground text-xs font-medium group-hover:text-primary transition-colors">MCP Servers</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span className={cn("font-medium text-[11px]", connected > 0 ? "text-green-500" : "text-muted-foreground")}>
-                    {connected} connected
-                  </span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                </div>
-              </button>
+              <AgentCrewPanel run={run} />
               {project && !repo && project.workspaceId ? (
                 <GitHubOptionalPrompt projectId={project.id} workspaceId={project.workspaceId} compact />
               ) : null}
@@ -300,8 +280,15 @@ function WorkflowSidebar({
 
             <div>
               <div className="flex items-center justify-between mb-3 px-1">
-                <h3 className="text-xs font-semibold text-foreground uppercase tracking-wider">Live Activity</h3>
-                {run.status === "running" ? (
+                <button
+                  type="button"
+                  onClick={() => setActivityOpen((value) => !value)}
+                  className="flex items-center gap-1 text-xs font-semibold text-foreground uppercase tracking-wider hover:text-foreground/80"
+                >
+                  {activityOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                  Live Activity
+                </button>
+                {activityLive ? (
                   <div className="flex items-center gap-1.5 text-xs text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full font-medium">
                     <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
                     Live
@@ -312,10 +299,10 @@ function WorkflowSidebar({
               </div>
               {live.length === 0 ? (
                 <p className="text-xs text-muted-foreground px-1">No activity yet.</p>
-              ) : (
+              ) : activityOpen ? (
                 <div className="relative pl-3 border-l-2 border-sidebar-border flex flex-col gap-3 ml-2">
                   {live.map((event, index) => {
-                    const latest = index === live.length - 1 && (run.status === "running" || run.status === "awaiting_confirmation" || run.status === "awaiting_plugin");
+                    const latest = index === live.length - 1 && activityLive;
                     const failed = event.type === "error" || /fail/i.test(event.title);
                     const thinking = event.type === "thought" || event.type === "subagent_progress";
                     return (
@@ -356,6 +343,10 @@ function WorkflowSidebar({
                     );
                   })}
                 </div>
+              ) : (
+                <p className="text-xs text-muted-foreground px-1">
+                  {live.length} {live.length === 1 ? "event" : "events"} · expand to review
+                </p>
               )}
             </div>
 
@@ -514,6 +505,7 @@ function WorkflowViewInner() {
   const searchParams = useSearchParams();
   const runId = searchParams.get("runId") ?? undefined;
   const { data: run, isLoading, error } = useGetAgentRun(runId);
+  useAgentMutationSync(run);
   const { data: context } = useGetAgentContext();
   const sendMessage = useSendAgentMessage();
   const stopRun = useStopAgentRun();

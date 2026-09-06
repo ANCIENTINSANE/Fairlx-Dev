@@ -6,7 +6,9 @@ import {
   collapseWorkItemListFanOut,
   collapseRedundantReadFanOut,
   documentationWriteTools,
+  toolsWhenContextIsTight,
   fingerprintsFromMessages,
+  hydrateListSliceCache,
   isFailedToolContent,
   listSliceKey,
   rememberListSlice,
@@ -99,6 +101,63 @@ describe("fingerprintsFromMessages", () => {
       JSON.stringify({ workspaceId: "w1" }),
     );
     expect(map.get(fingerprint)).toBe(JSON.stringify({ workItems: [] }));
+  });
+
+  it("forgets sprint lists after a later sprint create", () => {
+    const now = new Date().toISOString();
+    const messages: AgentChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "c1",
+            name: "fairlx_sprint_list",
+            arguments: JSON.stringify({ projectId: "p1" }),
+          },
+        ],
+        createdAt: now,
+      },
+      {
+        id: "t1",
+        role: "tool",
+        content: JSON.stringify({ sprints: [{ name: "Sprint 1" }] }),
+        toolCallId: "c1",
+        toolName: "fairlx_sprint_list",
+        createdAt: now,
+      },
+      {
+        id: "a2",
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "c2",
+            name: "fairlx_sprint_create",
+            arguments: JSON.stringify({ projectId: "p1", name: "Sprint 4" }),
+          },
+        ],
+        createdAt: now,
+      },
+      {
+        id: "t2",
+        role: "tool",
+        content: JSON.stringify({ sprint: { id: "sp_4", name: "Sprint 4" } }),
+        toolCallId: "c2",
+        toolName: "fairlx_sprint_create",
+        createdAt: now,
+      },
+    ];
+    const fingerprint = toolCallFingerprint(
+      "fairlx_sprint_list",
+      JSON.stringify({ projectId: "p1" }),
+    );
+    expect(fingerprintsFromMessages(messages).has(fingerprint)).toBe(false);
+    const slices = hydrateListSliceCache(messages);
+    expect(resolveListSliceCall(slices, "fairlx_sprint_list", { projectId: "p1" }).action).toBe(
+      "execute",
+    );
   });
 });
 
@@ -306,5 +365,18 @@ describe("documentationWriteTools", () => {
       "fairlx_doc_create",
       "fairlx_doc_list",
     ]);
+  });
+});
+
+describe("toolsWhenContextIsTight", () => {
+  it("still exposes project create after research has filled the window", () => {
+    const tools = ["web_fetch", "fairlx_doc_create", "fairlx_project_create", "fairlx_sprint_create", "delegate_agent"].map(
+      (name) => ({ function: { name } }),
+    );
+    const names = toolsWhenContextIsTight(tools, true).map((tool) => tool.function.name);
+    expect(names).toContain("fairlx_doc_create");
+    expect(names).toContain("fairlx_project_create");
+    expect(names).toContain("fairlx_sprint_create");
+    expect(names).toContain("delegate_agent");
   });
 });

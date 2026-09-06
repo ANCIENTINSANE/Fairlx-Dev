@@ -6,6 +6,7 @@ import {
   extractAttachedFiles,
   formatAttachedFiles,
   matchSubject,
+  parentPromptFromMessages,
   splitMarkdownSubjects,
   stripAttachedFiles,
   withAttachedFiles,
@@ -51,6 +52,25 @@ describe("attached files", () => {
     expect(message).toContain("Dashboards");
     expect(message).not.toContain("Chat and voice");
     expect(message).toContain("Subject for this sub-agent: Analytics");
+  });
+
+  it("passes prior chat instructions when there is no attached spec", () => {
+    const parent = parentPromptFromMessages(
+      [
+        { role: "user", content: "i want to build a product" },
+        { role: "user", content: "queen agent harness for Claude Code and Codex" },
+        { role: "assistant", content: "ok" },
+      ],
+      "",
+    );
+    expect(parent).toContain("queen agent harness");
+    const message = buildSpecialistUserMessage({
+      task: "Create remaining work items",
+      parentPrompt: parent,
+    });
+    expect(message).toContain("Prior user instructions");
+    expect(message).toContain("queen agent harness");
+    expect(message).toContain("Create remaining work items");
   });
 
   it("rehydrates truncated chat text from stored attachments", () => {

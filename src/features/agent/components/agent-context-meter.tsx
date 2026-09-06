@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,8 +14,8 @@ import { useGetPersonalAgent } from "../api/use-personal-agent";
 import { profileIsTrained } from "../lib/personal-agent-status";
 import {
   calculateContextUsage,
-  formatTokenCount,
-  formatTokenHeader,
+  formatExactTokenCount,
+  formatOccupancyHeader,
 } from "../lib/context-meter";
 
 interface AgentContextMeterProps {
@@ -36,7 +36,6 @@ export function AgentContextMeter({
   className,
 }: AgentContextMeterProps) {
   const [open, setOpen] = useState(false);
-  const peakChat = useRef({ runId: "", tokens: 0 });
   const { data: harness } = useGetAgentHarness();
   const { data: context } = useGetAgentContext();
   const { data: ai } = useGetAgentAiConfig();
@@ -46,7 +45,7 @@ export function AgentContextMeter({
   const personalPrompt =
     personal?.profile && profileIsTrained(personal.profile) ? personal.profile.compiledPrompt : undefined;
 
-  const computed = useMemo(
+  const usage = useMemo(
     () =>
       calculateContextUsage({
         run,
@@ -64,30 +63,8 @@ export function AgentContextMeter({
     [run, harness, context, ai, mcp, draftPrompt, chips, personalPrompt, workspaceId, projectId],
   );
 
-  const usage = useMemo(() => {
-    const runId = run?.id ?? "";
-    if (peakChat.current.runId !== runId) {
-      peakChat.current = { runId, tokens: 0 };
-    }
-    const conversation = computed.categories.find((cat) => cat.id === "conversation")?.tokens ?? 0;
-    const summarized =
-      computed.categories.find((cat) => cat.id === "summarized_conversation")?.tokens ?? 0;
-    const chat = conversation + summarized;
-    if (chat > peakChat.current.tokens) peakChat.current.tokens = chat;
-    const vanished = Math.max(0, peakChat.current.tokens - chat);
-    if (!vanished) return computed;
-    const categories = computed.categories.map((cat) =>
-      cat.id === "summarized_conversation" ? { ...cat, tokens: cat.tokens + vanished } : cat,
-    );
-    const totalTokens = categories.reduce((sum, cat) => sum + cat.tokens, 0);
-    const percentFull =
-      computed.maxTokens > 0
-        ? Math.min(100, Math.max(0, Math.round((totalTokens / computed.maxTokens) * 100)))
-        : 0;
-    return { ...computed, categories, totalTokens, percentFull };
-  }, [computed, run?.id]);
-
   const { totalTokens, maxTokens, percentFull, categories } = usage;
+  const occupancyLabel = formatOccupancyHeader(totalTokens, maxTokens);
 
   const strokePercent = Math.min(100, Math.max(0, percentFull));
   const arcColor =
@@ -107,7 +84,7 @@ export function AgentContextMeter({
             open && "bg-muted/80 text-foreground",
             className,
           )}
-          title={`Context Usage: ${percentFull}% Full (${formatTokenHeader(totalTokens, maxTokens)})`}
+          title={`Context Usage: ${percentFull}% Full (${occupancyLabel} Tokens)`}
           aria-label="View context usage details"
         >
           <svg className="size-4 -rotate-90" viewBox="0 0 36 36">
@@ -153,13 +130,13 @@ export function AgentContextMeter({
 
         <div className="flex items-center justify-between text-xs text-muted-foreground pb-2">
           <span>{percentFull < 1 && totalTokens > 0 ? "< 1" : percentFull}% Full</span>
-          <span>{formatTokenHeader(totalTokens, maxTokens)}</span>
+          <span>{occupancyLabel} Tokens</span>
         </div>
 
         <div className="w-full h-2 rounded-full bg-zinc-200 dark:bg-zinc-800/90 overflow-hidden flex items-stretch">
           {categories.map((cat) => {
             if (cat.tokens <= 0) return null;
-            const widthPct = (cat.tokens / maxTokens) * 100;
+            const widthPct = maxTokens > 0 ? (cat.tokens / maxTokens) * 100 : 0;
             return (
               <div
                 key={cat.id}
@@ -168,7 +145,7 @@ export function AgentContextMeter({
                   backgroundColor: cat.color,
                 }}
                 className="h-full transition-all duration-300"
-                title={`${cat.name}: ${formatTokenCount(cat.tokens)} tokens (${widthPct < 0.1 ? "<0.1" : widthPct.toFixed(1)}%)`}
+                title={`${cat.name}: ${formatExactTokenCount(cat.tokens)} tokens`}
               />
             );
           })}
@@ -190,7 +167,7 @@ export function AgentContextMeter({
                 </span>
               </div>
               <span className="text-muted-foreground font-mono text-[12px] tabular-nums shrink-0 ml-2">
-                {formatTokenCount(cat.tokens)}
+                {formatExactTokenCount(cat.tokens)}
               </span>
             </div>
           ))}

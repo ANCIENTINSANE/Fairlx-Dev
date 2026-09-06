@@ -77,12 +77,15 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   {
     name: "fairlx_work_item_list",
     description:
-      "List work items in a project. location is backlog (no sprint) or sprint — that is the Backlog board, not Unassigned. Pass backlog=true for the project Backlog; pass sprintId for one sprint; omit both for the whole project. Unassigned means no person (unassigned=true). Never use fairlx_personal_backlog_list for the project Backlog. One call auto-completes small projects. Paginate only when hasMore is true.",
+      "List work items in a project. location is backlog (no sprint) or sprint — that is the Backlog board, not Unassigned. Pass backlog=true for the project Backlog; pass sprintId as the sprint name (Sprint 1) or id — never the project id. Unassigned means no person (unassigned=true). Never use fairlx_personal_backlog_list for the project Backlog. One call auto-completes small projects. Paginate only when hasMore is true.",
     inputSchema: {
       type: "object",
       properties: {
         projectId: id,
-        sprintId: id,
+        sprintId: {
+          type: "string",
+          description: 'Sprint name ("Sprint 1") or sprint document id. Never the project id.',
+        },
         backlog: {
           type: "boolean",
           description:
@@ -124,7 +127,7 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   {
     name: "fairlx_sprint_list",
     description:
-      "List sprints in a project. Call once and omit status — do not fan out ACTIVE, PLANNED, and ALL. status ALL is ignored. For assign/unassign, skip this and call fairlx_work_item_bulk_update.",
+      "List every sprint in a project with id, name, dates, workingDays (weekdays in the sprint window), itemCount, storyPoints, and estimatedBuildDays (storyPoints × 0.5). Omit status — do not fan out ACTIVE/PLANNED/ALL. After creating or updating sprints, list again to refresh. Never pass the project id as sprintId. For assign/unassign, call fairlx_work_item_bulk_update with the sprint name.",
     inputSchema: {
       type: "object",
       properties: { projectId: id, status: { type: "string" }, limit: { type: "number" }, cursorAfter: { type: "string" } },
@@ -137,8 +140,19 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_sprint_get",
-    description: "Get a sprint by id",
-    inputSchema: { type: "object", properties: { sprintId: id }, required: ["sprintId"] },
+    description:
+      "Get a sprint by name (Sprint 1) or sprint id from fairlx_sprint_list. Never pass the project id. Returns workingDays, estimatedBuildDays (storyPoints × 0.5), and whether the committed points fit the calendar window.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sprintId: {
+          type: "string",
+          description: 'Sprint name ("Sprint 1") or sprint document id. Never the project id.',
+        },
+        projectId: id,
+      },
+      required: ["sprintId"],
+    },
     riskTier: 1,
     rateClass: "read",
     scopes: ["sprints:read"],
@@ -420,18 +434,47 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   {
     name: "fairlx_sprint_create",
     description:
-      "Create a sprint. The first sprint on a project starts automatically as ACTIVE — do not call fairlx_sprint_start after creating that first sprint.",
+      "Create a sprint, or update the existing one when the name/number already exists (Sprint 1). Never delete sprints to replan — create Sprint 4+ and update dates on the rest. Pass ISO startDate and endDate so workingDays can be computed. The first sprint on a project starts automatically as ACTIVE — do not call fairlx_sprint_start after creating that first sprint.",
     inputSchema: {
       type: "object",
       properties: {
         projectId: id,
         name: { type: "string" },
         goal: { type: "string" },
-        startDate: { type: "string" },
-        endDate: { type: "string" },
+        startDate: { type: "string", description: "ISO date (YYYY-MM-DD) for the first working day" },
+        endDate: { type: "string", description: "ISO date (YYYY-MM-DD) for the last working day" },
         idempotencyKey,
       },
       required: ["projectId", "name"],
+    },
+    riskTier: 2,
+    rateClass: "write",
+    scopes: ["sprints:manage"],
+    permission: PERMISSIONS.CREATE_SPRINTS,
+  },
+  {
+    name: "fairlx_sprint_plan",
+    description:
+      "Create or update a project's whole sprint timeline in one call. Pass sprints: [{ name, goal, startDate, endDate }]. Same numbers (Sprint 1) update the existing sprint and fold duplicate Sprint 1/2 rows into it — work items are kept, empty duplicate sprints are removed. Do not list first, do not move items to the backlog, and do not call fairlx_sprint_create in a loop.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: id,
+        sprints: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              goal: { type: "string" },
+              startDate: { type: "string", description: "ISO date YYYY-MM-DD" },
+              endDate: { type: "string", description: "ISO date YYYY-MM-DD" },
+            },
+            required: ["name"],
+          },
+        },
+      },
+      required: ["projectId", "sprints"],
     },
     riskTier: 2,
     rateClass: "write",
@@ -443,7 +486,7 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
     description: "Start a planned sprint. High-risk; requires confirm: true. Not safely retryable.",
     inputSchema: {
       type: "object",
-      properties: { sprintId: id, confirm },
+      properties: { sprintId: id, projectId: id, confirm },
       required: ["sprintId"],
     },
     riskTier: 3,
@@ -456,7 +499,7 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
     description: "Complete an active sprint. High-risk; requires confirm: true. Not safely retryable.",
     inputSchema: {
       type: "object",
-      properties: { sprintId: id, confirm },
+      properties: { sprintId: id, projectId: id, confirm },
       required: ["sprintId"],
     },
     riskTier: 3,
@@ -677,7 +720,8 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_work_item_delete",
-    description: "Delete a work item. Destructive; requires confirm: true and challengeToken.",
+    description:
+      "Delete a work item. You have this tool. Read Conversation delete intent first and think twice: existing items are important. Never use this to replace or flesh out a board. Only when the user asked to delete that item.",
     inputSchema: {
       type: "object",
       properties: { workItemId: id, confirm, challengeToken },
@@ -690,10 +734,11 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_sprint_delete",
-    description: "Delete a sprint. Destructive; requires confirm: true and challengeToken.",
+    description:
+      "Delete a sprint. Destructive. Never use this to replace or rebuild a sprint plan — update names/dates and create additional numbered sprints instead. Only when the user explicitly asked to delete that sprint.",
     inputSchema: {
       type: "object",
-      properties: { sprintId: id, confirm, challengeToken },
+      properties: { sprintId: id, projectId: id, confirm, challengeToken },
       required: ["sprintId"],
     },
     riskTier: 4,
@@ -1414,11 +1459,16 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   // ── Sprint Update ──
   {
     name: "fairlx_sprint_update",
-    description: "Update a sprint (name, goal, dates)",
+    description:
+      "Update a sprint name, goal, startDate, or endDate. Pass sprintId as the name (Sprint 1) or id from fairlx_sprint_list — never the project id. Prefer this over deleting sprints when replanning.",
     inputSchema: {
       type: "object",
       properties: {
-        sprintId: id,
+        sprintId: {
+          type: "string",
+          description: 'Sprint name ("Sprint 1") or sprint document id. Never the project id.',
+        },
+        projectId: id,
         name: { type: "string" },
         goal: { type: "string" },
         startDate: { type: "string" },

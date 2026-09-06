@@ -18,20 +18,18 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-05T18:55:34.441Z
+**Last updated:** 2026-09-06T12:41:41.766Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
 **Latest commits**
 
+- `fe9d2a6` fix: resolve sprints by name and fold duplicate sprint numbers (2026-09-06)
+- `cd02184` fix: keep agent board writes safe, visible, and in the right sprint (2026-09-06)
+- `8cad584` chore: bump version to 0.2.103 [skip ci] (2026-09-05)
+- `ca6c854` Merge pull request #306 from ANCIENTINSANE/main (2026-09-06)
 - `8c49ee0` Merge stemlen/main into fork main to sync upstream before contribution. (2026-09-06)
 - `c719487` feat: researched project docs, agent context fitting, and usage billing (2026-09-06)
-- `8b787ea` chore: bump version to 0.2.102 [skip ci] (2026-09-05)
-- `66e7390` Merge pull request #305 from Happyesss/main (2026-09-05)
-- `f06ca01` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
-- `c81e03c` Merge pull request #304 from Happyesss/contrib/context-meter (2026-09-05)
-- `3de0bd4` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
-- `7bc902a` Merge stemlen/main into fork and resolve prompt rule conflict. (2026-09-05)
 <!-- docs:latest:end -->
 
 ---

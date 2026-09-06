@@ -8,6 +8,10 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `fe9d2a6` | fix: resolve sprints by name and fold duplicate sprint numbers | ANCIENTINSANE |
+| 2026-09-06 | `cd02184` | fix: keep agent board writes safe, visible, and in the right sprint | ANCIENTINSANE |
+| 2026-09-05 | `8cad584` | chore: bump version to 0.2.103 [skip ci] | github-actions[bot] |
+| 2026-09-06 | `ca6c854` | Merge pull request #306 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-06 | `8c49ee0` | Merge stemlen/main into fork main to sync upstream before contribution. | ANCIENTINSANE |
 | 2026-09-06 | `c719487` | feat: researched project docs, agent context fitting, and usage billing | ANCIENTINSANE |
 | 2026-09-05 | `8b787ea` | chore: bump version to 0.2.102 [skip ci] | github-actions[bot] |
@@ -97,11 +101,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-29 | `a9b20be` | chore: bump version to 0.2.71 [skip ci] | github-actions[bot] |
 | 2026-08-30 | `95d3471` | Merge pull request #288 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-08-29 | `f9946da` | chore: bump version to 0.2.70 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `f26a57b` | feat: implement Model Context Protocol (MCP) server package and workspace integration panel | Happyesss |
-| 2026-08-28 | `5cc9f57` | fix: align org usage costs to USD billing with local display currency | ANCIENTINSANE |
-| 2026-08-28 | `1fa59fc` | chore: bump version to 0.2.69 [skip ci] | github-actions[bot] |
-| 2026-08-28 | `16d13e5` | Merge pull request #287 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-28 | `3a527cd` | Merge branch 'stemlen:main' into main | Surendra Codes |
-| 2026-08-28 | `34fb666` | fix: load organization audit logs on /organization | ANCIENTINSANE |
 
-Last generated: 2026-09-05T18:55:34.414Z
+Last generated: 2026-09-06T12:41:41.740Z

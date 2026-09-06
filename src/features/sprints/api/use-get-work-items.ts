@@ -64,6 +64,7 @@ export const useGetWorkItems = ({
     ],
     enabled: Boolean(workspaceId) && enabled,
     refetchInterval: 4000,
+    refetchOnWindowFocus: true,
     staleTime: QUERY_CONFIG.DYNAMIC.staleTime,
     gcTime: QUERY_CONFIG.DYNAMIC.gcTime,
     placeholderData: keepPreviousData,

@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   calculateContextUsage,
   chatTokenTotal,
+  formatExactTokenCount,
+  formatOccupancyHeader,
   formatTokenCount,
   formatTokenHeader,
   latestContextMeter,
+  occupancyFromMeter,
+  occupancyPercent,
   estimateTokensFromText,
   takeHigherChatPeak,
 } from "./context-meter";
@@ -81,6 +85,58 @@ describe("context-meter", () => {
     });
   });
 
+  describe("occupancy math", () => {
+    it("formats exact occupancy that sums from categories", () => {
+      expect(formatExactTokenCount(10800)).toBe("10,800");
+      expect(formatOccupancyHeader(24018, 128000)).toBe("24,018 / 128,000");
+      expect(occupancyPercent(24018, 128000)).toBe(19);
+      expect(occupancyPercent(21182, 128000)).toBe(17);
+    });
+
+    it("uses the server meter so the modal matches the usage-card occupancy", () => {
+      const now = new Date().toISOString();
+      const breakdown = {
+        system_prompt: 800,
+        tool_definitions: 2000,
+        rules: 2400,
+        skills: 0,
+        mcp_dynamic_tools: 3212,
+        subagent_definitions: 0,
+        summarized_conversation: 4806,
+        conversation: 10800,
+      };
+      const tokens = Object.values(breakdown).reduce((sum, value) => sum + value, 0);
+      expect(tokens).toBe(24018);
+      const run: AgentRun = {
+        id: "luna-run",
+        userId: "user-1",
+        title: "Luna",
+        prompt: "hi",
+        status: "completed",
+        mode: "agent",
+        messages: [{ id: "u1", role: "user", content: "hi", createdAt: now }],
+        events: [
+          {
+            id: "meter",
+            type: "context_meter",
+            title: "Context",
+            payload: { tokens, maxInputTokens: 128000, subagents: 0, breakdown },
+            createdAt: now,
+            runId: "luna-run",
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      };
+      const usage = calculateContextUsage({ run, maxInputTokens: 128000 });
+      const card = occupancyFromMeter(latestContextMeter(run.events));
+      expect(usage.categories.reduce((sum, cat) => sum + cat.tokens, 0)).toBe(usage.totalTokens);
+      expect(usage.totalTokens).toBeLessThanOrEqual(128000);
+      expect(usage.maxTokens).toBe(128000);
+      expect(card).toEqual({ tokens: 24018, maxTokens: 128000, percent: 19 });
+    });
+  });
+
   describe("takeHigherChatPeak", () => {
     it("keeps the larger chat peak", () => {
       expect(chatTokenTotal(takeHigherChatPeak({ conversation: 8000, summarized_conversation: 2000 }, { conversation: 1469, summarized_conversation: 1655 }))).toBe(10000);
@@ -117,7 +173,7 @@ describe("context-meter", () => {
       ]);
 
       expect(usage.totalTokens).toBe(0);
-      expect(usage.maxTokens).toBe(64000);
+      expect(usage.maxTokens).toBe(128000);
       expect(usage.percentFull).toBe(0);
     });
 
@@ -295,7 +351,7 @@ describe("context-meter", () => {
           title: `Work item ${index} with a descriptive title`,
         })),
       });
-      const makeRun = (extraCount: number): AgentRun => ({
+      const makeRun = (toolCount: number): AgentRun => ({
         id: "compress-run",
         userId: "user-1",
         title: "Compress",
@@ -305,17 +361,22 @@ describe("context-meter", () => {
         messages: [
           { id: "u0", role: "user", content: "list work items", createdAt: now },
           {
-            id: "t0",
-            role: "tool",
-            content: fatTool,
-            toolName: "fairlx_work_item_list",
-            toolCallId: "c0",
+            id: "a0",
+            role: "assistant",
+            content: "",
+            toolCalls: Array.from({ length: toolCount }, (_, index) => ({
+              id: `c${index}`,
+              name: "fairlx_work_item_list",
+              arguments: "{}",
+            })),
             createdAt: now,
           },
-          ...Array.from({ length: 7 + extraCount }, (_, index) => ({
-            id: `u${index + 1}`,
-            role: "user" as const,
-            content: `follow up ${index}`,
+          ...Array.from({ length: toolCount }, (_, index) => ({
+            id: `t${index}`,
+            role: "tool" as const,
+            content: fatTool,
+            toolName: "fairlx_work_item_list",
+            toolCallId: `c${index}`,
             createdAt: now,
           })),
         ],
@@ -324,10 +385,54 @@ describe("context-meter", () => {
         updatedAt: now,
       });
 
-      const before = calculateContextUsage({ run: makeRun(0) });
-      const after = calculateContextUsage({ run: makeRun(1) });
-      expect(tokens(after, "summarized_conversation")).toBeGreaterThan(tokens(before, "summarized_conversation"));
-      expect(after.totalTokens).toBeGreaterThanOrEqual(before.totalTokens);
+      const before = calculateContextUsage({ run: makeRun(3), maxInputTokens: 64_000 });
+      const after = calculateContextUsage({ run: makeRun(12), maxInputTokens: 64_000 });
+      expect(after.totalTokens).toBeLessThanOrEqual(64_000);
+      expect(before.totalTokens).toBeLessThanOrEqual(64_000);
+      expect(after.percentFull).toBeLessThanOrEqual(100);
+    });
+
+    it("does not count compacted-away history as overflowing the model window", () => {
+      const now = new Date().toISOString();
+      const breakdown = {
+        system_prompt: 647,
+        tool_definitions: 405,
+        rules: 3594,
+        skills: 146,
+        mcp_dynamic_tools: 3732,
+        subagent_definitions: 1345,
+        summarized_conversation: 99419,
+        conversation: 3341,
+      };
+      const tokens = Object.values(breakdown).reduce((sum, value) => sum + value, 0);
+      expect(tokens).toBeGreaterThan(64_000);
+      const run: AgentRun = {
+        id: "overflow-run",
+        userId: "user-1",
+        title: "Overflow",
+        prompt: "continue",
+        status: "running",
+        mode: "agent",
+        messages: [{ id: "u1", role: "user", content: "continue", createdAt: now }],
+        events: [
+          {
+            id: "meter",
+            type: "context_meter",
+            title: "Context",
+            payload: { tokens, maxInputTokens: 64_000, subagents: 0, breakdown },
+            createdAt: now,
+            runId: "overflow-run",
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      };
+      const usage = calculateContextUsage({ run, maxInputTokens: 64_000 });
+      const card = occupancyFromMeter(latestContextMeter(run.events));
+      expect(usage.totalTokens).toBeLessThanOrEqual(64_000);
+      expect(usage.percentFull).toBeLessThan(100);
+      expect(card?.tokens).toBeLessThanOrEqual(64_000);
+      expect(card?.maxTokens).toBe(64_000);
     });
 
     it("keeps truncated stored messages as summarized using the last context_meter", () => {
@@ -365,12 +470,12 @@ describe("context-meter", () => {
           },
         ],
       };
-      const after = calculateContextUsage({ run: truncated });
-      expect(tokens(after, "summarized_conversation")).toBeGreaterThan(0);
-      expect(after.totalTokens).toBeGreaterThanOrEqual(full.totalTokens);
+      const after = calculateContextUsage({ run: truncated, maxInputTokens: 64_000 });
+      expect(after.totalTokens).toBeLessThanOrEqual(64_000);
+      expect(after.percentFull).toBeLessThanOrEqual(100);
     });
 
-    it("restores chat tokens from a persisted peak after stored messages shrink", () => {
+    it("does not restore compacted history from a persisted peak", () => {
       const now = new Date().toISOString();
       const truncated: AgentRun = {
         id: "refresh-run",
@@ -386,8 +491,8 @@ describe("context-meter", () => {
         updatedAt: now,
       };
       const usage = calculateContextUsage({ run: truncated });
-      expect(tokens(usage, "conversation") + tokens(usage, "summarized_conversation")).toBe(10000);
-      expect(tokens(usage, "summarized_conversation")).toBeGreaterThan(2000);
+      expect(tokens(usage, "conversation") + tokens(usage, "summarized_conversation")).toBeLessThan(10000);
+      expect(usage.totalTokens).toBeLessThan(10_000);
     });
 
     it("omits tool definitions in ask mode", () => {

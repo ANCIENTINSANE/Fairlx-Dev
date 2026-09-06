@@ -37,9 +37,12 @@ import { displayUserContent } from "../lib/session-context";
 import {
   collectMemberLookup,
   collectWorkItemLookup,
+  collapseRepeatedActivity,
+  activityTrailLabel,
   formatThinkingDuration,
   groupConversationTurns,
   isHiddenActivityEvent,
+  isPinnedActivityEvent,
   isRepeatedToolResult,
   summarizeToolResult,
   thinkingDurationMs,
@@ -858,6 +861,7 @@ function StepsCard({
 
   useEffect(() => {
     if (running || awaiting) setOpen(true);
+    else setOpen(false);
   }, [running, awaiting]);
 
   if (!visibleSteps.length && !leadVisible) return null;
@@ -921,33 +925,88 @@ function StepsCard({
   );
 }
 
-function ActivityLines({ events }: { events: AgentToolEvent[] }) {
+function ActivityTrail({
+  events,
+  live,
+  currentTitle,
+}: {
+  events: AgentToolEvent[];
+  live?: boolean;
+  currentTitle?: string;
+}) {
   const visible = events.filter((event) => !isHiddenActivityEvent(event));
-  if (!visible.length) return null;
+  const errors = visible.filter((event) => isPinnedActivityEvent(event));
+  const rest = visible.filter((event) => !isPinnedActivityEvent(event));
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!live) setOpen(false);
+  }, [live]);
+
+  if (!errors.length && !rest.length && !(live && currentTitle)) return null;
+
+  const collapsed = collapseRepeatedActivity(rest);
+  const canExpand = collapsed.length > 0;
+  const label = live ? currentTitle || "Working" : activityTrailLabel(rest);
+
   return (
     <div className="min-w-0 max-w-[46rem] space-y-1">
-      {visible.map((event) => {
-        const failed = event.type === "error" || /fail/i.test(event.title);
-        const subagent = event.type.startsWith("subagent_");
-        const waiting = event.type === "subagent_progress" || event.type === "subagent_started";
-        return (
-          <div key={event.id} className="flex items-start gap-2 text-[12.5px]">
-            {failed ? (
-              <XCircle className="size-3.5 mt-0.5 text-destructive shrink-0" />
-            ) : waiting ? (
-              <Loader2 className="size-3.5 mt-0.5 animate-spin text-primary shrink-0" />
-            ) : subagent ? (
-              <Users className="size-3.5 mt-0.5 text-primary shrink-0" />
+      {errors.map((event) => (
+        <div key={event.id} className="flex items-start gap-2 text-[12.5px]">
+          <XCircle className="size-3.5 mt-0.5 text-destructive shrink-0" />
+          <p className="leading-relaxed text-destructive">
+            <span className="font-medium">{event.title}</span>
+            {event.detail ? <span> — {event.detail}</span> : null}
+          </p>
+        </div>
+      ))}
+      {rest.length || live ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!canExpand) return;
+              setOpen((value) => !value);
+            }}
+            className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {live ? (
+              <Loader2 className="size-3.5 animate-spin text-primary" />
             ) : (
-              <Check className="size-3.5 mt-0.5 text-muted-foreground shrink-0" />
+              <CheckCircle2 className="size-3.5 text-muted-foreground" />
             )}
-            <p className={cn("leading-relaxed", failed ? "text-destructive" : "text-muted-foreground")}>
-              <span className={failed ? "font-medium" : "text-foreground/80"}>{event.title}</span>
-              {event.detail ? <span> — {event.detail}</span> : null}
-            </p>
-          </div>
-        );
-      })}
+            <span className={live ? "text-foreground/80" : undefined}>{label}</span>
+            {canExpand ? open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" /> : null}
+          </button>
+          {open && canExpand ? (
+            <div className="mt-1 ml-1 pl-3 border-l border-border/80 space-y-1">
+              {collapsed.map((event) => {
+                const failed = /fail/i.test(event.title);
+                const subagent = event.type.startsWith("subagent_");
+                const waiting = event.type === "subagent_progress" || event.type === "subagent_started";
+                return (
+                  <div key={event.id} className="flex items-start gap-2 text-[12.5px]">
+                    {failed ? (
+                      <XCircle className="size-3.5 mt-0.5 text-destructive shrink-0" />
+                    ) : waiting && live ? (
+                      <Loader2 className="size-3.5 mt-0.5 animate-spin text-primary shrink-0" />
+                    ) : subagent ? (
+                      <Users className="size-3.5 mt-0.5 text-primary shrink-0" />
+                    ) : (
+                      <Check className="size-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                    )}
+                    <p className={cn("leading-relaxed", failed ? "text-destructive" : "text-muted-foreground")}>
+                      <span className={failed ? "font-medium" : "text-foreground/80"}>{event.title}</span>
+                      {event.repeats > 1 ? <span> · {event.repeats}</span> : null}
+                      {event.detail ? <span> — {event.detail}</span> : null}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1071,6 +1130,19 @@ export function AgentChatThread({
               />
             ) : null}
 
+            <ActivityTrail
+              events={turn.activity}
+              live={Boolean(turnRunning && !awaiting && !awaitingPlugin)}
+              currentTitle={
+                turnRunning &&
+                currentAction &&
+                currentAction.type !== "thought" &&
+                currentAction.type !== "llm_usage"
+                  ? currentAction.title
+                  : undefined
+              }
+            />
+
             {turn.blocks.map((block) => {
               blockIndex += 1;
               const kanban = kanbanCtas.get(blockIndex);
@@ -1114,15 +1186,6 @@ export function AgentChatThread({
                 </div>
               );
             })}
-
-            <ActivityLines events={turn.activity} />
-
-            {isLast && turnRunning && currentAction && currentAction.type !== "thought" && currentAction.type !== "llm_usage" ? (
-              <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin text-primary" />
-                <span>{currentAction.title}</span>
-              </div>
-            ) : null}
 
             {turn.usage.some((event) => event.type === "llm_usage" || event.type === "context_meter") ? (
               <AgentTurnUsageCard events={turn.usage} live={Boolean(isLast && turnRunning)} />

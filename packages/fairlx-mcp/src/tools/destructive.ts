@@ -5,7 +5,8 @@ import { PERMISSIONS, type McpRuntime } from "../runtime/types";
 import { toolResult } from "../runtime/output";
 import { requireProjectAccess } from "../runtime/rbac";
 import { loadWorkItem, workItemDocumentId } from "../runtime/tenant";
-import { audit, requireString } from "./helpers";
+import { audit, optionalString, requireString } from "./helpers";
+import { loadSprint, sprintDocumentId } from "./sprint-resolve";
 import { workspaceMemberRemove } from "./write";
 import { projectTeamDelete, projectTeamMemberRemove } from "./write-team";
 
@@ -99,13 +100,11 @@ async function sprintDelete(
   runtime: McpRuntime,
   auth: AuthContext
 ): Promise<McpToolResult> {
-  const sprintId = requireString(args, "sprintId");
-  let sprint: Record<string, unknown>;
-  try {
-    sprint = await runtime.store.get<Record<string, unknown>>(runtime.collections.sprints, sprintId);
-  } catch {
-    throw notFoundError("Not found");
-  }
+  const sprintRef = requireString(args, "sprintId");
+  const sprint = await loadSprint(runtime, sprintRef, {
+    projectId: optionalString(args, "projectId") || auth.projectId,
+  });
+  const sprintId = sprintDocumentId(sprint);
   await requireProjectAccess(
     runtime,
     auth,
@@ -114,7 +113,7 @@ async function sprintDelete(
     ["sprints:manage"]
   );
   await runtime.store.delete(runtime.collections.sprints, sprintId);
-  return toolResult({ deleted: true, sprintId });
+  return toolResult({ deleted: true, sprintId, name: String(sprint.name ?? "") });
 }
 
 async function linkDelete(

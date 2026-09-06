@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Server } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useAgentUi } from "./agent-ui-context";
 import { useGetAgentMcpConfig } from "../api/use-agent-mcp-config";
 import { getMcpServerIcon, isInternalMcpServer } from "../constants";
@@ -11,6 +12,26 @@ function connectedMcpCount(config: McpConfig | undefined): number {
   return Object.entries(config.mcpServers).filter(
     ([name, server]) => !isInternalMcpServer(name, server) && !server.disabled
   ).length;
+}
+
+export function McpBarButton({ className }: { className?: string }) {
+  const { openMcp } = useAgentUi();
+  const { data, isLoading } = useGetAgentMcpConfig();
+  const count = connectedMcpCount(data);
+  return (
+    <button
+      type="button"
+      onClick={openMcp}
+      className={cn(
+        "flex items-center gap-1 h-7 px-1.5 text-xs font-medium text-foreground/80 hover:text-foreground hover:bg-muted/60 rounded-md transition-colors cursor-pointer shrink-0 select-none",
+        className,
+      )}
+      title="MCP servers"
+    >
+      <Server className="size-3.5 opacity-80" />
+      <span className="max-w-[110px] truncate">MCP{isLoading ? "" : count ? ` · ${count}` : ""}</span>
+    </button>
+  );
 }
 
 export function McpConnectedLabel({ className }: { className?: string }) {

@@ -152,13 +152,45 @@ export function attachedSearchPayload(query: string, files: AttachedFile[]) {
   };
 }
 
+export function parentPromptFromMessages(messages: Array<{ role: string; content: string }>, fallback = ""): string {
+  const users = messages.filter((message) => message.role === "user");
+  if (!users.length) return fallback;
+  const attached = users.flatMap((message) => extractAttachedFiles(message.content));
+  const texts = users
+    .map((message) => stripAttachedFiles(message.content).trim())
+    .filter(Boolean);
+  const brief = texts.join("\n\n");
+  const capped =
+    brief.length > 6000
+      ? `${(texts[0] ?? "").slice(0, 800)}\n\n…\n\n${brief.slice(-4000)}`
+      : brief;
+  if (attached.length) {
+    const unique = attached.filter(
+      (file, index) => attached.findIndex((item) => item.name === file.name && item.body === file.body) === index,
+    );
+    return [formatAttachedFiles(unique), capped].filter(Boolean).join("\n\n") || fallback;
+  }
+  return capped || fallback;
+}
+
 export function buildSpecialistUserMessage(params: {
   task: string;
   parentPrompt: string;
   subject?: string;
 }): string {
   const files = extractAttachedFiles(params.parentPrompt);
-  if (!files.length) return params.task;
+  const prior = stripAttachedFiles(params.parentPrompt).trim();
+  if (!files.length) {
+    if (!prior || prior === params.task) return params.task;
+    const subjectLine = params.subject ? `Subject for this sub-agent: ${params.subject}` : "";
+    return [
+      `Prior user instructions:\n${prior.slice(0, 4000)}`,
+      subjectLine,
+      `Task:\n${params.task}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
   const subjects = subjectsFromFiles(files);
   const total = files.reduce((sum, file) => sum + file.body.length, 0);
   const matched = params.subject ? matchSubject(subjects, params.subject) : undefined;

@@ -21,7 +21,7 @@ const OPTIONS: Array<{ id: AgentPermissionType; label: string; hint: string }> =
   {
     id: "all_access",
     label: "All access",
-    hint: "Autonomous. Fairlx roles still apply",
+    hint: "Autonomous. Deletes only if this chat asked for them.",
   },
 ];
 

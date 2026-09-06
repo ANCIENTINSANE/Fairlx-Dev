@@ -18,6 +18,7 @@ export const useGetProjects = ({ workspaceId }: UseGetProjectsProps) => {
     enabled: !!workspaceId, // prevent 400 (Bad Request) when workspaceId is missing
     staleTime: QUERY_CONFIG.STATIC.staleTime,
     gcTime: QUERY_CONFIG.STATIC.gcTime,
+    refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
     queryFn: async () => {
       if (!workspaceId) return null; // Should never run when disabled, but defensive

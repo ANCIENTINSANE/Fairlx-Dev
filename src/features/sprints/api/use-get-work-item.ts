@@ -10,6 +10,7 @@ export const useGetWorkItem = ({ workItemId }: UseGetWorkItemProps) => {
   const query = useQuery({
     queryKey: ["work-item", workItemId],
     enabled: Boolean(workItemId),
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       if (!workItemId) {
         throw new Error("workItemId is required to fetch work item.");

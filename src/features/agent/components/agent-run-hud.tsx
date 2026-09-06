@@ -6,10 +6,15 @@ import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Files, Loader2, Spark
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { AgentRun } from "../types";
-import { activeSubagents, editedFilePaths, latestContextMeter } from "../lib/context-meter";
+import {
+  activeSubagents,
+  editedFilePaths,
+  formatOccupancyHeader,
+  latestContextMeter,
+  occupancyFromMeter,
+} from "../lib/context-meter";
 import {
   aggregateLlmUsage,
-  contextUtilizationPercent,
   formatCompactUsageLine,
   formatPricePerMillion,
   formatTokenCount,
@@ -147,9 +152,8 @@ export function AgentTurnUsageCard({
 }) {
   const [open, setOpen] = useState(false);
   const usage = aggregateLlmUsage(events);
-  const meter = latestContextMeter(events);
+  const occupancy = occupancyFromMeter(latestContextMeter(events));
   if (!usage) return null;
-  const contextPct = contextUtilizationPercent(meter?.tokens ?? 0, meter?.maxInputTokens ?? 0);
   const line = formatCompactUsageLine({
     ...usage,
     models: usage.models.length ? usage.models : modelFallback ? [modelFallback] : usage.models,
@@ -217,8 +221,8 @@ export function AgentTurnUsageCard({
             {`${usage.calls} model call${usage.calls === 1 ? "" : "s"}`}
             {usage.subagentCalls ? ` · ${usage.subagentCalls} subagent` : ""}
             {usage.estimated ? " · estimated tokens" : ""}
-            {meter?.maxInputTokens
-              ? ` · context ${formatTokenCount(meter.tokens)} / ${formatTokenCount(meter.maxInputTokens)}${contextPct ? ` (${Math.round(contextPct)}%)` : ""}`
+            {occupancy
+              ? ` · context ${formatOccupancyHeader(occupancy.tokens, occupancy.maxTokens)} (${occupancy.percent}%)`
               : ""}
             {usage.billed ? " · includes 15% Fairlx markup" : ""}
           </p>

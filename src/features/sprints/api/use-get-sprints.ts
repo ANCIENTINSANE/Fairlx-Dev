@@ -23,6 +23,7 @@ export const useGetSprints = ({
   const query = useQuery({
     queryKey: ["sprints", workspaceId, projectId, status, isTourActive],
     enabled: Boolean(workspaceId) && enabled,
+    refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
     queryFn: async () => {
       // DUMMY DATA FOR TOUR
