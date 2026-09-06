@@ -18,37 +18,18 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-06T17:33:39.701Z
+**Last updated:** 2026-09-06T17:33:43.947Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `src/app/(auth)/onboarding/components/completion-step.tsx`
-- `src/app/(auth)/onboarding/components/onboarding-stepper.tsx`
-- `src/app/(auth)/onboarding/page.tsx`
-- `src/app/[orgSlug]/(auth)/onboarding/page.tsx`
-- `src/app/auth/callback/page.tsx`
-- `src/app/page.tsx`
-- `src/components/app-tour.tsx`
-- `src/components/navbar.tsx`
-- `src/features/agent/components/agent-app-shell.tsx`
-- `src/features/auth/api/use-first-login.ts`
-- `src/features/auth/api/use-login.ts`
-- `src/features/auth/api/use-verify-email.ts`
-- `src/features/auth/lib/hard-redirect-after-auth.ts`
-- `src/features/onboarding/hooks/use-onboarding-local-state.ts`
-- `src/features/twoFactorAuth/api/use-verify-2fa.ts`
-- `src/features/workspaces/components/create-workspace-form.tsx`
-- `src/lib/routes.ts`
-
 **Latest commits**
 
+- `b276c5e` refactor: use hard page redirects for auth flows and improve workspace navigation consistency across the app (2026-09-06)
+- `dc87db5` chore: bump version to 0.2.105 [skip ci] (2026-09-06)
 - `3a0d23c` feat: implement dismissible Linear-inspired suggestion cards in AgentCommandInput and reorder AgentHome layout (2026-09-06)
 - `412c5b9` chore: bump version to 0.2.104 [skip ci] (2026-09-06)
 - `03593e4` Merge pull request #307 from ANCIENTINSANE/main (2026-09-06)
 - `fe9d2a6` fix: resolve sprints by name and fold duplicate sprint numbers (2026-09-06)
-- `cd02184` fix: keep agent board writes safe, visible, and in the right sprint (2026-09-06)
 <!-- docs:latest:end -->
 
 ---
