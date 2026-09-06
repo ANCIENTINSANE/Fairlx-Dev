@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 
+import { routes } from "@/lib/routes";
 import { createWorkspaceSchema } from "../schemas";
 import { useCreateWorkspace } from "../api/use-create-workspace";
 
@@ -55,7 +56,7 @@ export const CreateWorkspaceForm = ({ onCancel }: CreateWorkspaceFormProps) => {
         onSuccess: (response) => {
           form.reset();
           if (response && 'data' in response && response.data) {
-            router.push(`/workspaces/${response.data.$id}`);
+            router.push(routes.agentDashboard());
           }
         },
       }

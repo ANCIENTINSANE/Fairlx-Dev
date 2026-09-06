@@ -3,13 +3,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { InferRequestType, InferResponseType } from "hono";
 
 import { client } from "@/lib/rpc";
-import { useRouter } from "next/navigation";
+import { hardRedirectAfterAuth } from "@/features/auth/lib/hard-redirect-after-auth";
 
 type ResponseType = InferResponseType<(typeof client.api["two-factor-auth"]["verify"])["$post"]>;
 type RequestType = InferRequestType<(typeof client.api["two-factor-auth"]["verify"])["$post"]>;
 
 export const useVerify2FA = () => {
-    const router = useRouter();
     const queryClient = useQueryClient();
 
     const mutation = useMutation<ResponseType, Error, RequestType>({
@@ -25,9 +24,9 @@ export const useVerify2FA = () => {
         },
         onSuccess: () => {
             toast.success("Verification successful.");
-            queryClient.invalidateQueries({ queryKey: ["current"] });
-            // Redirect to unified callback for post-auth routing
-            router.push("/auth/callback");
+            queryClient.removeQueries({ queryKey: ["current"] });
+            queryClient.removeQueries({ queryKey: ["account-lifecycle"] });
+            hardRedirectAfterAuth();
         },
         onError: (error) => {
             toast.error(error.message);

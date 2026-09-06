@@ -150,11 +150,6 @@ export function getStepsForAccountType(accountType: "PERSONAL" | "ORG" | null): 
                 title: "Workspace",
                 description: "Set up your workspace"
             },
-            {
-                id: "complete",
-                title: "Complete",
-                description: "You're all set!"
-            }
         ];
     }
 

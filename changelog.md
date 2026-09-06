@@ -4,6 +4,28 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `src/app/(auth)/onboarding/components/completion-step.tsx`
+- `src/app/(auth)/onboarding/components/onboarding-stepper.tsx`
+- `src/app/(auth)/onboarding/page.tsx`
+- `src/app/[orgSlug]/(auth)/onboarding/page.tsx`
+- `src/app/auth/callback/page.tsx`
+- `src/app/page.tsx`
+- `src/components/app-tour.tsx`
+- `src/components/navbar.tsx`
+- `src/features/agent/components/agent-app-shell.tsx`
+- `src/features/auth/api/use-first-login.ts`
+- `src/features/auth/api/use-login.ts`
+- `src/features/auth/api/use-verify-email.ts`
+- `src/features/auth/lib/hard-redirect-after-auth.ts`
+- `src/features/onboarding/hooks/use-onboarding-local-state.ts`
+- `src/features/twoFactorAuth/api/use-verify-2fa.ts`
+- `src/features/workspaces/components/create-workspace-form.tsx`
+- `src/lib/routes.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
@@ -99,6 +121,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-30 | `2709267` | chore: bump version to 0.2.72 [skip ci] | github-actions[bot] |
 | 2026-08-30 | `2d5db2e` | Merge pull request #289 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-08-30 | `15a2169` | chore: bump version to 0.2.71 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `e490237` | feat: add support for subtask, saved view, and webhook management tools to MCP registry | Happyesss |
 
-Last generated: 2026-09-06T16:39:01.742Z
+Last generated: 2026-09-06T17:33:39.689Z

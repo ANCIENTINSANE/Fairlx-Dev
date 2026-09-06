@@ -4,6 +4,7 @@ import { InferRequestType, InferResponseType } from "hono";
 import { useRouter } from "next/navigation";
 
 import { client } from "@/lib/rpc";
+import { hardRedirectAfterAuth } from "../lib/hard-redirect-after-auth";
 
 type ResponseType = InferResponseType<
   (typeof client.api.auth)["verify-email"]["$post"]
@@ -55,7 +56,7 @@ export const useVerifyEmail = () => {
             description: "Welcome! Setting up your account...",
           });
           // Redirect to unified callback for post-auth routing
-          router.push("/auth/callback");
+          hardRedirectAfterAuth();
         } else {
           // Fallback: redirect to sign-in
           toast.success("Email verified!", {

@@ -174,11 +174,11 @@ export function useOnboardingLocalState() {
      */
     const getTotalSteps = useCallback(() => {
         if (state.accountType === "PERSONAL") {
-            return 3; // 1. Account Type, 2. Workspace, 3. Complete
+            return 2; // 1. Account Type, 2. Workspace (then Agent)
         } else if (state.accountType === "ORG") {
-            return 4; // 1. Account Type, 2. Org Details, 3. Workspace (optional), 4. Complete
+            return 4; // 1. Account Type, 2. Org Details, 3. Workspace (optional), 4. Complete (skip only)
         }
-        return 3; // Default
+        return 2; // Default
     }, [state.accountType]);
 
     return {
