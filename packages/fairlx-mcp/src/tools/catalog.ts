@@ -677,7 +677,8 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_work_item_delete",
-    description: "Delete a work item. Destructive; requires confirm: true and challengeToken.",
+    description:
+      "Delete a work item. You have this tool. Read Conversation delete intent first and think twice: existing items are important. Never use this to replace or flesh out a board. Only when the user asked to delete that item.",
     inputSchema: {
       type: "object",
       properties: { workItemId: id, confirm, challengeToken },
@@ -690,7 +691,8 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_sprint_delete",
-    description: "Delete a sprint. Destructive; requires confirm: true and challengeToken.",
+    description:
+      "Delete a sprint. Destructive. Never use this to replace or rebuild a sprint plan. Only when the user explicitly asked to delete that sprint.",
     inputSchema: {
       type: "object",
       properties: { sprintId: id, confirm, challengeToken },

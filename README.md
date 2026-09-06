@@ -18,9 +18,33 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-05T18:55:34.441Z
+**Last updated:** 2026-09-06T11:30:41.336Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
+
+**This commit**
+
+- `packages/fairlx-mcp/src/tools/catalog.ts`
+- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
+- `packages/fairlx-mcp/src/tools/write.ts`
+- `src/components/query-provider.tsx`
+- `src/features/agent/api/use-agent-context.ts`
+- `src/features/agent/api/use-agent-runs.ts`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-context-meter.tsx`
+- `src/features/agent/components/agent-crew-panel.tsx`
+- `src/features/agent/components/agent-floating-chat.tsx`
+- `src/features/agent/components/agent-permission-picker.tsx`
+- `src/features/agent/components/agent-run-hud.tsx`
+- `src/features/agent/components/mcp-servers-card.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/agent/constants.ts`
+- `src/features/agent/hooks/use-agent-mutation-sync.ts`
+- `src/features/agent/lib/agent-core.test.ts`
+- `src/features/agent/lib/attachments.test.ts`
+- `src/features/agent/lib/attachments.ts`
+- …and 39 more files
 
 **Latest commits**
 
@@ -31,7 +55,6 @@ This block and [changelog.md](changelog.md) refresh on every `git commit` and `g
 - `f06ca01` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
 - `c81e03c` Merge pull request #304 from Happyesss/contrib/context-meter (2026-09-05)
 - `3de0bd4` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
-- `7bc902a` Merge stemlen/main into fork and resolve prompt rule conflict. (2026-09-05)
 <!-- docs:latest:end -->
 
 ---

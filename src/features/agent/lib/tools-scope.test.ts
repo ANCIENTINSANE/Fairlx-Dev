@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import type { AgentContext } from "../types";
 import { defaultHarnessData } from "./harness";
-import { applyScopeDefaults, openaiToolsForTurn, trainingSaveTool } from "./tools";
+import { applyScopeDefaults, executeTool, openaiToolsForTurn, trainingSaveTool } from "./tools";
 import { DEFAULT_ENABLED_TOOLS } from "../constants";
 
 function context(): AgentContext {
@@ -114,5 +114,47 @@ describe("openaiToolsForTurn", () => {
     });
     expect(tools.map((tool) => tool.function.name)).not.toContain("save_personal_agent");
     expect(trainingSaveTool().function.name).toBe("save_personal_agent");
+  });
+});
+
+describe("executeTool destructive guard", () => {
+  it("refuses work-item deletes when the user asked to create or plan", async () => {
+    const result = await executeTool(
+      "fairlx_work_item_delete",
+      { workItemId: "AGEN-1" },
+      ctx({ latestUserText: "Plan all sprints and create all work items." }),
+    );
+    expect(result.content).toContain("DESTRUCTIVE_NOT_REQUESTED");
+    expect(result.event.title).toBe("Delete blocked");
+  });
+
+  it("does not run solicited deletes in staged mode until the user clicks Accept", async () => {
+    const result = await executeTool(
+      "fairlx_work_item_delete",
+      { workItemId: "AGEN-1" },
+      ctx({ latestUserText: "delete AGEN-1", permissionType: "staged" }),
+    );
+    expect(result.content).toContain("DESTRUCTIVE_REQUIRES_ACCEPT");
+  });
+
+  it("blocks mcp_call wrappers of Fairlx deletes without Accept", async () => {
+    const result = await executeTool(
+      "mcp_call",
+      { server: "fairlx", tool: "fairlx_work_item_delete", arguments: { workItemId: "AGEN-1" } },
+      ctx({ latestUserText: "create every epic and story" }),
+    );
+    expect(result.content).toContain("DESTRUCTIVE_NOT_REQUESTED");
+  });
+
+  it("still refuses unsolicited deletes in all_access", async () => {
+    const result = await executeTool(
+      "fairlx_work_item_delete",
+      { workItemId: "AGEN-1" },
+      ctx({
+        latestUserText: "Plan all sprints and create all work items.",
+        permissionType: "all_access",
+      }),
+    );
+    expect(result.content).toContain("DESTRUCTIVE_NOT_REQUESTED");
   });
 });

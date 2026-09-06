@@ -49,7 +49,7 @@ export const AGENT_SESSION_MODES: Array<{
 ];
 
 export const SESSION_MODE_INSTRUCTIONS: Record<AgentSessionMode, string> = {
-  agent: "Inspect Fairlx data, then act. Prefer tools. Ask before destructive changes.",
+  agent: "Inspect Fairlx data, then act. Prefer tools. You have delete tools — read Conversation delete intent and think twice before deleting existing work.",
   personal:
     "Stay in Personal Agent mode. You are the user's Chief of Staff. Decompose the goal, delegate to planner, builder, QA/tester, git, or reviewer specialists, then verify and synthesize. Do specialist work yourself only when a sub-agent would add latency without leverage.",
   plan: "Stay in Plan mode. Inspect and produce a concrete implementation plan. Do not claim you edited files or committed git.",

@@ -129,6 +129,61 @@ export function isHiddenActivityEvent(event: AgentToolEvent): boolean {
   return HIDDEN_ACTIVITY_TYPES.has(event.type) || looksLikeLlmUsageEvent(event);
 }
 
+/** Turn-ending failures stay on screen; everything else belongs behind Expand. */
+export function isPinnedActivityEvent(event: AgentToolEvent): boolean {
+  return event.type === "error";
+}
+
+const SEARCH_ACTIVITY_TYPES = new Set<AgentToolEvent["type"]>([
+  "web_search",
+  "web_fetch",
+  "search_harness",
+  "file_search",
+  "code_inspect",
+]);
+
+export function collapseRepeatedActivity(
+  events: AgentToolEvent[],
+): Array<AgentToolEvent & { repeats: number }> {
+  const collapsed: Array<AgentToolEvent & { repeats: number }> = [];
+  for (const event of events) {
+    const last = collapsed[collapsed.length - 1];
+    const noisy = event.type === "subagent_progress" || event.type === "thought";
+    if (last && noisy && last.type === event.type && last.title === event.title) {
+      last.repeats += 1;
+      last.createdAt = event.createdAt;
+      if (event.detail) last.detail = event.detail;
+      continue;
+    }
+    collapsed.push({ ...event, repeats: 1 });
+  }
+  return collapsed;
+}
+
+export function activityTrailLabel(events: AgentToolEvent[]): string {
+  const visible = events.filter((event) => !isHiddenActivityEvent(event) && !isPinnedActivityEvent(event));
+  const specialists = visible.filter((event) => event.type === "subagent_started").length;
+  const searches = visible.filter(
+    (event) =>
+      SEARCH_ACTIVITY_TYPES.has(event.type) ||
+      /^Search:/i.test(event.title) ||
+      /^Fetched /i.test(event.title) ||
+      /^Web search:/i.test(event.title),
+  ).length;
+  const progress = visible.filter(
+    (event) => event.type === "subagent_progress" || event.type === "subagent_done",
+  ).length;
+  const other = Math.max(0, visible.length - specialists - searches - progress);
+  const parts: string[] = [];
+  if (specialists) parts.push(`${specialists} specialist${specialists === 1 ? "" : "s"}`);
+  if (searches) parts.push(`${searches} ${searches === 1 ? "search" : "searches"}`);
+  if (other) parts.push(`${other} ${other === 1 ? "step" : "steps"}`);
+  if (!parts.length && visible.length) {
+    return `${visible.length} ${visible.length === 1 ? "step" : "steps"}`;
+  }
+  return parts.join(" · ") || "Work";
+}
+
 export type ConversationTurn = {
   user?: AgentChatMessage;
   thoughts: AgentToolEvent[];

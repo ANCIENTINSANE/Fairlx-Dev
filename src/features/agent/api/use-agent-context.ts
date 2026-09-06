@@ -10,6 +10,7 @@ export const useGetAgentContext = () => {
     queryKey: AGENT_CONTEXT_QUERY_KEY,
     staleTime: QUERY_CONFIG.SEMI_DYNAMIC.staleTime,
     gcTime: QUERY_CONFIG.SEMI_DYNAMIC.gcTime,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const response = await client.api.agent.context.$get();
       if (!response.ok) {

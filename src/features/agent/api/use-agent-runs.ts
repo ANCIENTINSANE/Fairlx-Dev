@@ -73,8 +73,11 @@ export const useGetAgentRun = (runId?: string) => {
     enabled: Boolean(runId),
     staleTime: QUERY_CONFIG.REALTIME.staleTime,
     gcTime: QUERY_CONFIG.REALTIME.gcTime,
+    refetchOnWindowFocus: true,
     refetchInterval: (query) => agentRunPollMs(query.state.data?.status),
-    refetchIntervalInBackground: false,
+    // Keep polling while the user looks at kanban/manual in another tab so
+    // MCP writes can invalidate those screens instead of leaving them idle.
+    refetchIntervalInBackground: true,
     queryFn: async () => {
       const response = await client.api.agent.runs[":runId"].$get({
         param: { runId: runId! },

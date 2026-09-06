@@ -1,4 +1,4 @@
-import { callTool, jwtToAuthContext, listResources, listToolsForClient, type AuthContext } from "@fairlx/mcp-server";
+import { callTool, getToolDefinition, jwtToAuthContext, listResources, listToolsForClient, type AuthContext } from "@fairlx/mcp-server";
 import type { Databases } from "node-appwrite";
 
 import { createMcpRuntime } from "@/features/mcp/bind-runtime";
@@ -11,6 +11,10 @@ import {
 import type { AgentHarness, AgentRun, McpConfig, McpServerConfig } from "../types";
 import { listPersonalResources, PERSONAL_RESOURCE_KINDS, readPersonalContent } from "./personal";
 import { decryptSecret } from "./secrets";
+import {
+  DESTRUCTIVE_REQUIRES_ACCEPT_MESSAGE,
+  isDestructiveToolName,
+} from "./write-guard";
 
 const MCP_TIMEOUT_MS = 20_000;
 
@@ -160,6 +164,7 @@ export async function callMcpServerTool(params: {
   tool: string;
   args?: Record<string, unknown>;
   ctx: McpBridgeContext;
+  userAccepted?: boolean;
 }): Promise<unknown> {
   const config = ensurePersonalMcp(params.ctx.mcp);
   const serverName = params.server || DEFAULT_FAIRLX_MCP_SERVER_NAME;
@@ -183,6 +188,13 @@ export async function callMcpServerTool(params: {
   }
 
   if (isFairlxPlatform(serverName, server)) {
+    const def = getToolDefinition(params.tool);
+    if ((def?.rateClass === "destructive" || isDestructiveToolName(params.tool)) && !params.userAccepted) {
+      return {
+        error: DESTRUCTIVE_REQUIRES_ACCEPT_MESSAGE,
+        code: "DESTRUCTIVE_REQUIRES_ACCEPT",
+      };
+    }
     const runtime = await createMcpRuntime();
     const auth = authFor(params.ctx);
     const result = await callTool(params.tool, params.args ?? {}, runtime, auth);

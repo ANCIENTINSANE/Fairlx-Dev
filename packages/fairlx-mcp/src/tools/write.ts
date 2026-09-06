@@ -221,7 +221,7 @@ async function workItemCreate(
       status: "TODO",
       priority: optionalString(args, "priority") ?? "MEDIUM",
       description: optionalString(args, "description") ?? "",
-      sprintId: optionalString(args, "sprintId") ?? null,
+      sprintId: await resolveOptionalSprintId(runtime, projectId, args.sprintId),
       assigneeIds,
       storyPoints: typeof args.storyPoints === "number" ? args.storyPoints : undefined,
       dueDate: optionalString(args, "dueDate") ?? undefined,
@@ -475,7 +475,9 @@ async function workItemUpdate(
   }
   if (args.priority !== undefined) patch.priority = requireString(args, "priority");
   if (args.description !== undefined) patch.description = String(args.description);
-  if (args.sprintId !== undefined) patch.sprintId = args.sprintId;
+  if (args.sprintId !== undefined) {
+    patch.sprintId = await resolveOptionalSprintId(runtime, projectId, args.sprintId);
+  }
   const assigneeInput = assigneeInputFromArgs(args);
   if (assigneeInput !== undefined) {
     patch.assigneeIds = await resolveAssigneeIds(runtime, auth, item, assigneeInput);
@@ -645,6 +647,17 @@ async function resolveSprintId(
   throw notFoundError(`Sprint not found: ${query}`);
 }
 
+async function resolveOptionalSprintId(
+  runtime: McpRuntime,
+  projectId: string,
+  raw: unknown,
+): Promise<string | null> {
+  if (raw === null || raw === undefined) return null;
+  const value = String(raw).trim();
+  if (!value || value === "null" || value === "undefined") return null;
+  return resolveSprintId(runtime, projectId, value);
+}
+
 function isEmptyAssigneeInput(raw: unknown): boolean {
   if (raw === undefined) return true;
   if (Array.isArray(raw)) {
@@ -789,7 +802,7 @@ async function workItemBulkUpdate(
     const patch: Record<string, unknown> = {};
     if (args.status !== undefined) patch.status = args.status;
     if (!sprintUsedAsScope && explicitIds.length > 0 && args.sprintId !== undefined) {
-      patch.sprintId = args.sprintId;
+      patch.sprintId = await resolveOptionalSprintId(runtime, String(item.projectId), args.sprintId);
     }
     if (clearAssignees) {
       patch.assigneeIds = [];

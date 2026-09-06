@@ -58,7 +58,7 @@ import { AGENT_CHAT_TIMEOUT_MS, formatAgentTurnError, isContextLengthError, with
 import { sanitizeAssistantVisible } from "./visible-content";
 import { extractBoardProjectFromTool } from "./project-launch";
 import { specialistById } from "./graph";
-import { buildSpecialistUserMessage, extractAttachedFiles, subjectsFromFiles } from "./attachments";
+import { buildSpecialistUserMessage, extractAttachedFiles, parentPromptFromMessages, subjectsFromFiles } from "./attachments";
 import { hasProjectGithubRepo } from "./github-scope";
 import { capSpecialistResult, CONTEXT_BUDGET_RATIO, estimatedFittedTokens, factsFromTurn, filterToolsForSpecialist, fitMessagesForModel, mergeStateKnowledge, selectToolsForTurn } from "./brain";
 import { catalogForCapability, missingCapabilities } from "../plugins/catalog";
@@ -78,7 +78,15 @@ import {
   fanOutDelegatesForSubjects,
   groupParallelizable,
 } from "./parallel-work";
-import { confirmationSummary, findPendingConfirmation, isWriteToolCall, needsConfirmation } from "./write-guard";
+import {
+  confirmationSummary,
+  conversationDeleteIntent,
+  DESTRUCTIVE_NOT_REQUESTED_MESSAGE,
+  findPendingConfirmation,
+  isDestructiveToolCall,
+  isWriteToolCall,
+  needsConfirmation,
+} from "./write-guard";
 import { hasRequiredWebResearch, seedDocTurnLimitsFromMessages } from "./doc-turn-limits";
 
 const MAX_TOOL_ITERATIONS = 48;
@@ -114,7 +122,6 @@ function withContextMeter(params: {
   harness: AgentHarness;
   mcp: McpConfig;
   maxInputTokens: number;
-  contextPeak?: AgentRun["contextPeak"];
 }): AgentToolEvent[] {
   const payload = buildContextMeterPayload({
     system: params.system,
@@ -125,16 +132,6 @@ function withContextMeter(params: {
     maxInputTokens: params.maxInputTokens,
     subagents: activeSubagents(params.events).length,
   });
-  const previous = latestContextMeter(params.events);
-  const peak = takeHigherChatPeak(
-    takeHigherChatPeak(params.contextPeak, previous?.breakdown),
-    payload.breakdown,
-  );
-  if (peak.conversation + peak.summarized_conversation > payload.breakdown.conversation + payload.breakdown.summarized_conversation) {
-    payload.breakdown.conversation = peak.conversation;
-    payload.breakdown.summarized_conversation = peak.summarized_conversation;
-    payload.tokens = Object.values(payload.breakdown).reduce((sum, value) => sum + value, 0);
-  }
   return [
     ...params.events.filter((event) => event.type !== "context_meter"),
     {
@@ -289,35 +286,32 @@ function toOpenAiMessages(
   messages: AgentChatMessage[],
   options?: { seedTraining?: boolean; maxInputTokens?: number; budgetRatio?: number },
 ): OpenAiMessage[] {
-  let recent = fitMessagesForModel(system, messages, options?.maxInputTokens, options?.budgetRatio);
-  const firstUser = messages.find((message) => message.role === "user");
-  if (firstUser && !recent.some((message) => message.id === firstUser.id)) {
-    recent = [firstUser, ...recent.filter((message) => message.id !== firstUser.id)].slice(0, 25);
-  }
-  recent = recent.filter((message) => !(message.role === "user" && isTrainingKickoffContent(message.content)));
-  const mapped: OpenAiMessage[] = recent.map((message) => {
-    if (message.role === "assistant") {
-      return {
-        role: "assistant",
-        content: message.content || null,
-        tool_calls: message.toolCalls?.map((call) => ({
-          id: call.id,
-          type: "function" as const,
-          function: { name: call.name, arguments: call.arguments },
-          ...(call.itemId ? { item_id: call.itemId } : {}),
-        })),
-      };
-    }
-    if (message.role === "tool") {
-      return {
-        role: "tool",
-        content: compactJsonString(message.content ?? "", 4000),
-        tool_call_id: message.toolCallId,
-        name: message.toolName,
-      };
-    }
-    return { role: "user", content: message.content };
-  });
+  const recent = fitMessagesForModel(system, messages, options?.maxInputTokens, options?.budgetRatio);
+  const mapped: OpenAiMessage[] = recent
+    .filter((message) => !(message.role === "user" && isTrainingKickoffContent(message.content)))
+    .map((message) => {
+      if (message.role === "assistant") {
+        return {
+          role: "assistant",
+          content: message.content || null,
+          tool_calls: message.toolCalls?.map((call) => ({
+            id: call.id,
+            type: "function" as const,
+            function: { name: call.name, arguments: call.arguments },
+            ...(call.itemId ? { item_id: call.itemId } : {}),
+          })),
+        };
+      }
+      if (message.role === "tool") {
+        return {
+          role: "tool",
+          content: compactJsonString(message.content ?? "", 4000),
+          tool_call_id: message.toolCallId,
+          name: message.toolName,
+        };
+      }
+      return { role: "user", content: message.content };
+    });
   if (options?.seedTraining && !mapped.some((message) => message.role === "user")) {
     mapped.push({ role: "user", content: TRAINING_OPEN_SEED });
   }
@@ -650,6 +644,12 @@ export async function runAgentTurn(params: {
   const lastUserText = displayUserContent(
     [...run.messages].reverse().find((message) => message.role === "user")?.content || run.prompt || "",
   );
+  const userTexts = (
+    run.messages.some((message) => message.role === "user")
+      ? run.messages.filter((message) => message.role === "user").map((message) => displayUserContent(message.content))
+      : [lastUserText]
+  ).filter(Boolean);
+  const conversationAllowsDelete = conversationDeleteIntent(userTexts).allowed;
   const tools = training
     ? trainingSaveReady(run.messages) ? [trainingSaveTool()] : []
     : selectToolsForTurn(
@@ -659,7 +659,14 @@ export async function runAgentTurn(params: {
           mcpTools: mcpToolDefs,
         }),
         lastUserText,
-        { hasGithubRepo: hasProjectGithubRepo(context, run.projectId) },
+        {
+          hasGithubRepo: hasProjectGithubRepo(context, run.projectId),
+          hasProject: Boolean(
+            run.projectId ||
+              harness.settings.defaultProjectId ||
+              context.projects.some((item) => !run.workspaceId || item.workspaceId === run.workspaceId),
+          ),
+        },
       );
   const personalPrompt =
     personalProfile && profileIsTrained(personalProfile) ? personalProfile.compiledPrompt : undefined;
@@ -672,7 +679,7 @@ export async function runAgentTurn(params: {
     personalAnswers: personalProfile?.answers,
   });
 
-  const toolContext = () => ({
+  const toolContext = (opts?: { userAccepted?: boolean }) => ({
     runId: run.id,
     userId: user.$id,
     context,
@@ -686,8 +693,38 @@ export async function runAgentTurn(params: {
     allowPersonalSave: training,
     plugins: harness.plugins,
     sourcePrompt: run.messages.find((message) => message.role === "user")?.content || run.prompt || "",
+    latestUserText: lastUserText,
+    userTexts,
+    userAccepted: Boolean(opts?.userAccepted),
+    permissionType: permissionType(),
     turnLimits,
   });
+
+  const refuseUnsolicitedDestructive = (
+    call: AgentToolCall,
+    messages: AgentChatMessage[],
+    events?: AgentToolEvent[],
+  ) => {
+    events?.push({
+      id: crypto.randomUUID(),
+      type: "error",
+      title: "Delete blocked",
+      detail: DESTRUCTIVE_NOT_REQUESTED_MESSAGE,
+      createdAt: new Date().toISOString(),
+      runId: run.id,
+    });
+    messages.push({
+      id: crypto.randomUUID(),
+      role: "tool",
+      content: JSON.stringify({
+        error: DESTRUCTIVE_NOT_REQUESTED_MESSAGE,
+        code: "DESTRUCTIVE_NOT_REQUESTED",
+      }),
+      toolCallId: call.id,
+      toolName: call.name,
+      createdAt: new Date().toISOString(),
+    });
+  };
 
   const queuedJobs = await claimQueuedJobs(databases, user.$id);
   for (const job of queuedJobs) {
@@ -715,7 +752,7 @@ export async function runAgentTurn(params: {
     call: AgentToolCall,
     nextMessages: AgentChatMessage[],
     nextEvents: AgentToolEvent[],
-    options?: { coalesced?: boolean; skipExecute?: boolean },
+    options?: { coalesced?: boolean; skipExecute?: boolean; userAccepted?: boolean },
   ): Promise<AgentToolCall[]> => {
     const canonical = canonicalizeToolCall(call);
     if (options?.skipExecute) {
@@ -764,7 +801,7 @@ export async function runAgentTurn(params: {
       return [];
     }
 
-    const result = await executeTool(canonical.name, canonical.arguments, toolContext());
+    const result = await executeTool(canonical.name, canonical.arguments, toolContext({ userAccepted: options?.userAccepted }));
     if (result.harnessPatch) {
       harness = await upsertHarness(databases, user.$id, result.harnessPatch);
     }
@@ -879,7 +916,7 @@ export async function runAgentTurn(params: {
     subject?: string,
   ): Promise<{ content: string; events: AgentToolEvent[]; pendingWrites: AgentToolCall[]; subagentId: string }> => {
     const subagentId = crypto.randomUUID();
-    const parentPrompt = run.messages.find((message) => message.role === "user")?.content || run.prompt || "";
+    const parentPrompt = parentPromptFromMessages(run.messages, run.prompt);
     const specialistTask = buildSpecialistUserMessage({ task, parentPrompt, subject });
     const events: AgentToolEvent[] = [
       {
@@ -973,6 +1010,10 @@ export async function runAgentTurn(params: {
       const executable: AgentToolCall[] = [];
       for (const call of collected.toolCalls) {
         if (call.name === "delegate_agent") continue;
+        if (isDestructiveToolCall(call) && !conversationAllowsDelete) {
+          refuseUnsolicitedDestructive(call, messages, events);
+          continue;
+        }
         if (needsConfirmation(call, permissionType())) {
           pendingWrites.push(call);
           messages.push({
@@ -1144,7 +1185,7 @@ export async function runAgentTurn(params: {
         for (const call of pendingCalls) {
           const stoppedBeforeTool = await haltIfStopped();
           if (stoppedBeforeTool) return stoppedBeforeTool;
-          await applyToolCall(call, nextMessages, nextEvents);
+          await applyToolCall(call, nextMessages, nextEvents, { userAccepted: true });
         }
       }
       run = await persistUnlessStopped({
@@ -1202,6 +1243,25 @@ export async function runAgentTurn(params: {
           target.maxInputTokens > 0 &&
           fittedTokens >= target.maxInputTokens * CONTEXT_BUDGET_RATIO,
       );
+      if (tight) {
+        const compacted = fitMessagesForModel(system, run.messages, target.maxInputTokens);
+        const beforeChars = run.messages.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
+        const afterChars = compacted.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
+        if (afterChars < beforeChars) {
+          run = await persistUnlessStopped({
+            messages: compacted,
+            events: appendEvents([...snapshotEvents], [
+              thoughtEvent(
+                run.id,
+                "Re-optimizing context",
+                "Compacted older tool results to stay inside the model window.",
+              ),
+            ]),
+            status: "running",
+          });
+          if (run.status === "stopped") return run;
+        }
+      }
       const iterationTools =
         !training && tight && tools.length && !forceAnswer
           ? toolsWhenContextIsTight(tools, researched)
@@ -1219,7 +1279,6 @@ export async function runAgentTurn(params: {
             harness,
             mcp,
             maxInputTokens: target.maxInputTokens ?? 0,
-            contextPeak: run.contextPeak,
           }),
         });
         if (run.status === "stopped") return run;
@@ -1331,8 +1390,18 @@ export async function runAgentTurn(params: {
           createdAt: new Date().toISOString(),
         };
         const nextMessages = [...run.messages, assistantMessage];
-        const gated = toolCalls.filter((call) => needsConfirmation(call, permissionType()));
-        const autoCalls = toolCalls.filter((call) => !needsConfirmation(call, permissionType()));
+        const refusedDestructive: AgentToolCall[] = [];
+        const allowedCalls: AgentToolCall[] = [];
+        for (const call of toolCalls) {
+          if (isDestructiveToolCall(call) && !conversationAllowsDelete) {
+            refusedDestructive.push(call);
+            refuseUnsolicitedDestructive(call, nextMessages);
+          } else {
+            allowedCalls.push(call);
+          }
+        }
+        const gated = allowedCalls.filter((call) => needsConfirmation(call, permissionType()));
+        const autoCalls = allowedCalls.filter((call) => !needsConfirmation(call, permissionType()));
         const rest = autoCalls.filter((call) => call.name !== "delegate_agent");
         const attached = run.messages.flatMap((message) =>
           message.role === "user" ? extractAttachedFiles(message.content) : [],
@@ -1357,8 +1426,17 @@ export async function runAgentTurn(params: {
           harness,
           mcp,
           maxInputTokens: target.maxInputTokens ?? 0,
-          contextPeak: run.contextPeak,
         });
+        if (refusedDestructive.length) {
+          nextEvents.push({
+            id: crypto.randomUUID(),
+            type: "error",
+            title: refusedDestructive.length === 1 ? "Delete blocked" : `${refusedDestructive.length} deletes blocked`,
+            detail: DESTRUCTIVE_NOT_REQUESTED_MESSAGE,
+            createdAt: new Date().toISOString(),
+            runId: run.id,
+          });
+        }
         snapshotMessages = nextMessages;
         snapshotEvents = nextEvents;
         const { calls: restCalls, coalescedIds } = collapseWorkItemListFanOut(rest);
@@ -1476,8 +1554,20 @@ export async function runAgentTurn(params: {
           return pauseForPlugin(pluginGap, nextMessages, nextEvents);
         }
 
-        const writesToConfirm = [...gated, ...specialistWrites.filter((call) => needsConfirmation(call, permissionType()))];
-        const autoSpecialistWrites = specialistWrites.filter((call) => !needsConfirmation(call, permissionType()));
+        const writesToConfirm = [
+          ...gated,
+          ...specialistWrites.filter((call) => {
+            if (isDestructiveToolCall(call) && !conversationAllowsDelete) {
+              refuseUnsolicitedDestructive(call, nextMessages, nextEvents);
+              return false;
+            }
+            return needsConfirmation(call, permissionType());
+          }),
+        ];
+        const autoSpecialistWrites = specialistWrites.filter((call) => {
+          if (isDestructiveToolCall(call) && !conversationAllowsDelete) return false;
+          return !needsConfirmation(call, permissionType());
+        });
         for (const call of autoSpecialistWrites) {
           const stoppedBeforeTool = await haltIfStopped();
           if (stoppedBeforeTool) return stoppedBeforeTool;

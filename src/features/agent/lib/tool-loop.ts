@@ -451,13 +451,24 @@ export function documentationWriteTools<T extends { function: { name: string } }
   return next.length ? next : tools;
 }
 
+const BOARD_BOOTSTRAP_RE =
+  /^(fairlx_project_create|fairlx_project_list|fairlx_sprint_create|delegate_agent)$/;
+
+function withBoardBootstrap<T extends { function: { name: string } }>(narrowed: T[], all: T[]): T[] {
+  const seen = new Set(narrowed.map((tool) => tool.function.name));
+  const extra = all.filter((tool) => BOARD_BOOTSTRAP_RE.test(tool.function.name) && !seen.has(tool.function.name));
+  return extra.length ? [...narrowed, ...extra] : narrowed;
+}
+
 export function toolsWhenContextIsTight<T extends { function: { name: string } }>(
   tools: T[],
   researched: boolean,
 ): T[] {
-  if (researched) return documentationWriteTools(tools);
-  const next = tools.filter((tool) =>
-    /^(web_search|fairlx_doc_list|fairlx_work_item_list)$/.test(tool.function.name),
+  if (researched) return withBoardBootstrap(documentationWriteTools(tools), tools);
+  const next = tools.filter(
+    (tool) =>
+      /^(web_search|fairlx_doc_list|fairlx_work_item_list)$/.test(tool.function.name) ||
+      BOARD_BOOTSTRAP_RE.test(tool.function.name),
   );
   return next.length ? next : tools;
 }

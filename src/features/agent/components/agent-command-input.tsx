@@ -26,6 +26,7 @@ import { AgentScopeBar } from "./agent-scope-bar";
 import { AgentModeSelector } from "./agent-mode-selector";
 import { AgentPermissionPicker } from "./agent-permission-picker";
 import { ModelPicker } from "./model-picker";
+import { McpBarButton } from "./mcp-servers-card";
 import { PersonalAgentSetup } from "./personal-agent-setup";
 import { AgentContextMeter } from "./agent-context-meter";
 
@@ -352,10 +353,11 @@ export function AgentCommandInput({
               )}
             />
             <div className={cn("flex items-center justify-between pt-0.5 select-none", compact ? "px-2 pb-2" : "px-3 pb-2.5")}>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                 <AgentModeSelector />
                 <AgentPermissionPicker />
                 <ModelPicker variant="subtle" runModelId={run?.modelId} />
+                <McpBarButton />
               </div>
 
               <div className="flex items-center gap-1.5">

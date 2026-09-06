@@ -6,11 +6,11 @@ import { commitStaged, emptyChatMeta, emptyGitStaging, stageItem, unstageItem } 
 import { resolveSpecialist, buildContextGraph } from "./graph";
 import { readPersonalContent } from "./personal";
 import { defaultHarnessData } from "./harness";
-import { groupConversationTurns, groupTranscript, summarizeToolResult, visibleThoughtLines } from "./transcript";
+import { groupConversationTurns, groupTranscript, summarizeToolResult, visibleThoughtLines, activityTrailLabel, collapseRepeatedActivity, isPinnedActivityEvent } from "./transcript";
 import { composeUserPrompt, displayUserContent, AGENT_SESSION_MODES, trainingSaveReady } from "./session-context";
 import { trainingKickoffPrompt } from "./personal-training";
 import { compileFairlxListIntent } from "./intent-compiler";
-import type { AgentContext, AgentRun } from "../types";
+import type { AgentContext, AgentRun, AgentToolEvent } from "../types";
 
 function harness() {
   const data = defaultHarnessData();
@@ -188,6 +188,70 @@ describe("graph and prompt", () => {
     expect(prompt).toMatch(/research_required/);
   });
 
+  it("repeats every user instruction so a long tool loop cannot restart discovery", () => {
+    const chat = run("i want to build a product");
+    chat.messages = [
+      { id: "m1", role: "user", content: "i want to build a product", createdAt: chat.createdAt },
+      {
+        id: "m2",
+        role: "user",
+        content: "a queen agent harness that routes 70 specialists and picks cheap vs large models",
+        createdAt: chat.createdAt,
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: "Create the project and every epic and work item in detail.",
+        createdAt: chat.createdAt,
+      },
+    ];
+    const prompt = buildSystemPrompt({
+      harness: harness(),
+      context: context(),
+      run: chat,
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(prompt).toMatch(/User instructions in this chat/);
+    expect(prompt).toMatch(/queen agent harness/);
+    expect(prompt).toMatch(/every epic and work item/);
+    expect(prompt).toMatch(/do not restart discovery/i);
+    expect(prompt).toContain("Task: Create the project and every epic and work item in detail.");
+    expect(prompt).toMatch(/Conversation delete intent: not requested/);
+    expect(prompt).toMatch(/Existing work items are important/);
+  });
+
+  it("revises conversation delete intent when the user asked to delete or objected", () => {
+    const asked = run("delete AGEN-1 and AGEN-2");
+    const askedPrompt = buildSystemPrompt({
+      harness: harness(),
+      context: context(),
+      run: asked,
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(askedPrompt).toMatch(/Conversation delete intent: requested/);
+    expect(askedPrompt).toMatch(/delete AGEN-1/);
+    expect(askedPrompt).toMatch(/Think twice before each delete/);
+
+    const objected = run("delete the backlog");
+    objected.messages = [
+      { id: "m1", role: "user", content: "delete the backlog", createdAt: objected.createdAt },
+      {
+        id: "m2",
+        role: "user",
+        content: "Look, why did you delete all those old work items in Sprint 1?",
+        createdAt: objected.createdAt,
+      },
+    ];
+    const objectedPrompt = buildSystemPrompt({
+      harness: harness(),
+      context: context(),
+      run: objected,
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(objectedPrompt).toMatch(/Conversation delete intent: forbidden/);
+    expect(objectedPrompt).toMatch(/why did you delete/);
+  });
+
   it("skips GitHub code analysis when the project has no linked repo", () => {
     const ctx = context();
     ctx.githubRepos = [];
@@ -223,6 +287,18 @@ describe("graph and prompt", () => {
     });
     expect(prompt).toMatch(/first sprint.*starts automatically/i);
     expect(prompt).toMatch(/do not call fairlx_sprint_start/i);
+  });
+
+  it("tells the agent to create a missing project with the MCP tool instead of the UI", () => {
+    const prompt = buildSystemPrompt({
+      harness: harness(),
+      context: { ...context(), projects: [] },
+      run: run("I want to build a queen agent harness"),
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(prompt).toMatch(/No project selected/);
+    expect(prompt).toMatch(/fairlx_project_create/);
+    expect(prompt).toMatch(/never say you lack that tool/i);
   });
 
   it("tells the agent to create project teams with tools instead of Settings", () => {
@@ -517,6 +593,26 @@ describe("transcript grouping", () => {
     expect(turns[0]?.usage.filter((event) => event.type === "llm_usage")).toHaveLength(3);
     expect(turns[0]?.activity).toEqual([]);
     expect(turns[0]?.thoughts.map((event) => event.title)).toEqual(["Working"]);
+  });
+
+  it("summarizes leftover specialist and search activity for a collapsed trail", () => {
+    const now = "2026-09-06T00:00:00.000Z";
+    const events: AgentToolEvent[] = [
+      { id: "s1", type: "subagent_started", title: "researcher started · Market", createdAt: now, runId: "r" },
+      { id: "p1", type: "subagent_progress", title: "researcher thinking", createdAt: now, runId: "r" },
+      { id: "p2", type: "subagent_progress", title: "researcher thinking", createdAt: now, runId: "r" },
+      { id: "p3", type: "subagent_progress", title: "researcher thinking", createdAt: now, runId: "r" },
+      { id: "w1", type: "web_search", title: "Search: Claude Code MCP", createdAt: now, runId: "r" },
+      { id: "w2", type: "web_fetch", title: "Fetched Harness MCP Server", createdAt: now, runId: "r" },
+      { id: "s2", type: "subagent_started", title: "planner started", createdAt: now, runId: "r" },
+      { id: "d1", type: "subagent_done", title: "researcher finished", createdAt: now, runId: "r" },
+      { id: "err", type: "error", title: "Turn failed", detail: "fetch failed", createdAt: now, runId: "r" },
+    ];
+    expect(activityTrailLabel(events)).toBe("2 specialists · 2 searches");
+    const collapsed = collapseRepeatedActivity(events.filter((event) => event.type !== "error"));
+    const thinking = collapsed.find((event) => event.title === "researcher thinking");
+    expect(thinking?.repeats).toBe(3);
+    expect(isPinnedActivityEvent(events[8]!)).toBe(true);
   });
 
   it("hides pass-number thought noise", () => {

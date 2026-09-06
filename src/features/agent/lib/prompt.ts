@@ -2,7 +2,7 @@ import type { AgentContext, AgentHarness, AgentRun, AgentSpecialistId, McpConfig
 import { compilePersonaPrompt, inferPersonaRole } from "@fairlx/multi-agent";
 import { AGENT_DEFINITIONS } from "./brain";
 import { AGENT_SPECIALISTS, specialistById } from "./graph";
-import { extractAttachedFiles, subjectsFromFiles, subjectsToc } from "./attachments";
+import { extractAttachedFiles, subjectsFromFiles, subjectsToc, stripAttachedFiles } from "./attachments";
 import { matchingAutomations, rankKnowledge } from "./search";
 import { isPersonalSessionMode, SESSION_MODE_INSTRUCTIONS } from "./session-context";
 import { firstName } from "./agent-ui";
@@ -15,8 +15,30 @@ import {
   suggestedPersonaRole,
 } from "./personal-training";
 import { SYSTEM_PROMPT_RULE_LINES } from "./prompt-budget";
+import { formatDeleteIntentContext } from "./write-guard";
 
 export { SYSTEM_PROMPT_RULE_LINES, splitSystemPromptBudget } from "./prompt-budget";
+
+export function userInstructionBrief(
+  messages: Array<{ role: string; content: string }>,
+  maxChars = 2800,
+): string {
+  const texts = messages
+    .filter((message) => message.role === "user")
+    .map((message) => stripAttachedFiles(message.content).replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (!texts.length) return "";
+  const numbered = texts.map((text, index) => {
+    const clipped = text.length > 700 ? `${text.slice(0, 700)}…` : text;
+    return `${index + 1}. ${clipped}`;
+  });
+  const joined = numbered.join("\n");
+  if (joined.length <= maxChars) return joined;
+  const first = numbered[0] ?? "";
+  const rest = numbered.slice(1).join("\n");
+  const budget = Math.max(200, maxChars - first.length - 8);
+  return `${first}\n…\n${rest.slice(-budget)}`;
+}
 
 export function buildSystemPrompt(params: {
   harness: AgentHarness;
@@ -101,7 +123,21 @@ export function buildSystemPrompt(params: {
       params.personalPrompt.trim(),
     );
   }
-  if (query) lines.push(`Task: ${query.slice(0, 400)}`);
+  const instructionBrief = userInstructionBrief(run.messages);
+  if (instructionBrief) {
+    lines.push(
+      "",
+      "User instructions in this chat (already given — do not restart discovery or ask what to build):",
+      instructionBrief,
+    );
+  }
+  const userTexts = run.messages
+    .filter((message) => message.role === "user")
+    .map((message) => stripAttachedFiles(message.content).replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (!userTexts.length && query) userTexts.push(query.replace(/\s+/g, " ").trim());
+  lines.push("", formatDeleteIntentContext(userTexts));
+  if (query) lines.push(`Task: ${query.slice(0, 1200)}`);
   const connected = (harness.plugins ?? []).filter((plugin) => plugin.status === "connected");
   if (connected.length) {
     lines.push(`Plugins: ${connected.map((plugin) => plugin.displayName).join(", ")}.`);
@@ -111,10 +147,12 @@ export function buildSystemPrompt(params: {
   const permission = harness.settings.permissionType === "all_access" ? "all_access" : "staged";
   lines.push(`Permission type: ${permission}. Fairlx RBAC still applies to every write.`);
   if (permission === "all_access") {
-    lines.push("All-access mode: do not wait for Accept. Keep working until the Task is finished or the user Stops.");
+    lines.push(
+      "All-access mode: create and update without waiting for Accept. You have delete tools. If Conversation delete intent is requested, you may delete those named records without Accept — still think twice and skip items that are still important. If intent is not requested or forbidden, never delete; create or update instead.",
+    );
   } else {
     lines.push(
-      "Staged mode: create/update work items run immediately. Mail, GitHub writes/PRs, deletes, invites, project create, and project documents wait for Accept.",
+      "Staged mode: create/update work items run immediately. Mail, GitHub writes/PRs, deletes, invites, project create, and project documents wait for Accept. Only delete when Conversation delete intent is requested.",
     );
   }
   lines.push(

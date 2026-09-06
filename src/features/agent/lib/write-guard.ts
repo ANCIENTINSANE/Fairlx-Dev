@@ -40,11 +40,162 @@ export function writeRiskLevel(call: AgentToolCall): AgentWriteRisk {
   return "standard";
 }
 
+export const DESTRUCTIVE_NOT_REQUESTED_MESSAGE =
+  "Refused: this chat did not ask to delete existing records. Existing work is important. Do not delete, replace, or clean up old items — create or update instead. Do not retry this delete.";
+
+export const DESTRUCTIVE_REQUIRES_ACCEPT_MESSAGE =
+  "Destructive Fairlx tools cannot run until the user clicks Accept in the Fairlx agent. Do not retry with confirm or a challengeToken.";
+
+const DESTRUCTIVE_NAME_RE = /(_delete|_remove)$/i;
+const CONTINUE_ONLY_RE = /^(continue|ok|okay|yes|yep|go ahead|please continue|keep going|proceed)\.?$/i;
+
+export function isDestructiveToolName(name: string): boolean {
+  return DESTRUCTIVE_NAME_RE.test(name.trim());
+}
+
+export function isDestructiveToolCall(call: AgentToolCall): boolean {
+  const mcpName = mcpToolNameFromCall(call) ?? call.name;
+  return isDestructiveToolName(mcpName);
+}
+
+function clipEvidence(text: string, max = 160): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+function isForbiddenDeleteSpeech(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (/\b(don'?t|do not|never|not to|stop)\b.{0,24}\b(delete|wipe|purge|remove)\b/i.test(lower)) return true;
+  return /\b(why did you|why would you|you (already )?deleted|shouldn'?t have deleted|should not have deleted)\b/i.test(
+    lower,
+  );
+}
+
+function isCreateOrPlanWithoutDelete(text: string): boolean {
+  if (userRequestedDestructiveDelete(text)) return false;
+  return (
+    /\b(create|plan|add|build|flesh|detail|spec)\b/i.test(text) &&
+    /\b(work items?|epics?|sprints?|stories|project|backlog|product|board)\b/i.test(text)
+  );
+}
+
+/** True only when this user message itself asks to delete/remove records. */
+export function userRequestedDestructiveDelete(text: string): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t || CONTINUE_ONLY_RE.test(t)) return false;
+  if (isForbiddenDeleteSpeech(t)) return false;
+  const lower = t.toLowerCase();
+  if (/\b(assignee|assignees|assignment|unassign)\b/i.test(lower) && !/\b(delete|wipe|purge)\b/i.test(lower)) {
+    return false;
+  }
+  if (/\b(delete|wipe|purge|permanently remove)\b/i.test(lower)) return true;
+  return /\bremove\b.{0,60}\b(work items?|tickets?|epics?|sprints?|projects?|members?|comments?|docs?|documents?|webhooks?|from (the )?(workspace|team|project)|[a-z]{2,10}-\d+)\b/i.test(
+    lower,
+  );
+}
+
+export type ConversationDeleteIntent = {
+  allowed: boolean;
+  status: "requested" | "not_requested" | "forbidden";
+  evidence: string;
+};
+
+/** Walk every user message: latest create/plan or objection wins over an older delete ask. */
+export function conversationDeleteIntent(userTexts: string[]): ConversationDeleteIntent {
+  const substantive = userTexts
+    .map((text) => text.replace(/\s+/g, " ").trim())
+    .filter((text) => text && !CONTINUE_ONLY_RE.test(text));
+  if (!substantive.length) {
+    return {
+      allowed: false,
+      status: "not_requested",
+      evidence: "No user message asked to delete existing records.",
+    };
+  }
+  const latest = substantive[substantive.length - 1]!;
+  if (isForbiddenDeleteSpeech(latest)) {
+    return { allowed: false, status: "forbidden", evidence: clipEvidence(latest) };
+  }
+  if (userRequestedDestructiveDelete(latest)) {
+    return { allowed: true, status: "requested", evidence: clipEvidence(latest) };
+  }
+  if (isCreateOrPlanWithoutDelete(latest)) {
+    return { allowed: false, status: "not_requested", evidence: clipEvidence(latest) };
+  }
+  for (let i = substantive.length - 1; i >= 0; i -= 1) {
+    const text = substantive[i]!;
+    if (isForbiddenDeleteSpeech(text)) {
+      return { allowed: false, status: "forbidden", evidence: clipEvidence(text) };
+    }
+    if (userRequestedDestructiveDelete(text)) {
+      return { allowed: true, status: "requested", evidence: clipEvidence(text) };
+    }
+  }
+  return {
+    allowed: false,
+    status: "not_requested",
+    evidence: "No user message asked to delete existing records.",
+  };
+}
+
+export function formatDeleteIntentContext(userTexts: string[]): string {
+  const intent = conversationDeleteIntent(userTexts);
+  if (intent.status === "requested") {
+    return [
+      "Conversation delete intent: requested.",
+      `The user asked to delete: "${intent.evidence}".`,
+      "Think twice before each delete. Only remove the records they named.",
+      "Skip items that are still important (in progress, assigned, in the active sprint, or already detailed) unless they named those keys.",
+      "Prefer update when they wanted more detail, not a wipe.",
+    ].join(" ");
+  }
+  if (intent.status === "forbidden") {
+    return [
+      "Conversation delete intent: forbidden.",
+      `The user objected: "${intent.evidence}".`,
+      "Do not delete work items, sprints, projects, docs, or members.",
+    ].join(" ");
+  }
+  return [
+    "Conversation delete intent: not requested.",
+    "Review the user messages: they asked to create, plan, or update — not to delete existing records.",
+    "Existing work items are important. Do not delete them to replace, rename, or flesh them out. Create new items or update the existing ones.",
+  ].join(" ");
+}
+
+export function destructiveUserAccepted(params: {
+  userAccepted?: boolean;
+  permissionType?: AgentPermissionType;
+  userTexts?: string[];
+  latestUserText?: string;
+}): boolean {
+  if (params.userAccepted) return true;
+  if (params.permissionType !== "all_access") return false;
+  const texts = params.userTexts?.length ? params.userTexts : [params.latestUserText || ""];
+  return conversationDeleteIntent(texts).allowed;
+}
+
+export function destructiveToolBlockReason(params: {
+  toolName: string;
+  userAccepted?: boolean;
+  permissionType?: AgentPermissionType;
+  userTexts?: string[];
+  latestUserText?: string;
+}): "not_requested" | "requires_accept" | null {
+  if (!isDestructiveToolName(params.toolName)) return null;
+  if (params.userAccepted) return null;
+  const texts = params.userTexts?.length ? params.userTexts : [params.latestUserText || ""];
+  if (!conversationDeleteIntent(texts).allowed) return "not_requested";
+  if (params.permissionType === "all_access") return null;
+  return "requires_accept";
+}
+
 export function needsConfirmation(
   call: AgentToolCall,
   permissionType: AgentPermissionType | undefined,
 ): boolean {
   if (permissionType === "all_access") return false;
+  if (isDestructiveToolCall(call)) return true;
   return writeRiskLevel(call) === "privileged";
 }
 

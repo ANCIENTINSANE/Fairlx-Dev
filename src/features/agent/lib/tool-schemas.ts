@@ -106,7 +106,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     parameters: { type: "object", properties: {} },
   },
   mcp_call: {
-    description: "Call a tool on an external MCP server only. For Fairlx platform data, call the native fairlx_* tools directly — do not wrap them in mcp_call.",
+    description: "Call a tool on an external MCP server only. For Fairlx platform data, call the native fairlx_* tools directly — do not wrap them in mcp_call. Fairlx *_delete tools: read Conversation delete intent first.",
     parameters: {
       type: "object",
       properties: {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { calculateCustomerTokenCostUSD } from "@/lib/ai-billing";
 import type { AgentToolEvent } from "../types";
 import {
   aggregateLlmUsage,
@@ -63,7 +64,20 @@ describe("run usage", () => {
     expect(summary?.completionTokens).toBe(280);
     expect(summary?.cachedTokens).toBe(400);
     expect(summary?.totalTokens).toBe(1780);
-    expect(summary?.costUSD).toBeCloseTo(0.003);
+    expect(summary?.costUSD).toBeCloseTo(
+      calculateCustomerTokenCostUSD(
+        { inputPricePerMillionTokens: 0.2, outputPricePerMillionTokens: 1.2, cachedInputPricePerMillionTokens: 0.02 },
+        1000,
+        200,
+        400,
+      ).costUSD +
+        calculateCustomerTokenCostUSD(
+          { inputPricePerMillionTokens: 0.14, outputPricePerMillionTokens: 0.28, cachedInputPricePerMillionTokens: 0.014 },
+          500,
+          80,
+          0,
+        ).costUSD,
+    );
     expect(summary?.cacheHitPercent).toBeCloseTo(cacheHitPercent(1500, 400));
     expect(summary?.models).toEqual(["GPT-5.6 Luna", "DeepSeek V4 Flash"]);
   });
@@ -135,6 +149,42 @@ describe("run usage", () => {
 
   it("formats small USD amounts without rounding to zero", () => {
     expect(formatUsd(0.0023)).toBe("$0.0023");
+    expect(formatUsd(0.014694)).toBe("$0.014694");
+    expect(formatUsd(0.015)).toBe("$0.015");
     expect(formatPricePerMillion(0.02)).toBe("$0.020");
+  });
+
+  it("rebills Luna totals from tokens × rates × 15% instead of a rounded stored cost", () => {
+    const luna = {
+      inputPricePerMillionTokens: 0.2,
+      outputPricePerMillionTokens: 1.2,
+      cachedInputPricePerMillionTokens: 0.02,
+    };
+    const billed = calculateCustomerTokenCostUSD(luna, 54_065, 5_395, 25_056);
+    const summary = aggregateLlmUsage([
+      usageEvent({
+        role: "orchestrator",
+        displayName: "GPT-5.6 Luna",
+        model: "gpt-5.6-luna",
+        modelId: "gpt-5.6-luna",
+        promptTokens: 54_065,
+        completionTokens: 5_395,
+        cachedTokens: 25_056,
+        totalTokens: 99_999,
+        billed: true,
+        costUSD: 0.015,
+        providerCostUSD: 0.013,
+        ...luna,
+        markup: 1.15,
+        cacheHitPercent: 40,
+      }),
+    ]);
+    expect(summary?.totalTokens).toBe(59_460);
+    expect(summary?.promptTokens + summary!.completionTokens).toBe(summary?.totalTokens);
+    expect(summary?.costUSD).toBe(billed.costUSD);
+    expect(Math.round(summary!.cacheHitPercent)).toBe(46);
+    expect(formatUsd(summary!.costUSD)).not.toBe("$0.015");
+    expect(formatCompactUsageLine(summary!)).toContain("59,460 tokens");
+    expect(formatCompactUsageLine(summary!)).toContain(formatUsd(billed.costUSD));
   });
 });

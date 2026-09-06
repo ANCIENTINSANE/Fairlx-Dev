@@ -169,6 +169,31 @@ describe("fairlx_work_item_update", () => {
     });
   });
 
+  it("resolves sprint names to sprint ids on create and bulk move", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      sprints: [
+        { $id: "sp_1", projectId: "proj_1", name: "Sprint 1 — Queen Core & Model Router" },
+        { $id: "sp_2", projectId: "proj_1", name: "Sprint 2 — Sub-Agent Swarm" },
+      ],
+    });
+    const created = await callTool(
+      "fairlx_work_item_create",
+      { projectId: "proj_1", title: "Intent classifier", sprintId: "Sprint 1" },
+      runtime,
+      auth,
+    );
+    expect(created.isError).toBeUndefined();
+    expect(workItems[0]?.sprintId).toBe("sp_1");
+
+    await callTool(
+      "fairlx_work_item_bulk_update",
+      { workItemIds: ["SCHO-1"], sprintId: "Sprint 2", projectId: "proj_1" },
+      runtime,
+      auth,
+    );
+    expect(workItems[0]?.sprintId).toBe("sp_2");
+  });
+
   it("stores story points and due dates on create", async () => {
     const { runtime, workItems } = workItemRuntime({
       members: [

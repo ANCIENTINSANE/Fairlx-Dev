@@ -5,6 +5,7 @@ import type {
   AgentCapability,
   AgentContext,
   AgentHarness,
+  AgentPermissionType,
   AgentPluginConnection,
   AgentRun,
   AgentSpecialistId,
@@ -15,6 +16,12 @@ import type {
 import { specialistById } from "./graph";
 import { commitStaged, stageItem, unstageItem } from "./git-staging";
 import { callMcpServerTool, ensurePersonalMcp, listMcpResourcesForServer } from "./mcp-bridge";
+import {
+  DESTRUCTIVE_NOT_REQUESTED_MESSAGE,
+  DESTRUCTIVE_REQUIRES_ACCEPT_MESSAGE,
+  destructiveToolBlockReason,
+  destructiveUserAccepted,
+} from "./write-guard";
 import { createFairlxProject } from "./mutations";
 import { readPersonalContent } from "./personal";
 import { compilePersonalPrompt, isPersonalPersonaRole } from "./personal-training";
@@ -67,6 +74,10 @@ export type ToolExecutionContext = {
   allowPersonalSave?: boolean;
   plugins?: AgentPluginConnection[];
   sourcePrompt?: string;
+  latestUserText?: string;
+  userTexts?: string[];
+  userAccepted?: boolean;
+  permissionType?: AgentPermissionType;
   turnLimits?: DocTurnLimits;
 };
 
@@ -208,6 +219,33 @@ export async function executeTool(
   ctx: ToolExecutionContext,
 ): Promise<ToolExecutionResult> {
   const parsed = applyScopeDefaults(parseArgs(args), ctx);
+  const targetTool =
+    name.startsWith("fairlx_")
+      ? name
+      : name === "mcp_call"
+        ? asString(parsed.tool || parsed.name || parsed.method)
+        : name;
+  const permissionType = ctx.permissionType ?? ctx.harness?.settings.permissionType;
+  const userTexts = ctx.userTexts?.length ? ctx.userTexts : [ctx.latestUserText || ""];
+  const destructiveBlock = destructiveToolBlockReason({
+    toolName: targetTool,
+    userAccepted: ctx.userAccepted,
+    permissionType,
+    userTexts,
+  });
+  if (destructiveBlock) {
+    const payload = {
+      error:
+        destructiveBlock === "not_requested"
+          ? DESTRUCTIVE_NOT_REQUESTED_MESSAGE
+          : DESTRUCTIVE_REQUIRES_ACCEPT_MESSAGE,
+      code: destructiveBlock === "not_requested" ? "DESTRUCTIVE_NOT_REQUESTED" : "DESTRUCTIVE_REQUIRES_ACCEPT",
+    };
+    return {
+      content: JSON.stringify(payload),
+      event: event(ctx.runId, "error", "Delete blocked", payload.error, payload),
+    };
+  }
   const limits = ensureTurnLimits(ctx);
   if (isDocCreateTool(name, parsed)) {
     if (!hasRequiredWebResearch(limits)) {
@@ -493,6 +531,11 @@ export async function executeTool(
           tool,
           args: effectiveArgs,
           ctx: mcpCtx,
+          userAccepted: destructiveUserAccepted({
+            userAccepted: ctx.userAccepted,
+            permissionType: ctx.permissionType ?? ctx.harness?.settings.permissionType,
+            userTexts: ctx.userTexts?.length ? ctx.userTexts : [ctx.latestUserText || ""],
+          }),
         });
         console.log(`[Fairlx Agent] ✅ MCP Tool "${tool}" succeeded:`, JSON.stringify(result));
         return {

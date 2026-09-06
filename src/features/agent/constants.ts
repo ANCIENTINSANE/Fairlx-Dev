@@ -6,6 +6,7 @@ import type {
   AgentWorkPattern,
   McpServerConfig,
 } from "./types";
+import { workingContextWindow } from "./lib/model-context";
 
 export const AGENT_MCP_QUERY_KEY = ["agent-mcp-config"] as const;
 export const AGENT_AI_QUERY_KEY = ["agent-ai-config"] as const;
@@ -119,8 +120,7 @@ export const PLATFORM_GROK_MODEL: AgentModel = {
   isPlatform: true,
   toolCalling: true,
   vision: true,
-  maxInputTokens: 72000,
-  maxOutputTokens: 128000,
+  ...workingContextWindow("grok-4.6"),
 };
 
 export const PLATFORM_DEEPSEEK_MODEL: AgentModel = {
@@ -133,8 +133,7 @@ export const PLATFORM_DEEPSEEK_MODEL: AgentModel = {
   isPlatform: true,
   toolCalling: true,
   vision: true,
-  maxInputTokens: 64000,
-  maxOutputTokens: 8192,
+  ...workingContextWindow("DeepSeek-V4-Flash"),
 };
 
 export const PLATFORM_FOUNDRY_MODEL: AgentModel = {
@@ -147,8 +146,7 @@ export const PLATFORM_FOUNDRY_MODEL: AgentModel = {
   isPlatform: true,
   toolCalling: true,
   vision: true,
-  maxInputTokens: 128000,
-  maxOutputTokens: 128000,
+  ...workingContextWindow("gpt-5.6-luna"),
 };
 
 export function getPlatformProviders(): AgentProviderStored[] {

@@ -8,21 +8,26 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 
+import { FairlxQuerySyncBridge } from "@/hooks/use-fairlx-query-sync";
+import { installFairlxQuerySync } from "@/lib/fairlx-query-sync";
+
 function makeQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        // SCALING: These defaults apply to ALL queries that don't override.
-        // At 1K+ users, aggressive refetching will exceed Appwrite plan limits.
-        staleTime: 5 * 60 * 1000, // 5 minutes (was 2 min)
-        refetchOnWindowFocus: false, // DISABLED globally — #1 cause of surprise reads
-        refetchOnMount: true, // Refetch if data is stale on mount (respects staleTime)
-        refetchOnReconnect: true,
-        gcTime: 15 * 60 * 1000, // 15 minutes (was 5 min)
-        retry: 1, // Only 1 retry to avoid amplifying failed requests
+  return installFairlxQuerySync(
+    new QueryClient({
+      defaultOptions: {
+        queries: {
+          // SCALING: These defaults apply to ALL queries that don't override.
+          // At 1K+ users, aggressive refetching will exceed Appwrite plan limits.
+          staleTime: 5 * 60 * 1000, // 5 minutes (was 2 min)
+          refetchOnWindowFocus: false, // DISABLED globally — #1 cause of surprise reads
+          refetchOnMount: true, // Refetch if data is stale on mount (respects staleTime)
+          refetchOnReconnect: true,
+          gcTime: 15 * 60 * 1000, // 15 minutes (was 5 min)
+          retry: 1, // Only 1 retry to avoid amplifying failed requests
+        },
       },
-    },
-  });
+    }),
+  );
 }
 
 let browserQueryClient: QueryClient | undefined = undefined;
@@ -53,6 +58,9 @@ export const QueryProvider = ({ children }: QueryProviderProps) => {
   const queryClient = getQueryClient();
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <FairlxQuerySyncBridge />
+      {children}
+    </QueryClientProvider>
   );
 };

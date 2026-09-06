@@ -6,6 +6,7 @@ import {
   collapseWorkItemListFanOut,
   collapseRedundantReadFanOut,
   documentationWriteTools,
+  toolsWhenContextIsTight,
   fingerprintsFromMessages,
   isFailedToolContent,
   listSliceKey,
@@ -306,5 +307,18 @@ describe("documentationWriteTools", () => {
       "fairlx_doc_create",
       "fairlx_doc_list",
     ]);
+  });
+});
+
+describe("toolsWhenContextIsTight", () => {
+  it("still exposes project create after research has filled the window", () => {
+    const tools = ["web_fetch", "fairlx_doc_create", "fairlx_project_create", "fairlx_sprint_create", "delegate_agent"].map(
+      (name) => ({ function: { name } }),
+    );
+    const names = toolsWhenContextIsTight(tools, true).map((tool) => tool.function.name);
+    expect(names).toContain("fairlx_doc_create");
+    expect(names).toContain("fairlx_project_create");
+    expect(names).toContain("fairlx_sprint_create");
+    expect(names).toContain("delegate_agent");
   });
 });
