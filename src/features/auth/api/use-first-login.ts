@@ -1,9 +1,9 @@
 import { toast } from "sonner";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { InferRequestType, InferResponseType } from "hono";
-import { useRouter } from "next/navigation";
 
 import { client } from "@/lib/rpc";
+import { hardRedirectAfterAuth } from "../lib/hard-redirect-after-auth";
 
 type ResponseType = InferResponseType<
     (typeof client.api.auth)["first-login"]["$post"]
@@ -21,7 +21,6 @@ type RequestType = InferRequestType<
  * - lifecycle-guard will trigger ForcePasswordReset if mustResetPassword is true
  */
 export const useFirstLogin = () => {
-    const router = useRouter();
     const queryClient = useQueryClient();
 
     const mutation = useMutation<ResponseType, Error, RequestType>({
@@ -38,10 +37,7 @@ export const useFirstLogin = () => {
                     description: "Welcome to Fairlx. Redirecting...",
                 });
 
-                // Redirect to unified callback for post-auth routing
-                // This will eventually lead to the dashboard/onboarding, 
-                // but lifecycle-guard will intercept it and show ForcePasswordReset
-                router.push("/auth/callback");
+                hardRedirectAfterAuth();
             } else if ('error' in data && data.error) {
                 toast.error(String(data.error));
             }

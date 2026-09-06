@@ -8,6 +8,8 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `b276c5e` | refactor: use hard page redirects for auth flows and improve workspace navigation consistency across the app | Happyesss |
+| 2026-09-06 | `dc87db5` | chore: bump version to 0.2.105 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `3a0d23c` | feat: implement dismissible Linear-inspired suggestion cards in AgentCommandInput and reorder AgentHome layout | Happyesss |
 | 2026-09-06 | `412c5b9` | chore: bump version to 0.2.104 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `03593e4` | Merge pull request #307 from ANCIENTINSANE/main | Surendra Codes |
@@ -97,8 +99,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-30 | `a44a939` | Merge pull request #290 from ANCIENTINSANE/main | Shashank Kumar Rathour |
 | 2026-08-30 | `3fd5675` | Merge branch 'stemlen:main' into main | Surendra Codes |
 | 2026-08-30 | `2709267` | chore: bump version to 0.2.72 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `2d5db2e` | Merge pull request #289 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-08-30 | `15a2169` | chore: bump version to 0.2.71 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `e490237` | feat: add support for subtask, saved view, and webhook management tools to MCP registry | Happyesss |
 
-Last generated: 2026-09-06T16:39:01.742Z
+Last generated: 2026-09-06T17:33:43.935Z

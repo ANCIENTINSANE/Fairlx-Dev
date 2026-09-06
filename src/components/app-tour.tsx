@@ -27,7 +27,7 @@ import { useAccountLifecycle } from "./account-lifecycle-provider";
 import { ResponsiveModal } from "@/components/responsive-modal";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { TRIAL_CREDIT_USD } from "@/config";
+import { ORG_TRIAL_CREDIT_USD, PERSONAL_TRIAL_CREDIT_USD } from "@/config";
 
 // ============================================================================
 // TYPES & STEPS
@@ -114,6 +114,8 @@ export const AppTour = () => {
     const { lifecycleState: state, isPersonal, lifecycleRouting } = useAccountLifecycle();
     const { activeOrgId } = state;
     const { trialCreditGranted } = lifecycleRouting;
+
+    const trialCreditAmount = isPersonal ? PERSONAL_TRIAL_CREDIT_USD : ORG_TRIAL_CREDIT_USD;
 
     const queryClient = useQueryClient();
     const router = useRouter();
@@ -321,7 +323,7 @@ export const AppTour = () => {
                             className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 mb-4"
                         >
                             <Gift className="w-4 h-4 text-blue-500" />
-                            <span className="text-sm font-bold text-blue-600 uppercase tracking-wider">${TRIAL_CREDIT_USD} CREDIT GRANTED</span>
+                            <span className="text-sm font-bold text-blue-600 uppercase tracking-wider">${trialCreditAmount} CREDIT GRANTED</span>
                         </motion.div>
                     )}
 
@@ -331,7 +333,7 @@ export const AppTour = () => {
                     <div className="mb-8 space-y-3">
                         <p className="text-muted-foreground text-sm leading-relaxed">
                             We&apos;ve populated your dashboard with dummy data so you can explore Fairlx&apos;s power immediately. 
-                            Claim your <strong>${TRIAL_CREDIT_USD} trial credit</strong> after the tour to start your own project!
+                            Claim your <strong>${trialCreditAmount} trial credit</strong> after the tour to start your own project!
                         </p>
                         {trialCreditGranted && (
                             <p className="text-blue-500/80 text-sm font-medium">

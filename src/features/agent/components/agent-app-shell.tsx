@@ -49,6 +49,8 @@ import { useGetAgentRuns, useDeleteAgentRun } from "../api/use-agent-runs";
 import { relativeTime } from "../lib/agent-ui";
 import { useAgentUi } from "./agent-ui-context";
 import { WalletBalanceChip, WalletBillingBanner } from "@/features/billing/components/wallet-billing-alerts";
+import { routes } from "@/lib/routes";
+import { useAccountLifecycle } from "@/components/account-lifecycle-provider";
 
 export function AgentPageFrame({ children }: { children: ReactNode }) {
   return <div className="h-full overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">{children}</div>;
@@ -434,6 +436,7 @@ export function AgentAppShell({ children }: { children: ReactNode }) {
   const { data: runs } = useGetAgentRuns();
   const { data: harness } = useGetAgentHarness();
   const { data: context } = useGetAgentContext();
+  const { lifecycleState } = useAccountLifecycle();
   const [hash, setHash] = useState("");
   const [activeRunId, setActiveRunId] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -450,6 +453,11 @@ export function AgentAppShell({ children }: { children: ReactNode }) {
     }
     return context?.workspaces?.[0];
   }, [activeRun, context, harness]);
+
+  const appHomeHref = (() => {
+    const workspaceId = activeWorkspace?.id || lifecycleState.activeWorkspaceId;
+    return workspaceId ? routes.workspace(workspaceId) : "/";
+  })();
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -582,7 +590,7 @@ export function AgentAppShell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             <WalletBalanceChip />
             {/* Switch back to Fairlx Main App */}
-            <Link href="/">
+            <Link href={appHomeHref}>
               <Button
                 variant="outline"
                 size="sm"

@@ -18,18 +18,18 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-06T16:39:01.758Z
+**Last updated:** 2026-09-06T17:33:43.947Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
 **Latest commits**
 
+- `b276c5e` refactor: use hard page redirects for auth flows and improve workspace navigation consistency across the app (2026-09-06)
+- `dc87db5` chore: bump version to 0.2.105 [skip ci] (2026-09-06)
 - `3a0d23c` feat: implement dismissible Linear-inspired suggestion cards in AgentCommandInput and reorder AgentHome layout (2026-09-06)
 - `412c5b9` chore: bump version to 0.2.104 [skip ci] (2026-09-06)
 - `03593e4` Merge pull request #307 from ANCIENTINSANE/main (2026-09-06)
 - `fe9d2a6` fix: resolve sprints by name and fold duplicate sprint numbers (2026-09-06)
-- `cd02184` fix: keep agent board writes safe, visible, and in the right sprint (2026-09-06)
-- `8cad584` chore: bump version to 0.2.103 [skip ci] (2026-09-05)
 <!-- docs:latest:end -->
 
 ---

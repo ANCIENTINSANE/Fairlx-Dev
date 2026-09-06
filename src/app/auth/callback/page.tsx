@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { useCurrent } from "@/features/auth/api/use-current";
 import { client } from "@/lib/rpc";
+import { routes } from "@/lib/routes";
 
 /**
  * Post-Auth Callback Resolver
@@ -23,11 +24,11 @@ import { client } from "@/lib/rpc";
  * |--------------|----------|---------------|--------------------------|
  * | None         | -        | -             | /onboarding              |
  * | PERSONAL     | -        | No            | /onboarding              |
- * | PERSONAL     | -        | Yes           | /workspaces/:id          |
+ * | PERSONAL     | -        | Yes           | /agent/dashboard         |
  * | ORG          | OWNER    | No            | /onboarding              |
- * | ORG          | OWNER    | Yes           | /workspaces/:id          |
+ * | ORG          | OWNER    | Yes           | /agent/dashboard         |
  * | ORG          | !OWNER   | No            | /welcome (RESTRICTED)    |
- * | ORG          | !OWNER   | Yes           | /workspaces/:id          |
+ * | ORG          | !OWNER   | Yes           | /agent/dashboard         |
  * 
  * CRITICAL: Non-OWNER org members NEVER see onboarding.
  */
@@ -161,12 +162,14 @@ async function fetchUserState(): Promise<UserState | null> {
 
 export default function AuthCallbackPage() {
     const router = useRouter();
-    const { data: user, isLoading: isUserLoading } = useCurrent();
+    const { data: user, isPending, isFetching } = useCurrent();
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         async function resolveRoute() {
-            if (isUserLoading) return;
+            // After login the cache can still hold `user: null` while the
+            // session refetch is in flight. Wait — do not bounce to sign-in.
+            if (isPending || (isFetching && !user)) return;
 
             // If no user, redirect to sign-in
             if (!user) {
@@ -210,7 +213,7 @@ export default function AuthCallbackPage() {
                 // 2. PERSONAL account
                 if (state.accountType === "PERSONAL") {
                     if (state.defaultWorkspaceId) {
-                        router.replace(`/workspaces/${state.defaultWorkspaceId}`);
+                        router.replace(routes.agentDashboard());
                     } else {
                         router.replace("/onboarding");
                     }
@@ -219,9 +222,9 @@ export default function AuthCallbackPage() {
 
                 // 3. ORG account - role-aware routing
                 if (state.accountType === "ORG") {
-                    // 3a. Has workspace → go to it
+                    // 3a. Has workspace → Agent Home
                     if (state.defaultWorkspaceId) {
-                        router.replace(`/workspaces/${state.defaultWorkspaceId}`);
+                        router.replace(routes.agentDashboard());
                         return;
                     }
 
@@ -245,7 +248,7 @@ export default function AuthCallbackPage() {
         }
 
         resolveRoute();
-    }, [user, isUserLoading, router]);
+    }, [user, isPending, isFetching, router]);
 
     if (error) {
         return (
@@ -264,7 +267,7 @@ export default function AuthCallbackPage() {
     return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-muted-foreground">Setting up your account...</p>
+            <p className="text-muted-foreground">Signing you in...</p>
         </div>
     );
 }

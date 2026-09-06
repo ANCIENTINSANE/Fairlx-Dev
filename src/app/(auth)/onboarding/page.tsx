@@ -9,6 +9,7 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import { useCurrent } from "@/features/auth/api/use-current";
 import { useOnboardingLocalState } from "@/features/onboarding/hooks/use-onboarding-local-state";
+import { routes } from "@/lib/routes";
 import { ModeToggle } from "@/components/mode-toggle";
 import { OnboardingErrorBoundary } from "./components/error-boundary";
 import { OnboardingStepper, getStepsForAccountType } from "./components/onboarding-stepper";
@@ -33,7 +34,6 @@ function OnboardingContent() {
         isInitialized,
         setAccountType,
         setOrganization,
-        setWorkspace,
         skipStep,
         completeOnboarding,
         goToStep,
@@ -83,19 +83,23 @@ function OnboardingContent() {
         setHasSyncedWithServer(true);
     }, [user, isInitialized, hasSyncedWithServer, state.step, setAccountType, setOrganization]);
 
-    // Handle completion redirect with double-submit prevention
+    // Resume: leftover wizard state after a workspace was already created
+    useEffect(() => {
+        if (!isInitialized || isRedirecting || isSubmitting || !state.workspaceId) return;
+        setIsSubmitting(true);
+        completeOnboarding();
+        setIsRedirecting(true);
+        router.push(routes.agentDashboard());
+    }, [isInitialized, isRedirecting, isSubmitting, state.workspaceId, completeOnboarding, router]);
+
+    // Org skip-workspace only: no workspace yet → home resolver → /welcome
     const handleComplete = useCallback(() => {
         if (isSubmitting) return;
         setIsSubmitting(true);
         completeOnboarding();
         setIsRedirecting(true);
-
-        if (state.workspaceId) {
-            router.push(`/workspaces/${state.workspaceId}`);
-        } else {
-            router.push("/");
-        }
-    }, [isSubmitting, completeOnboarding, state.workspaceId, router]);
+        router.push("/");
+    }, [isSubmitting, completeOnboarding, router]);
 
     const handleAccountTypeSelect = useCallback((type: "PERSONAL" | "ORG") => {
         if (isSubmitting) return;
@@ -109,12 +113,15 @@ function OnboardingContent() {
         queryClient.invalidateQueries({ queryKey: ["current"] });
     }, [isSubmitting, setOrganization, queryClient]);
 
-    const handleWorkspaceCreated = useCallback((workspaceId: string) => {
+    const handleWorkspaceCreated = useCallback((_workspaceId: string) => {
         if (isSubmitting) return;
-        setWorkspace(workspaceId);
+        setIsSubmitting(true);
+        completeOnboarding();
+        setIsRedirecting(true);
         queryClient.invalidateQueries({ queryKey: ["account-lifecycle"] });
         queryClient.invalidateQueries({ queryKey: ["user-access"] });
-    }, [isSubmitting, setWorkspace, queryClient]);
+        router.push(routes.agentDashboard());
+    }, [isSubmitting, completeOnboarding, queryClient, router]);
 
     const handleSkipWorkspace = useCallback(() => {
         if (isSubmitting) return;
@@ -170,12 +177,11 @@ function OnboardingContent() {
                 subtext: "Get started in minutes.\nOrganize your work effortlessly.",
             };
         }
-        const totalSteps = getTotalSteps();
-        const isLastStep = currentStep >= totalSteps;
-        if (isLastStep) {
+        const isOrgCompletion = state.accountType === "ORG" && currentStep >= 4;
+        if (isOrgCompletion) {
             return {
                 heading: "You're all set!\nWelcome to Fairlx.",
-                subtext: "Your workspace is ready.\nLet's build something great.",
+                subtext: "Your organization is ready.\nCreate a workspace whenever you like.",
             };
         }
         return {
@@ -198,21 +204,12 @@ function OnboardingContent() {
         }
 
         if (state.accountType === "PERSONAL") {
-            if (state.step === 2) {
-                return (
-                    <PersonalWorkspaceStep
-                        currentStep={2}
-                        totalSteps={getTotalSteps()}
-                        userId={user?.$id || ""}
-                        onWorkspaceCreated={handleWorkspaceCreated}
-                    />
-                );
-            }
             return (
-                <CompletionStep
-                    accountType="PERSONAL"
-                    workspaceId={state.workspaceId}
-                    onComplete={handleComplete}
+                <PersonalWorkspaceStep
+                    currentStep={2}
+                    totalSteps={getTotalSteps()}
+                    userId={user?.$id || ""}
+                    onWorkspaceCreated={handleWorkspaceCreated}
                 />
             );
         }

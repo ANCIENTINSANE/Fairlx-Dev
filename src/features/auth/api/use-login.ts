@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { InferRequestType, InferResponseType } from "hono";
 
 import { client } from "@/lib/rpc";
-import { useRouter } from "next/navigation";
+import { hardRedirectAfterAuth } from "../lib/hard-redirect-after-auth";
 
 type ResponseType = InferResponseType<(typeof client.api.auth.login)["$post"]>;
 type RequestType = InferRequestType<(typeof client.api.auth.login)["$post"]>;
@@ -19,7 +19,6 @@ type RequestType = InferRequestType<(typeof client.api.auth.login)["$post"]>;
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const useLogin = (returnUrl?: string) => {
-  const router = useRouter();
   const queryClient = useQueryClient();
 
   const mutation = useMutation<ResponseType, Error, RequestType>({
@@ -41,17 +40,16 @@ export const useLogin = (returnUrl?: string) => {
         }
 
         toast.success("Logged in.");
-        queryClient.invalidateQueries({ queryKey: ["current"] });
-
-        // Redirect to unified callback for post-auth routing
-        router.push("/auth/callback");
+        queryClient.removeQueries({ queryKey: ["current"] });
+        queryClient.removeQueries({ queryKey: ["account-lifecycle"] });
+        hardRedirectAfterAuth();
       }
     },
     onError: (error: { needsVerification?: boolean; error?: string; email?: string } | Error) => {
       if ('needsVerification' in error && error.needsVerification) {
         toast.error(error.error || "Email verification required");
         // Create a more comprehensive verification page URL with user info
-        router.push(`/verify-email-needed?email=${encodeURIComponent(error.email || '')}`);
+        window.location.assign(`/verify-email-needed?email=${encodeURIComponent(error.email || '')}`);
       } else {
         const errorMessage = error instanceof Error ? error.message : (error.error || "Failed to log in.");
         toast.error(errorMessage);

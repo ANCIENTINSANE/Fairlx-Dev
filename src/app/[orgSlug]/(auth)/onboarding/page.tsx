@@ -44,7 +44,6 @@ function BYOBOnboardingContent() {
         isInitialized,
         setAccountType,
         setOrganization,
-        setWorkspace,
         skipStep,
         completeOnboarding,
         goToStep,
@@ -88,20 +87,23 @@ function BYOBOnboardingContent() {
         setHasSyncedWithServer(true);
     }, [user, isInitialized, hasSyncedWithServer, state.step, setAccountType, setOrganization]);
 
-    // Handle completion redirect — BYOB: redirect to /{orgSlug}/workspaces/:id
+    // Resume: leftover wizard state after a workspace was already created
+    useEffect(() => {
+        if (!isInitialized || isRedirecting || isSubmitting || !state.workspaceId) return;
+        setIsSubmitting(true);
+        completeOnboarding();
+        setIsRedirecting(true);
+        router.push(`/${orgSlug}/workspaces/${state.workspaceId}`);
+    }, [isInitialized, isRedirecting, isSubmitting, state.workspaceId, completeOnboarding, router, orgSlug]);
+
+    // Org skip-workspace only
     const handleComplete = useCallback(() => {
         if (isSubmitting) return;
         setIsSubmitting(true);
         completeOnboarding();
         setIsRedirecting(true);
-
-        if (state.workspaceId) {
-            // BYOB-specific: redirect under orgSlug namespace
-            router.push(`/${orgSlug}/workspaces/${state.workspaceId}`);
-        } else {
-            router.push(`/${orgSlug}`);
-        }
-    }, [isSubmitting, completeOnboarding, state.workspaceId, router, orgSlug]);
+        router.push(`/${orgSlug}`);
+    }, [isSubmitting, completeOnboarding, router, orgSlug]);
 
     const handleAccountTypeSelect = useCallback((type: "PERSONAL" | "ORG") => {
         if (isSubmitting) return;
@@ -115,12 +117,16 @@ function BYOBOnboardingContent() {
         queryClient.invalidateQueries({ queryKey: ["current"] });
     }, [isSubmitting, setOrganization, queryClient]);
 
+    // Workspace created → enter namespaced workspace (not Cloud Agent)
     const handleWorkspaceCreated = useCallback((workspaceId: string) => {
         if (isSubmitting) return;
-        setWorkspace(workspaceId);
+        setIsSubmitting(true);
+        completeOnboarding();
+        setIsRedirecting(true);
         queryClient.invalidateQueries({ queryKey: ["account-lifecycle"] });
         queryClient.invalidateQueries({ queryKey: ["user-access"] });
-    }, [isSubmitting, setWorkspace, queryClient]);
+        router.push(`/${orgSlug}/workspaces/${workspaceId}`);
+    }, [isSubmitting, completeOnboarding, queryClient, router, orgSlug]);
 
     const handleSkipWorkspace = useCallback(() => {
         if (isSubmitting) return;
@@ -166,12 +172,11 @@ function BYOBOnboardingContent() {
                 subtext: "Get started in minutes.\nOrganize your work effortlessly.",
             };
         }
-        const totalSteps = getTotalSteps();
-        const isLastStep = currentStep >= totalSteps;
-        if (isLastStep) {
+        const isOrgCompletion = state.accountType === "ORG" && currentStep >= 4;
+        if (isOrgCompletion) {
             return {
                 heading: "You're all set!\nWelcome to Fairlx.",
-                subtext: "Your workspace is ready.\nLet's build something great.",
+                subtext: "Your organization is ready.\nCreate a workspace whenever you like.",
             };
         }
         return {
@@ -194,21 +199,12 @@ function BYOBOnboardingContent() {
         }
 
         if (state.accountType === "PERSONAL") {
-            if (state.step === 2) {
-                return (
-                    <PersonalWorkspaceStep
-                        currentStep={2}
-                        totalSteps={getTotalSteps()}
-                        userId={user?.$id || ""}
-                        onWorkspaceCreated={handleWorkspaceCreated}
-                    />
-                );
-            }
             return (
-                <CompletionStep
-                    accountType="PERSONAL"
-                    workspaceId={state.workspaceId}
-                    onComplete={handleComplete}
+                <PersonalWorkspaceStep
+                    currentStep={2}
+                    totalSteps={getTotalSteps()}
+                    userId={user?.$id || ""}
+                    onWorkspaceCreated={handleWorkspaceCreated}
                 />
             );
         }

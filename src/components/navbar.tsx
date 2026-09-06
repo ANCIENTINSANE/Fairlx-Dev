@@ -12,6 +12,7 @@ import { ModeToggle } from "./mode-toggle";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { WalletBalanceChip } from "@/features/billing/components/wallet-billing-alerts";
+import { routes } from "@/lib/routes";
 
 const pathnameMap = {
   tasks: {
@@ -52,7 +53,7 @@ export const Navbar = () => {
       </div>
       <div id="navbar-actions" className="flex items-center gap-4">
         <WalletBalanceChip />
-        <Link href="/agent/dashboard" target="_blank">
+        <Link href={routes.agentDashboard()}>
           <Button variant="outline" size="sm" className="hidden lg:flex text-primary border-primary hover:bg-primary/10">
             Switch to Agent
           </Button>

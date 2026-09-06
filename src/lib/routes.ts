@@ -23,6 +23,7 @@ export const routes = {
     verifyEmailNeeded: () => "/verify-email-needed",
     authCallback: () => "/auth/callback",
     onboarding: () => "/onboarding",
+    agentDashboard: () => "/agent/dashboard",
 
     // === WORKSPACE ===
     workspace: (workspaceId: string) => `/workspaces/${workspaceId}`,
