@@ -25,6 +25,8 @@ export const CORE_FAIRLX_TOOLS = [
   "fairlx_sprint_list",
   "fairlx_sprint_get",
   "fairlx_sprint_create",
+  "fairlx_sprint_plan",
+  "fairlx_sprint_update",
   "fairlx_comment_list",
   "fairlx_comment_add",
   "fairlx_workspace_list",
@@ -115,6 +117,7 @@ const BUCKETS: Bucket[] = [
       "fairlx_work_item_get",
       "fairlx_sprint_list",
       "fairlx_sprint_create",
+      "fairlx_sprint_plan",
       "fairlx_sprint_update",
       "fairlx_comment_list",
       "fairlx_work_item_create",
@@ -228,6 +231,7 @@ export function selectToolsForTurn<T extends SelectableTool>(
     wanted.add("fairlx_project_create");
     wanted.add("fairlx_project_list");
     wanted.add("fairlx_sprint_create");
+    wanted.add("fairlx_sprint_plan");
     wanted.add("fairlx_workspace_list");
   }
   const skipGithubRead =

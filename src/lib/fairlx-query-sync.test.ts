@@ -19,6 +19,9 @@ describe("kindsFromToolName", () => {
     expect(kindsFromToolName("fairlx_sprint_start")).toEqual(
       expect.arrayContaining(["sprints", "work-items"]),
     );
+    expect(kindsFromToolName("fairlx_sprint_plan")).toEqual(
+      expect.arrayContaining(["sprints", "work-items"]),
+    );
   });
 
   it("ignores reads and mcp_call wrappers", () => {

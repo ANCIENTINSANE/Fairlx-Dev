@@ -13,6 +13,32 @@ export function shouldForceAnswer(failStreak: number): boolean {
 export const WORK_ITEM_LIST_TOOL = "fairlx_work_item_list";
 export const SPRINT_LIST_TOOL = "fairlx_sprint_list";
 
+const LIST_INVALIDATING_RE =
+  /(sprint_create|sprint_plan|sprint_start|sprint_update|sprint_complete|sprint_delete|work_item_create|work_item_update|work_item_bulk_update|work_item_split|work_item_delete)/i;
+
+export function isListInvalidatingTool(name: string): boolean {
+  return LIST_INVALIDATING_RE.test(name.trim());
+}
+
+export function forgetListCachesAfterMutation(
+  seenCalls: Map<string, string>,
+  listSlices: Map<string, ListSliceState>,
+  toolName: string,
+): boolean {
+  if (!isListInvalidatingTool(toolName)) return false;
+  for (const key of [...seenCalls.keys()]) {
+    if (key.includes(WORK_ITEM_LIST_TOOL) || key.includes(SPRINT_LIST_TOOL)) {
+      seenCalls.delete(key);
+    }
+  }
+  for (const key of [...listSlices.keys()]) {
+    if (key.includes(WORK_ITEM_LIST_TOOL) || key.includes(SPRINT_LIST_TOOL)) {
+      listSlices.delete(key);
+    }
+  }
+  return true;
+}
+
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value && typeof value === "object") {
@@ -137,7 +163,12 @@ export function hydrateListSliceCache(messages: AgentChatMessage[]): Map<string,
     if (message.role === "tool" && message.toolCallId) {
       const origin = pending.get(message.toolCallId);
       pending.delete(message.toolCallId);
-      if (origin) rememberListSlice(cache, origin.tool, origin.args, message.content);
+      if (!origin) continue;
+      if (isListInvalidatingTool(origin.tool) && !isFailedToolContent(message.content)) {
+        forgetListCachesAfterMutation(new Map(), cache, origin.tool);
+        continue;
+      }
+      rememberListSlice(cache, origin.tool, origin.args, message.content);
     }
   }
   return cache;
@@ -234,7 +265,7 @@ function sprintListSkipMessage(kind: "loaded" | "no_more" | "bad_cursor", previo
     return JSON.stringify({
       repeated: true,
       message:
-        "Sprints for this project are already loaded. Do not list sprints again (omit status; do not fan out ACTIVE/PLANNED/ALL). To unassign sprint items, call fairlx_work_item_bulk_update with clearAssignees: true. To assign a whole sprint, pass sprintId as the sprint name and assigneeIds.",
+        "Sprints for this project are already loaded. Do not list sprints again unless you just created or updated sprints. Omit status; do not fan out ACTIVE/PLANNED/ALL. To unassign sprint items, call fairlx_work_item_bulk_update with clearAssignees: true. To assign or move a whole sprint, pass sprintId as the sprint name — never the project id.",
       previous: previousPayload,
     });
   }
@@ -475,17 +506,23 @@ export function toolsWhenContextIsTight<T extends { function: { name: string } }
 
 export function fingerprintsFromMessages(messages: AgentChatMessage[]): Map<string, string> {
   const map = new Map<string, string>();
-  const pending = new Map<string, string>();
+  const pending = new Map<string, { fingerprint: string; tool: string }>();
   for (const message of messages) {
     if (message.role === "assistant" && message.toolCalls?.length) {
       for (const call of message.toolCalls) {
-        pending.set(call.id, toolCallFingerprint(call.name, call.arguments));
+        pending.set(call.id, {
+          fingerprint: toolCallFingerprint(call.name, call.arguments),
+          tool: unwrapListCall(call).tool || call.name,
+        });
       }
     }
     if (message.role === "tool" && message.toolCallId) {
-      const fingerprint = pending.get(message.toolCallId);
-      if (fingerprint) {
-        map.set(fingerprint, message.content);
+      const origin = pending.get(message.toolCallId);
+      if (origin) {
+        map.set(origin.fingerprint, message.content);
+        if (isListInvalidatingTool(origin.tool) && !isFailedToolContent(message.content)) {
+          forgetListCachesAfterMutation(map, new Map(), origin.tool);
+        }
         pending.delete(message.toolCallId);
       }
     }
@@ -497,7 +534,7 @@ export function repeatedToolMessage(previous: string, tool = ""): string {
   const workList = /work_item_list/i.test(tool);
   const sprintList = /sprint_list/i.test(tool);
   const message = sprintList
-    ? "Sprints for this project are already loaded. Do not list sprints again. Call fairlx_work_item_bulk_update with clearAssignees: true to unassign sprint items, or sprintId (Sprint 1) and assigneeIds to assign a whole sprint."
+    ? "Sprints for this project are already loaded. Do not list sprints again unless you just created or updated sprints. Call fairlx_work_item_bulk_update with clearAssignees: true to unassign sprint items, or sprintId (Sprint 1) and assigneeIds to assign a whole sprint. Never pass the project id as sprintId."
     : workList
       ? "This project's work items are already loaded. Do not list again. assignment.byAssignee is who the board shows. Call fairlx_work_item_bulk_update with clearAssignees, sprintId + assigneeIds, or assignPercent — do not pick keys or list again. To parent stories under epics, call it with assignEpics: true."
       : "This exact tool call was already made. Use the previous result and continue the task. Do not call this tool again with the same arguments.";

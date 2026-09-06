@@ -145,7 +145,7 @@ describe("graph and prompt", () => {
     expect(prompt).toMatch(/fairlx_work_item_bulk_update/);
     expect(prompt).toMatch(/assignPercent/);
     expect(prompt).toMatch(/clearAssignees/);
-    expect(prompt).toMatch(/Omit status/);
+    expect(prompt).toMatch(/fairlx_sprint_plan once/);
     expect(prompt).toMatch(/do not say they are assigned/i);
     expect(prompt).toContain("Task: New high-priority bug on login");
     expect(prompt).toMatch(/One fairlx_work_item_list per project/);
@@ -287,6 +287,8 @@ describe("graph and prompt", () => {
     });
     expect(prompt).toMatch(/first sprint.*starts automatically/i);
     expect(prompt).toMatch(/do not call fairlx_sprint_start/i);
+    expect(prompt).toMatch(/Never delete sprints to replan/i);
+    expect(prompt).toMatch(/Never pass the project id as sprintId/i);
   });
 
   it("tells the agent to create a missing project with the MCP tool instead of the UI", () => {

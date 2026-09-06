@@ -8,6 +8,7 @@ import {
   documentationWriteTools,
   toolsWhenContextIsTight,
   fingerprintsFromMessages,
+  hydrateListSliceCache,
   isFailedToolContent,
   listSliceKey,
   rememberListSlice,
@@ -100,6 +101,63 @@ describe("fingerprintsFromMessages", () => {
       JSON.stringify({ workspaceId: "w1" }),
     );
     expect(map.get(fingerprint)).toBe(JSON.stringify({ workItems: [] }));
+  });
+
+  it("forgets sprint lists after a later sprint create", () => {
+    const now = new Date().toISOString();
+    const messages: AgentChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "c1",
+            name: "fairlx_sprint_list",
+            arguments: JSON.stringify({ projectId: "p1" }),
+          },
+        ],
+        createdAt: now,
+      },
+      {
+        id: "t1",
+        role: "tool",
+        content: JSON.stringify({ sprints: [{ name: "Sprint 1" }] }),
+        toolCallId: "c1",
+        toolName: "fairlx_sprint_list",
+        createdAt: now,
+      },
+      {
+        id: "a2",
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "c2",
+            name: "fairlx_sprint_create",
+            arguments: JSON.stringify({ projectId: "p1", name: "Sprint 4" }),
+          },
+        ],
+        createdAt: now,
+      },
+      {
+        id: "t2",
+        role: "tool",
+        content: JSON.stringify({ sprint: { id: "sp_4", name: "Sprint 4" } }),
+        toolCallId: "c2",
+        toolName: "fairlx_sprint_create",
+        createdAt: now,
+      },
+    ];
+    const fingerprint = toolCallFingerprint(
+      "fairlx_sprint_list",
+      JSON.stringify({ projectId: "p1" }),
+    );
+    expect(fingerprintsFromMessages(messages).has(fingerprint)).toBe(false);
+    const slices = hydrateListSliceCache(messages);
+    expect(resolveListSliceCall(slices, "fairlx_sprint_list", { projectId: "p1" }).action).toBe(
+      "execute",
+    );
   });
 });
 

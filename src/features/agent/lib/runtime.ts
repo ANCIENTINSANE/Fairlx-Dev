@@ -46,6 +46,7 @@ import {
   repeatedToolMessage,
   shouldForceAnswer,
   resolveListSliceCall,
+  forgetListCachesAfterMutation,
   toolCallFingerprint,
   unwrapListCall,
   toolsWhenContextIsTight,
@@ -830,6 +831,9 @@ export async function runAgentTurn(params: {
     }
     seenCalls.set(fingerprint, toolContent);
     rememberListSlice(listSlices, listed.tool, listed.args, toolContent);
+    if (!isFailedToolContent(toolContent)) {
+      forgetListCachesAfterMutation(seenCalls, listSlices, listed.tool || canonical.name);
+    }
     failStreak = isFailedToolContent(toolContent) ? failStreak + 1 : 0;
     nextMessages.push({
       id: crypto.randomUUID(),

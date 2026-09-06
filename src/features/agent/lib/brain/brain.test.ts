@@ -36,6 +36,8 @@ describe("selectToolsForTurn", () => {
     expect(names.has("fairlx_project_create")).toBe(true);
     expect(names.has("fairlx_project_list")).toBe(true);
     expect(names.has("fairlx_sprint_create")).toBe(true);
+    expect(names.has("fairlx_sprint_plan")).toBe(true);
+    expect(names.has("fairlx_sprint_update")).toBe(true);
     expect(names.has("fairlx_work_item_delete")).toBe(true);
   });
 
@@ -62,6 +64,7 @@ describe("selectToolsForTurn", () => {
   it("keeps sprint create tools and work-item delete on planning prompts", () => {
     const names = wantedToolNames("Plan all sprints, work items, and epics from the spec");
     expect(names.has("fairlx_sprint_create")).toBe(true);
+    expect(names.has("fairlx_sprint_plan")).toBe(true);
     expect(names.has("fairlx_work_item_create")).toBe(true);
     expect(names.has("fairlx_work_item_bulk_update")).toBe(true);
     expect(names.has("fairlx_work_item_delete")).toBe(true);
@@ -235,6 +238,7 @@ describe("isolate", () => {
         tool("github_open_pr"),
         tool("mail_send"),
         tool("fairlx_sprint_create"),
+        tool("fairlx_sprint_plan"),
         tool("fairlx_work_item_create"),
         tool("fairlx_project_create"),
       ],
@@ -244,6 +248,7 @@ describe("isolate", () => {
     expect(names).toContain("github_write_file");
     expect(names).toContain("github_open_pr");
     expect(names).toContain("fairlx_sprint_create");
+    expect(names).toContain("fairlx_sprint_plan");
     expect(names).toContain("fairlx_work_item_create");
     expect(names).toContain("fairlx_project_create");
     expect(names).not.toContain("mail_send");

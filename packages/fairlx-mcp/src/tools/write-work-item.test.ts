@@ -602,5 +602,46 @@ describe("fairlx_work_item_update", () => {
       "Sprint 1 — Foundation",
       "Sprint 2 — Adaptive Core",
     ]);
+    expect(payload.sprints[0]).toMatchObject({ id: "sp_1", workingDays: null });
+  });
+
+  it("lists work items in a sprint by name", async () => {
+    const { runtime } = workItemRuntime({
+      workItems: [
+        {
+          $id: "wi_1",
+          key: "SCHO-1",
+          title: "Router",
+          projectId: "proj_1",
+          sprintId: "sp_1",
+          storyPoints: 8,
+        },
+        {
+          $id: "wi_2",
+          key: "SCHO-2",
+          title: "Backlog leftover",
+          projectId: "proj_1",
+          sprintId: null,
+        },
+      ],
+      sprints: [{ $id: "sp_1", projectId: "proj_1", name: "Sprint 1 — Foundation", status: "ACTIVE" }],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_list",
+      { projectId: "proj_1", sprintId: "Sprint 1" },
+      runtime,
+      jwtToAuthContext("admin_1", {
+        workspaceId: "ws_1",
+        projectId: "proj_1",
+        scopes: ["tasks:read"],
+      }),
+    );
+
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      workItems: { key: string; sprintName: string | null }[];
+    };
+    expect(payload.workItems.map((item) => item.key)).toEqual(["SCHO-1"]);
+    expect(payload.workItems[0]?.sprintName).toBe("Sprint 1 — Foundation");
   });
 });

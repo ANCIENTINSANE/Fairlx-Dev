@@ -11,7 +11,7 @@ export type AgentProjectLaunch = {
 };
 
 const BOARD_MUTATION_RE =
-  /(^create_project$|project_create|sprint_create|sprint_start|sprint_update|sprint_complete|sprint_delete|work_item_create|work_item_update|work_item_bulk_update|work_item_split|work_item_delete|subtask_create|subtask_update|subtask_delete|comment_add|comment_delete|link_create|link_delete)/i;
+  /(^create_project$|project_create|sprint_create|sprint_plan|sprint_start|sprint_update|sprint_complete|sprint_delete|work_item_create|work_item_update|work_item_bulk_update|work_item_split|work_item_delete|subtask_create|subtask_update|subtask_delete|comment_add|comment_delete|link_create|link_delete)/i;
 
 export function isBoardMutationTool(name: string): boolean {
   const tool = name.trim();

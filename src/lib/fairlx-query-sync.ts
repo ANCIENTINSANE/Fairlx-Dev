@@ -126,7 +126,7 @@ const WRITE_RULES: Array<{ test: RegExp; kinds: FairlxSyncKind[] }> = [
   },
   { test: /^(subtask_create|subtask_update|subtask_delete)$/, kinds: ["work-items"] },
   {
-    test: /^(sprint_create|sprint_update|sprint_start|sprint_complete|sprint_delete)$/,
+    test: /^(sprint_create|sprint_plan|sprint_update|sprint_start|sprint_complete|sprint_delete)$/,
     kinds: ["sprints", "work-items"],
   },
   { test: /^(doc_create|doc_update|doc_delete)$/, kinds: ["docs"] },

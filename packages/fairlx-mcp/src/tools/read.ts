@@ -21,6 +21,19 @@ import { assignmentSummary } from "../runtime/assign-share";
 import { requireProjectAccess, assertWorkspaceBound } from "../runtime/rbac";
 import { loadProject, loadWorkItem, paginationQueries } from "../runtime/tenant";
 import { listQuery, optionalBoolean, optionalString, requireString, redactGithubRepo, workspaceInviteUrl, listAllDocuments } from "./helpers";
+import {
+  compactSprint,
+  documentSprintId,
+  estimatedBuildDays,
+  itemsForSprint,
+  listProjectSprints,
+  loadSprint,
+  planStatsForItems,
+  sprintDocumentId,
+  sprintNameMap,
+  sprintNameMatches,
+  sprintOrdinal,
+} from "./sprint-resolve";
 import { isWorkspaceAdminRole } from "./member-match";
 import {
   organizationGet,
@@ -299,7 +312,15 @@ async function workItemList(
   const backlog = optionalBoolean(args, "backlog") === true;
   const withoutEpic = optionalBoolean(args, "withoutEpic") === true;
   const assigneeId = optionalString(args, "assigneeId");
-  if (sprintId && !backlog) extra.push({ type: "equal", field: "sprintId", value: sprintId });
+  let sprintFilter: { id: string; name: string } | null = null;
+  if (sprintId && !backlog) {
+    if (runtime.collections.sprints) {
+      const sprint = await loadSprint(runtime, sprintId, { projectId });
+      sprintFilter = { id: sprintDocumentId(sprint), name: String(sprint.name ?? "") };
+    } else {
+      extra.push({ type: "equal", field: "sprintId", value: sprintId });
+    }
+  }
   if (status) extra.push({ type: "equal", field: "status", value: status });
   if (type) extra.push({ type: "equal", field: "type", value: type });
   const { limit, cursorAfter } = paginationQueries(args);
@@ -307,16 +328,33 @@ async function workItemList(
     ? "cursorAfter must be nextCursor from the previous list result"
     : undefined;
   const startCursor = cursorError ? undefined : cursorAfter;
-  const needsFilter = unassigned || backlog || withoutEpic || Boolean(assigneeId);
+  const needsFilter = unassigned || backlog || withoutEpic || Boolean(assigneeId) || Boolean(sprintFilter);
   const scanAll = needsFilter || !startCursor;
   const fetched = await fetchWorkItemPages(runtime, extra, startCursor, scanAll, limit);
   const namesByRow = await hydrateWorkItemAssignees(runtime, fetched.documents);
   const epicsByRow = await hydrateWorkItemEpics(runtime, fetched.documents);
+  const sprintNames = runtime.collections.sprints
+    ? sprintNameMap(await listProjectSprints(runtime, projectId))
+    : new Map<string, string>();
   const rows = fetched.documents.map((doc, index) => {
     const names = runtime.collections.members ? namesByRow[index] ?? [] : undefined;
-    return { compact: compactWorkItem(doc, names, epicsByRow[index] ?? null), names: names ?? [] };
+    const itemSprintId = documentSprintId(doc);
+    return {
+      compact: compactWorkItem(doc, names, epicsByRow[index] ?? null, sprintNames.get(itemSprintId) ?? null),
+      names: names ?? [],
+    };
   });
   let filtered = unassigned ? rows.filter((row) => row.compact.unassigned === true) : rows;
+  if (sprintFilter) {
+    filtered = filtered.filter((row) => {
+      const sid = String(row.compact.sprintId ?? "");
+      return (
+        sid === sprintFilter.id ||
+        sid === sprintFilter.name ||
+        sprintNameMatches(sprintFilter.name, sid)
+      );
+    });
+  }
   if (backlog) {
     filtered = filtered.filter((row) => row.compact.location === "backlog");
   }
@@ -393,6 +431,22 @@ async function workItemGet(
   });
 }
 
+function sortSprints(docs: Record<string, unknown>[]): Record<string, unknown>[] {
+  return [...docs].sort((left, right) => {
+    const leftOrdinal = sprintOrdinal(String(left.name ?? "")) ?? 9999;
+    const rightOrdinal = sprintOrdinal(String(right.name ?? "")) ?? 9999;
+    if (leftOrdinal !== rightOrdinal) return leftOrdinal - rightOrdinal;
+    return String(left.name ?? "").localeCompare(String(right.name ?? ""));
+  });
+}
+
+function pointsOf(items: Record<string, unknown>[]): number {
+  return items.reduce((sum, item) => {
+    const points = Number(item.storyPoints);
+    return sum + (Number.isFinite(points) && points > 0 ? points : 0);
+  }, 0);
+}
+
 async function sprintList(
   args: Record<string, unknown>,
   runtime: McpRuntime,
@@ -400,16 +454,31 @@ async function sprintList(
 ): Promise<McpToolResult> {
   const projectId = requireString(args, "projectId");
   await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.VIEW_SPRINTS, ["sprints:read"]);
-  const extra: McpQuery[] = [{ type: "equal", field: "projectId", value: projectId }];
+  let sprints = await listProjectSprints(runtime, projectId);
   const status = optionalString(args, "status");
   if (status && /^(ACTIVE|PLANNED|COMPLETED)$/i.test(status)) {
-    extra.push({ type: "equal", field: "status", value: status.toUpperCase() });
+    sprints = sprints.filter((doc) => String(doc.status ?? "").toUpperCase() === status.toUpperCase());
   }
-  const result = await runtime.store.list<Record<string, unknown>>(
-    runtime.collections.sprints,
-    listQuery(args, extra)
+  sprints = sortSprints(sprints);
+  const items = runtime.collections.workItems
+    ? await listAllDocuments(runtime, runtime.collections.workItems, [
+        { type: "equal", field: "projectId", value: projectId },
+      ])
+    : [];
+  const compact = sprints.map((sprint) =>
+    compactSprint(sprint, planStatsForItems(sprint, itemsForSprint(items, sprint))),
   );
-  return toolResult({ sprints: result.documents.map((d) => withId(d)), total: result.total });
+  const backlogItems = items.filter((item) => !documentSprintId(item));
+  const backlogPoints = pointsOf(backlogItems);
+  return toolResult({
+    sprints: compact,
+    total: compact.length,
+    backlog: {
+      itemCount: backlogItems.length,
+      storyPoints: backlogPoints,
+      estimatedBuildDays: estimatedBuildDays(backlogPoints > 0 ? backlogPoints : null),
+    },
+  });
 }
 
 async function sprintGet(
@@ -417,13 +486,10 @@ async function sprintGet(
   runtime: McpRuntime,
   auth: AuthContext
 ): Promise<McpToolResult> {
-  const sprintId = requireString(args, "sprintId");
-  let sprint: Record<string, unknown>;
-  try {
-    sprint = await runtime.store.get<Record<string, unknown>>(runtime.collections.sprints, sprintId);
-  } catch {
-    throw notFoundError("Not found");
-  }
+  const sprintRef = requireString(args, "sprintId");
+  const sprint = await loadSprint(runtime, sprintRef, {
+    projectId: optionalString(args, "projectId") || auth.projectId,
+  });
   await requireProjectAccess(
     runtime,
     auth,
@@ -431,7 +497,20 @@ async function sprintGet(
     PERMISSIONS.VIEW_SPRINTS,
     ["sprints:read"]
   );
-  return toolResult({ sprint: withId(sprint) });
+  const items = runtime.collections.workItems
+    ? itemsForSprint(
+        await listAllDocuments(runtime, runtime.collections.workItems, [
+          { type: "equal", field: "projectId", value: String(sprint.projectId) },
+        ]),
+        sprint,
+      )
+    : [];
+  const plan = planStatsForItems(sprint, items);
+  return toolResult({
+    sprint: compactSprint(sprint, plan),
+    plan,
+    itemKeys: items.map((item) => String(item.key ?? "")).filter(Boolean),
+  });
 }
 
 async function linkList(

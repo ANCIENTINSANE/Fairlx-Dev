@@ -93,6 +93,7 @@ export function compactWorkItem(
   doc: Record<string, unknown>,
   assignees?: CompactAssignee[],
   epic?: Record<string, unknown> | null,
+  sprintName?: string | null,
 ): Record<string, unknown> {
   const ids = assigneeIdsOf(doc);
   const people = (assignees ?? [])
@@ -117,6 +118,7 @@ export function compactWorkItem(
     labels: Array.isArray(doc.labels) ? doc.labels : [],
     location: sprintId ? "sprint" : "backlog",
     sprintId,
+    sprintName: sprintId ? sprintName ?? null : null,
     storyPoints: doc.storyPoints ?? null,
     dueDate: doc.dueDate ?? null,
     hasEpic,

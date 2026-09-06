@@ -72,6 +72,7 @@ export const AGENT_DEFINITIONS: Record<
       "fairlx_work_item_update",
       "fairlx_work_item_bulk_update",
       "fairlx_sprint_create",
+      "fairlx_sprint_plan",
       "fairlx_sprint_update",
       "fairlx_sprint_list",
       "fairlx_project_create",
