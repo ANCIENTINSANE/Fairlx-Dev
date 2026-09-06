@@ -18,42 +18,18 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-06T12:41:36.829Z
+**Last updated:** 2026-09-06T12:41:41.766Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `packages/fairlx-mcp/src/runtime/output.ts`
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/destructive.ts`
-- `packages/fairlx-mcp/src/tools/read.ts`
-- `packages/fairlx-mcp/src/tools/sprint-resolve.test.ts`
-- `packages/fairlx-mcp/src/tools/sprint-resolve.ts`
-- `packages/fairlx-mcp/src/tools/write-sprint.test.ts`
-- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
-- `packages/fairlx-mcp/src/tools/write.ts`
-- `src/features/agent/lib/agent-core.test.ts`
-- `src/features/agent/lib/brain/brain.test.ts`
-- `src/features/agent/lib/brain/definitions.ts`
-- `src/features/agent/lib/brain/select.ts`
-- `src/features/agent/lib/project-launch.ts`
-- `src/features/agent/lib/prompt-budget.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/tool-loop.test.ts`
-- `src/features/agent/lib/tool-loop.ts`
-- `src/lib/fairlx-query-sync.test.ts`
-- …and 1 more files
-
 **Latest commits**
 
+- `fe9d2a6` fix: resolve sprints by name and fold duplicate sprint numbers (2026-09-06)
 - `cd02184` fix: keep agent board writes safe, visible, and in the right sprint (2026-09-06)
 - `8cad584` chore: bump version to 0.2.103 [skip ci] (2026-09-05)
 - `ca6c854` Merge pull request #306 from ANCIENTINSANE/main (2026-09-06)
 - `8c49ee0` Merge stemlen/main into fork main to sync upstream before contribution. (2026-09-06)
 - `c719487` feat: researched project docs, agent context fitting, and usage billing (2026-09-06)
-- `8b787ea` chore: bump version to 0.2.102 [skip ci] (2026-09-05)
 <!-- docs:latest:end -->
 
 ---

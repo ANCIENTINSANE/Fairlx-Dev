@@ -4,36 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `packages/fairlx-mcp/src/runtime/output.ts`
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/destructive.ts`
-- `packages/fairlx-mcp/src/tools/read.ts`
-- `packages/fairlx-mcp/src/tools/sprint-resolve.test.ts`
-- `packages/fairlx-mcp/src/tools/sprint-resolve.ts`
-- `packages/fairlx-mcp/src/tools/write-sprint.test.ts`
-- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
-- `packages/fairlx-mcp/src/tools/write.ts`
-- `src/features/agent/lib/agent-core.test.ts`
-- `src/features/agent/lib/brain/brain.test.ts`
-- `src/features/agent/lib/brain/definitions.ts`
-- `src/features/agent/lib/brain/select.ts`
-- `src/features/agent/lib/project-launch.ts`
-- `src/features/agent/lib/prompt-budget.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/tool-loop.test.ts`
-- `src/features/agent/lib/tool-loop.ts`
-- `src/lib/fairlx-query-sync.test.ts`
-- `src/lib/fairlx-query-sync.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `fe9d2a6` | fix: resolve sprints by name and fold duplicate sprint numbers | ANCIENTINSANE |
 | 2026-09-06 | `cd02184` | fix: keep agent board writes safe, visible, and in the right sprint | ANCIENTINSANE |
 | 2026-09-05 | `8cad584` | chore: bump version to 0.2.103 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `ca6c854` | Merge pull request #306 from ANCIENTINSANE/main | Surendra Codes |
@@ -126,6 +101,5 @@ Files in this commit:
 | 2026-08-29 | `a9b20be` | chore: bump version to 0.2.71 [skip ci] | github-actions[bot] |
 | 2026-08-30 | `95d3471` | Merge pull request #288 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-08-29 | `f9946da` | chore: bump version to 0.2.70 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `f26a57b` | feat: implement Model Context Protocol (MCP) server package and workspace integration panel | Happyesss |
 
-Last generated: 2026-09-06T12:41:36.802Z
+Last generated: 2026-09-06T12:41:41.740Z
