@@ -223,7 +223,7 @@ async function upsertFoundryCatalog(
                 existingDocs.set(model.modelId, { $id: "new", pricingSource: "azure_foundry" });
             }
             result.pricingUpdated++;
-        } catch (error) {
+        } catch {
             try {
                 const { cachedInputPricePerMillionTokens: _cached, ...withoutCache } = docData;
                 if (existing) {

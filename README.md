@@ -18,18 +18,30 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-06T12:41:41.766Z
+**Last updated:** 2026-09-06T16:38:56.676Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
+**This commit**
+
+- `src/features/agent/api/use-transcribe-audio.ts`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-home.tsx`
+- `src/features/agent/components/daily-cockpit.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/billing/components/wallet-billing-alerts.tsx`
+- `src/features/project-docs/server/route.ts`
+- `src/lib/ai-pricing-sync-job.ts`
+
 **Latest commits**
 
+- `412c5b9` chore: bump version to 0.2.104 [skip ci] (2026-09-06)
+- `03593e4` Merge pull request #307 from ANCIENTINSANE/main (2026-09-06)
 - `fe9d2a6` fix: resolve sprints by name and fold duplicate sprint numbers (2026-09-06)
 - `cd02184` fix: keep agent board writes safe, visible, and in the right sprint (2026-09-06)
 - `8cad584` chore: bump version to 0.2.103 [skip ci] (2026-09-05)
 - `ca6c854` Merge pull request #306 from ANCIENTINSANE/main (2026-09-06)
-- `8c49ee0` Merge stemlen/main into fork main to sync upstream before contribution. (2026-09-06)
-- `c719487` feat: researched project docs, agent context fitting, and usage billing (2026-09-06)
 <!-- docs:latest:end -->
 
 ---

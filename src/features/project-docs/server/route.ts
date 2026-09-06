@@ -570,7 +570,7 @@ const app = new Hono()
         if (chosen === "pdf") {
           const mime = String(document.mimeType || "");
           if (original && mime === "application/pdf") {
-            return new Response(original, {
+            return new Response(original as unknown as BodyInit, {
               headers: {
                 "Content-Disposition": contentDisposition(downloadFileName(title, "pdf")),
                 "Content-Type": "application/pdf",
@@ -581,7 +581,7 @@ const app = new Hono()
             return c.json({ error: "This file cannot be converted to PDF." }, 400);
           }
           const bytes = markdownToPdfBuffer(title, markdown);
-          return new Response(bytes, {
+          return new Response(bytes as unknown as BodyInit, {
             headers: {
               "Content-Disposition": contentDisposition(downloadFileName(title, "pdf")),
               "Content-Type": mimeForDownloadFormat("pdf"),
@@ -595,7 +595,7 @@ const app = new Hono()
             original &&
             (mime.includes("wordprocessingml") || mime === "application/msword")
           ) {
-            return new Response(original, {
+            return new Response(original as unknown as BodyInit, {
               headers: {
                 "Content-Disposition": contentDisposition(downloadFileName(title, "docx")),
                 "Content-Type": mimeForDownloadFormat("docx"),
@@ -615,7 +615,7 @@ const app = new Hono()
         }
 
         if (original) {
-          return new Response(original, {
+          return new Response(original as unknown as BodyInit, {
             headers: {
               "Content-Disposition": contentDisposition(document.name || downloadFileName(title, "md")),
               "Content-Type": document.mimeType || "application/octet-stream",

@@ -4,10 +4,26 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `src/features/agent/api/use-transcribe-audio.ts`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-home.tsx`
+- `src/features/agent/components/daily-cockpit.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/billing/components/wallet-billing-alerts.tsx`
+- `src/features/project-docs/server/route.ts`
+- `src/lib/ai-pricing-sync-job.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `412c5b9` | chore: bump version to 0.2.104 [skip ci] | github-actions[bot] |
+| 2026-09-06 | `03593e4` | Merge pull request #307 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-06 | `fe9d2a6` | fix: resolve sprints by name and fold duplicate sprint numbers | ANCIENTINSANE |
 | 2026-09-06 | `cd02184` | fix: keep agent board writes safe, visible, and in the right sprint | ANCIENTINSANE |
 | 2026-09-05 | `8cad584` | chore: bump version to 0.2.103 [skip ci] | github-actions[bot] |
@@ -98,8 +114,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-30 | `15a2169` | chore: bump version to 0.2.71 [skip ci] | github-actions[bot] |
 | 2026-08-30 | `e490237` | feat: add support for subtask, saved view, and webhook management tools to MCP registry | Happyesss |
 | 2026-08-30 | `904542e` | Merge branch 'stemlen:main' into main | Shashank Kumar Rathour |
-| 2026-08-29 | `a9b20be` | chore: bump version to 0.2.71 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `95d3471` | Merge pull request #288 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-08-29 | `f9946da` | chore: bump version to 0.2.70 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-06T12:41:41.740Z
+Last generated: 2026-09-06T16:38:56.662Z

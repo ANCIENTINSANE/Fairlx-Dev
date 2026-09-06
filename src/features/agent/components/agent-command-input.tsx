@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Loader2,
   Mic,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,6 +30,16 @@ import { ModelPicker } from "./model-picker";
 import { McpBarButton } from "./mcp-servers-card";
 import { PersonalAgentSetup } from "./personal-agent-setup";
 import { AgentContextMeter } from "./agent-context-meter";
+
+/** Short descriptions shown under each suggestion card title. */
+const QUICK_ACTION_DESCRIPTIONS: Record<string, string> = {
+  "Plan new feature": "Propose a feature with user stories and sprint plan",
+  "Create project": "Turn an idea into a well-scoped project",
+  "Fix a bug": "Investigate and resolve issues in your codebase",
+  "Refactor code": "Propose a focused refactor for cleaner architecture",
+  "Write tests": "Generate comprehensive tests for your code",
+  "Add docs": "Draft documentation for your project",
+};
 
 function autosize(el: HTMLTextAreaElement, min = 56) {
   el.style.height = "auto";
@@ -78,6 +89,7 @@ export function AgentCommandInput({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(workspaceId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectId ?? null);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -296,8 +308,10 @@ export function AgentCommandInput({
     );
   };
 
+  const showSuggestions = showQuickActions && !personalUntrained && !suggestionsDismissed && variant === "create";
+
   return (
-    <div className={cn(showQuickActions && variant === "create" ? "space-y-3" : "w-full")}>
+    <div className={cn(showQuickActions && variant === "create" ? "space-y-4" : "w-full")}>
       <AgentScopeBar
         run={run}
         defaultWorkspaceId={workspaceId}
@@ -461,28 +475,57 @@ export function AgentCommandInput({
           </div>
         ) : null}
       </form>
-      {showQuickActions && !personalUntrained ? (
-        <div className="flex flex-wrap gap-2 px-1">
-          {quickActions.map((action) => {
-            const Icon = action.icon;
-            return (
-              <button
-                key={action.label}
-                type="button"
-                disabled={busy}
-                onClick={() => submit(action.prompt)}
-                className={cn(
-                  "inline-flex items-center rounded-full border border-border bg-card hover:bg-muted/70 text-muted-foreground hover:text-foreground transition-colors shadow-sm font-medium",
-                  compact ? "gap-1.5 px-2 py-1 text-[11px]" : "gap-2 px-3 py-1.5 text-xs",
-                )}
-              >
-                <Icon className={cn("text-primary", compact ? "size-3" : "size-3.5")} />
-                <span>{action.label}</span>
-              </button>
-            );
-          })}
+
+      {/* Linear-inspired suggestion cards */}
+      {showSuggestions ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <p className="text-sm font-medium text-foreground">
+              Get started with some examples
+            </p>
+            <button
+              type="button"
+              onClick={() => setSuggestionsDismissed(true)}
+              className="size-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              aria-label="Dismiss suggestions"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <div className={cn(
+            "grid gap-3",
+            compact ? "grid-cols-2" : "grid-cols-1 sm:grid-cols-3",
+          )}>
+            {quickActions.slice(0, compact ? 4 : 3).map((action) => {
+              const Icon = action.icon;
+              const description = QUICK_ACTION_DESCRIPTIONS[action.label] ?? action.prompt.slice(0, 60);
+              return (
+                <button
+                  key={action.label}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => submit(action.prompt)}
+                  className={cn(
+                    "group text-left rounded-xl border border-border/80 bg-card hover:bg-muted/40 hover:border-border",
+                    "p-4 transition-all duration-200 shadow-sm hover:shadow-md",
+                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                    "disabled:opacity-60 disabled:pointer-events-none",
+                  )}
+                >
+                  <Icon className="size-4 text-muted-foreground group-hover:text-foreground transition-colors mb-3" />
+                  <p className="text-sm font-semibold text-foreground leading-tight">
+                    {action.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-1.5">
+                    {description}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
     </div>
   );
 }
+

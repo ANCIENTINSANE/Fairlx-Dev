@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Lock } from "lucide-react";
+import { AlertTriangle, Lock, X } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -22,14 +23,15 @@ function formatUsd(amount: number) {
  * when the wallet is negative or the account is locked at -$20.
  */
 export function WalletBillingBanner() {
+    const [dismissed, setDismissed] = useState(false);
     const { isLoading, balance, locked, negative, billingHref, lockThreshold } = useWalletBillingAlert();
-    if (isLoading || (!locked && !negative)) return null;
+    if (isLoading || (!locked && !negative) || dismissed) return null;
 
     return (
         <Alert
             variant="destructive"
             className={cn(
-                "rounded-none border-x-0 border-t-0",
+                "relative rounded-none border-x-0 border-t-0",
                 locked
                     ? "border-red-500/60 bg-red-500/10"
                     : "border-amber-500/50 bg-amber-500/10",
@@ -49,9 +51,24 @@ export function WalletBillingBanner() {
                         ? `AI usage drove the wallet to ${formatUsd(balance)}. Accounts lock at -$${lockThreshold.toFixed(0)} overdraft. Add credits to restore access.`
                         : `Wallet balance is ${formatUsd(balance)}. The account locks at -$${lockThreshold.toFixed(0)}. Add credits to avoid interruption.`}
                 </p>
-                <Button asChild size="sm" variant="outline">
-                    <Link href={billingHref}>Add credits</Link>
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                    <Button asChild size="sm" variant="outline">
+                        <Link href={billingHref}>Add credits</Link>
+                    </Button>
+                    <button
+                        type="button"
+                        onClick={() => setDismissed(true)}
+                        className={cn(
+                            "size-6 rounded-md flex items-center justify-center transition-colors",
+                            locked
+                                ? "text-red-500 hover:text-red-700 hover:bg-red-500/10"
+                                : "text-amber-500 hover:text-amber-700 hover:bg-amber-500/10",
+                        )}
+                        aria-label="Dismiss"
+                    >
+                        <X className="size-3.5" />
+                    </button>
+                </div>
             </AlertDescription>
         </Alert>
     );
