@@ -1,5 +1,6 @@
 import {
   DEEPSEEK_FLASH_MODEL_ID,
+  DEEPSEEK_PRO_MODEL_ID,
   FOUNDRY_GPT_LUNA_MODEL_ID,
   GROK_46_MODEL_ID,
   PLATFORM_DEEPSEEK_PROVIDER_ID,
@@ -19,6 +20,7 @@ export const PLATFORM_FOUNDRY_DEFAULT_ENDPOINT =
   "https://projectfairlx-resource.services.ai.azure.com";
 export const PLATFORM_GROK_DEFAULT_DEPLOYMENT = "grok-4.6";
 export const PLATFORM_DEEPSEEK_DEFAULT_DEPLOYMENT = "DeepSeek-V4-Flash";
+export const PLATFORM_DEEPSEEK_PRO_DEFAULT_DEPLOYMENT = "DeepSeek-V4-Pro";
 export const PLATFORM_FOUNDRY_DEFAULT_DEPLOYMENT = "gpt-5.6-luna";
 export const PLATFORM_AZURE_OPENAI_PATH = "/openai/v1";
 
@@ -92,6 +94,12 @@ export function getPlatformGrokDeployment(): string {
 export function getPlatformDeepseekDeployment(): string {
   return (
     process.env.AGENT_DEEPSEEK_AZURE_DEPLOYMENT?.trim() || PLATFORM_DEEPSEEK_DEFAULT_DEPLOYMENT
+  );
+}
+
+export function getPlatformDeepseekProDeployment(): string {
+  return (
+    process.env.AGENT_DEEPSEEK_PRO_AZURE_DEPLOYMENT?.trim() || PLATFORM_DEEPSEEK_PRO_DEFAULT_DEPLOYMENT
   );
 }
 
@@ -231,6 +239,30 @@ export function overlayPlatformModel(model: AgentModel): AgentModel {
   }
   if (model.id === DEEPSEEK_FLASH_MODEL_ID) {
     return withWorkingContextWindow({ ...model, modelId: getPlatformDeepseekDeployment() });
+  }
+  if (model.id === DEEPSEEK_PRO_MODEL_ID) {
+    return withWorkingContextWindow({ ...model, modelId: getPlatformDeepseekProDeployment() });
+  }
+  if (model.id === "gpt-5.4" && process.env.AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT?.trim()) {
+    return withWorkingContextWindow({ ...model, modelId: process.env.AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT.trim() });
+  }
+  if (model.id === "gpt-5.5" && process.env.AGENT_FOUNDRY_GPT55_AZURE_DEPLOYMENT?.trim()) {
+    return withWorkingContextWindow({ ...model, modelId: process.env.AGENT_FOUNDRY_GPT55_AZURE_DEPLOYMENT.trim() });
+  }
+  if (model.id === "gpt-5.6-sol" && process.env.AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT?.trim()) {
+    return withWorkingContextWindow({ ...model, modelId: process.env.AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT.trim() });
+  }
+  if (model.id === "claude-sonnet" && process.env.AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_DEPLOYMENT?.trim()) {
+    return withWorkingContextWindow({
+      ...model,
+      modelId: process.env.AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_DEPLOYMENT.trim(),
+    });
+  }
+  if (model.id === "claude-opus" && process.env.AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_DEPLOYMENT?.trim()) {
+    return withWorkingContextWindow({
+      ...model,
+      modelId: process.env.AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_DEPLOYMENT.trim(),
+    });
   }
   if (model.isPlatform) return withWorkingContextWindow(model);
   return model;

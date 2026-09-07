@@ -69,11 +69,11 @@ const app = new Hono()
 
         const repository = repositories.documents[0];
 
-          // Initialize GitHub API with repository-specific token
-          let token = repository.accessToken;
-          if (token && token.includes(":")) {
-            const { decryptToken } = await import("../lib/encryption");
-            token = decryptToken(token);
+          const { resolveUserGithubToken } = await import("../lib/github-accounts");
+          const resolved = await resolveUserGithubToken(databases, user.$id);
+          const token = resolved?.token;
+          if (!token) {
+            return c.json({ error: "Connect your GitHub account to your Fairlx profile first." }, 400);
           }
           const repoApi = new GitHubAPI(token);
 
@@ -187,12 +187,12 @@ const app = new Hono()
         if (repositories.total === 0) return c.json({ error: "No repository linked" }, 400);
         
         const repository = repositories.documents[0];
-        
-        // Initialize GitHub API with repository-specific token
-        let token = repository.accessToken;
-        if (token && token.includes(":")) {
-          const { decryptToken } = await import("../lib/encryption");
-          token = decryptToken(token);
+
+        const { resolveUserGithubToken } = await import("../lib/github-accounts");
+        const resolved = await resolveUserGithubToken(databases, user.$id);
+        const token = resolved?.token;
+        if (!token) {
+          return c.json({ error: "Connect your GitHub account to your Fairlx profile first." }, 400);
         }
         const repoApi = new GitHubAPI(token);
         

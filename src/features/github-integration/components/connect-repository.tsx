@@ -4,7 +4,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Loader2, Trash2, AlertCircle, RefreshCw, Github, KeyRound, ArrowLeft } from "lucide-react";
+import { Loader2, Trash2, AlertCircle, RefreshCw, Github, KeyRound, ArrowLeft, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -42,7 +42,10 @@ import {
   useGetRepository, 
   useGetOAuthStatus,
   useGetGitHubRepos,
-  useGetGitHubBranches
+  useGetGitHubBranches,
+  useGetGithubAccount,
+  useGetGithubOwners,
+  useCreateGithubRepository,
 } from "../api/use-github";
 import { TokenGuide } from "./token-guide";
 import { githubAPI } from "../lib/github-api";
@@ -76,7 +79,7 @@ export const ConnectRepository = ({
   trigger,
 }: ConnectRepositoryProps) => {
   const [open, setOpen] = useState(false);
-  const [connectionStep, setConnectionStep] = useState<"choose" | "form" | "select-repo">("choose");
+  const [connectionStep, setConnectionStep] = useState<"choose" | "form" | "select-repo" | "create-repo">("choose");
   const [isCheckingRepo, setIsCheckingRepo] = useState(false);
   const [repoValidation, setRepoValidation] = useState<{
     isPrivate: boolean;
@@ -86,18 +89,31 @@ export const ConnectRepository = ({
   
   const [selectedRepo, setSelectedRepo] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState<"all" | string>("all");
+  const [newRepoName, setNewRepoName] = useState("");
+  const [newRepoDescription, setNewRepoDescription] = useState("");
+  const [newRepoPrivate, setNewRepoPrivate] = useState(true);
+  const [newRepoOwner, setNewRepoOwner] = useState("");
 
   const { data: repository } = useGetRepository(projectId);
   const { mutate: linkRepository, isPending: isLinking } = useLinkRepository();
   const { mutate: disconnectRepository, isPending: isDisconnecting } =
     useDisconnectRepository();
+  const { mutate: createGithubRepo, isPending: isCreatingRepo } = useCreateGithubRepository();
+  const { data: githubAccountPayload } = useGetGithubAccount();
+  const githubAccount = githubAccountPayload?.data;
+  const isAccountConnected = Boolean(githubAccount?.connected);
 
   const isPendingOAuthSetup = repository?.status === "authenticating" || repository?.githubUrl === "pending";
 
   const { data: repos, isLoading: isLoadingRepos, error: reposError } = useGetGitHubRepos(
     projectId,
-    connectionStep === "select-repo" && !!isPendingOAuthSetup
+    (connectionStep === "select-repo" || connectionStep === "create-repo") && (isPendingOAuthSetup || isAccountConnected)
   );
+  const { data: ownerPayload } = useGetGithubOwners(
+    (connectionStep === "select-repo" || connectionStep === "create-repo") && isAccountConnected
+  );
+  const githubOwners = ownerPayload?.owners ?? [];
 
   const [parsedOwner, parsedRepoName] = selectedRepo ? selectedRepo.split("/") : ["", ""];
   const { data: branches, isLoading: isLoadingBranches } = useGetGitHubBranches(
@@ -120,13 +136,13 @@ export const ConnectRepository = ({
     }
   }, [oauthConfigured]);
 
-  // Auto-open and route to select-repo if redirected from OAuth or already in authenticating status
+  // Auto-open and route to select-repo if redirected from OAuth, already authenticating, or GitHub is already connected Fairlx-wide.
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const isOauthSuccess = urlParams.get("oauth") === "success";
       
-      if (isPendingOAuthSetup) {
+      if (isPendingOAuthSetup || (isAccountConnected && isOauthSuccess)) {
         setConnectionStep("select-repo");
         if (isOauthSuccess) {
           setOpen(true);
@@ -135,7 +151,19 @@ export const ConnectRepository = ({
         }
       }
     }
-  }, [repository, isPendingOAuthSetup]);
+  }, [repository, isPendingOAuthSetup, isAccountConnected]);
+
+  useEffect(() => {
+    if (isAccountConnected && open && connectionStep === "choose" && !isUpdate) {
+      setConnectionStep("select-repo");
+    }
+  }, [isAccountConnected, open, connectionStep, isUpdate]);
+
+  useEffect(() => {
+    if (githubOwners.length === 1 && !newRepoOwner) {
+      setNewRepoOwner(githubOwners[0]!.login);
+    }
+  }, [githubOwners, newRepoOwner]);
 
   // Reset dialog state when closed
   useEffect(() => {
@@ -432,12 +460,20 @@ export const ConnectRepository = ({
       });
     };
 
+    const ownersFromRepos = Array.from(new Set((repos ?? []).map((repo) => repo.owner.login)));
+    const ownerOptions = githubOwners.length
+      ? githubOwners.map((item) => item.login)
+      : ownersFromRepos;
+    const visibleRepos = (repos ?? []).filter((repo) => ownerFilter === "all" || repo.owner.login === ownerFilter);
+
     return (
       <div className="space-y-4 py-2">
         <DialogHeader>
           <DialogTitle className="text-base font-semibold font-sans">Link GitHub Repository</DialogTitle>
           <DialogDescription className="text-xs font-normal text-muted-foreground font-sans">
-            Select the repository and default branch you want to link to this project.
+            {githubAccount?.githubLogin
+              ? `Connected as @${githubAccount.githubLogin}. Pick an existing repository or create a new one.`
+              : "Select the repository and default branch you want to link to this project."}
           </DialogDescription>
         </DialogHeader>
 
@@ -450,11 +486,32 @@ export const ConnectRepository = ({
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
             <AlertDescription className="text-xs font-sans">
-              Failed to load repositories. Please reconnect or try again. {reposError.message}
+              Failed to load repositories. Sign in with GitHub again, or paste a PAT. {reposError.message}
             </AlertDescription>
           </Alert>
         ) : (
           <div className="space-y-4">
+            {ownerOptions.length > 1 ? (
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground font-sans">Account</label>
+                <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+                  <SelectTrigger className="w-full text-xs font-sans h-10 bg-background border border-input rounded-md px-3 py-2">
+                    <SelectValue placeholder="All accounts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs font-sans">All accounts</SelectItem>
+                    {ownerOptions.map((login) => (
+                      <SelectItem key={login} value={login} className="text-xs font-sans">
+                        {githubOwners.find((item) => item.login === login)?.type === "Organization"
+                          ? `Organization · ${login}`
+                          : `Personal · ${login}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-foreground font-sans">Select Repository</label>
               <Select
@@ -465,7 +522,7 @@ export const ConnectRepository = ({
                   <SelectValue placeholder="-- Choose a Repository --" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[280px]">
-                  {repos?.map((repo) => (
+                  {visibleRepos.map((repo) => (
                     <SelectItem key={repo.id} value={repo.full_name} className="text-xs font-sans cursor-pointer">
                       <div className="flex items-center justify-between w-full min-w-[280px] gap-2">
                         <span className="truncate">{repo.full_name}</span>
@@ -519,17 +576,31 @@ export const ConnectRepository = ({
               </div>
             )}
 
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full font-sans text-xs"
+              onClick={() => setConnectionStep("create-repo")}
+            >
+              <Plus className="size-3.5 mr-1.5" />
+              Create a new repository
+            </Button>
+
             <div className="flex items-center justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => {
-                  setOpen(false);
+                  if (isAccountConnected) {
+                    setConnectionStep("choose");
+                  } else {
+                    setOpen(false);
+                  }
                 }}
                 disabled={isLinking}
                 className="font-sans text-xs"
               >
-                Cancel
+                {isAccountConnected ? "Reconnect" : "Cancel"}
               </Button>
               <Button
                 type="button"
@@ -543,6 +614,121 @@ export const ConnectRepository = ({
             </div>
           </div>
         )}
+      </div>
+    );
+  };
+
+  const renderCreateRepoStep = () => {
+    const ownerChoices = githubOwners.length
+      ? githubOwners
+      : Array.from(new Set((repos ?? []).map((repo) => repo.owner.login))).map((login) => ({
+          login,
+          type: (githubAccount?.githubLogin && login === githubAccount.githubLogin ? "User" : "Organization") as "User" | "Organization",
+        }));
+
+    const handleCreate = () => {
+      const name = newRepoName.trim();
+      if (!name) return;
+      if (ownerChoices.length > 1 && !newRepoOwner) return;
+      createGithubRepo({
+        name,
+        owner: newRepoOwner || ownerChoices[0]?.login,
+        description: newRepoDescription.trim() || undefined,
+        private: newRepoPrivate,
+        autoInit: true,
+        projectId,
+        linkToProject: true,
+      }, {
+        onSuccess: () => {
+          setOpen(false);
+          setNewRepoName("");
+          setNewRepoDescription("");
+        },
+      });
+    };
+
+    return (
+      <div className="space-y-4 py-2">
+        <DialogHeader>
+          <DialogTitle className="text-base font-semibold font-sans">Create GitHub repository</DialogTitle>
+          <DialogDescription className="text-xs font-normal text-muted-foreground font-sans">
+            Creates the repo with a README, then links it to this project. If you have organizations, choose where it should live.
+          </DialogDescription>
+        </DialogHeader>
+
+        {ownerChoices.length > 1 ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-foreground font-sans">Create under</label>
+            <Select value={newRepoOwner} onValueChange={setNewRepoOwner}>
+              <SelectTrigger className="w-full text-xs font-sans h-10">
+                <SelectValue placeholder="Personal account or organization" />
+              </SelectTrigger>
+              <SelectContent>
+                {ownerChoices.map((owner) => (
+                  <SelectItem key={owner.login} value={owner.login} className="text-xs font-sans">
+                    {owner.type === "Organization" ? `Organization · ${owner.login}` : `Personal · ${owner.login}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : ownerChoices[0] ? (
+          <p className="text-xs text-muted-foreground font-sans">
+            Creating under personal account @{ownerChoices[0].login}.
+          </p>
+        ) : null}
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-foreground font-sans">Repository name</label>
+          <Input
+            value={newRepoName}
+            onChange={(event) => setNewRepoName(event.target.value)}
+            placeholder="agent-harness"
+            className="h-10 text-xs font-sans"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-foreground font-sans">Description</label>
+          <Input
+            value={newRepoDescription}
+            onChange={(event) => setNewRepoDescription(event.target.value)}
+            placeholder="Optional"
+            className="h-10 text-xs font-sans"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-xs font-sans">
+          <input
+            type="checkbox"
+            checked={newRepoPrivate}
+            onChange={(event) => setNewRepoPrivate(event.target.checked)}
+          />
+          Private repository
+        </label>
+        <p className="text-[11px] text-muted-foreground font-sans">
+          A README is added automatically so the default branch exists immediately.
+        </p>
+
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="font-sans text-xs"
+            onClick={() => setConnectionStep("select-repo")}
+            disabled={isCreatingRepo}
+          >
+            <ArrowLeft className="size-3.5 mr-1.5" />
+            Back
+          </Button>
+          <Button
+            type="button"
+            className="font-sans text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={handleCreate}
+            disabled={isCreatingRepo || !newRepoName.trim() || (ownerChoices.length > 1 && !newRepoOwner)}
+          >
+            {isCreatingRepo && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Create and link
+          </Button>
+        </div>
       </div>
     );
   };
@@ -585,7 +771,7 @@ export const ConnectRepository = ({
               </span>
             </div>
             <p className="text-xs text-muted-foreground font-normal leading-relaxed">
-              Link your repository securely by signing in with your GitHub account. No configuration needed.
+              Authorize Fairlx once. Access applies to every project. GitHub will ask for repository read/write, organization list, and webhook access.
             </p>
             {!oauthConfigured && (
               <p className="text-[10px] text-amber-500 font-medium pt-1">
@@ -678,7 +864,7 @@ export const ConnectRepository = ({
           )}
         </DialogTrigger>
         <DialogContent className="sm:max-w-[500px] p-6">
-          {renderSelectRepoStep()}
+          {connectionStep === "create-repo" ? renderCreateRepoStep() : connectionStep === "choose" ? renderChooseStep("Reconnect GitHub", "Sign in again or paste a token. Access stays Fairlx-wide.") : renderSelectRepoStep()}
         </DialogContent>
       </Dialog>
     );
@@ -696,9 +882,11 @@ export const ConnectRepository = ({
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px] p-6">
         {connectionStep === "choose"
-          ? renderChooseStep("Connect GitHub Repository", "Select an authentication method to link a GitHub repository to this project.")
+          ? renderChooseStep("Connect GitHub Repository", "Sign in with GitHub once for all Fairlx projects, or paste a personal access token. Then pick a repository or create one.")
           : connectionStep === "select-repo"
           ? renderSelectRepoStep()
+          : connectionStep === "create-repo"
+          ? renderCreateRepoStep()
           : renderFormContent()}
       </DialogContent>
     </Dialog>

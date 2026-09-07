@@ -493,6 +493,101 @@ type SyncGitHubHistoryRequest = {
   json: { projectId: string };
 };
 
+export const useGetGithubAccount = () => {
+  return useQuery({
+    queryKey: ["github-account"],
+    queryFn: async () => {
+      const response = await client.api.github.account.$get();
+      if (!response.ok) {
+        throw new Error("Failed to fetch GitHub account");
+      }
+      return await response.json();
+    },
+  });
+};
+
+export const useConnectGithubAccountToken = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const response = await client.api.github.account.token.$post({ json: { token } });
+      if (!response.ok) {
+        const errorData = await response.json() as { error?: string };
+        throw new Error(errorData.error || "Failed to connect GitHub token");
+      }
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast.success("GitHub account connected");
+      queryClient.invalidateQueries({ queryKey: ["github-account"] });
+      queryClient.invalidateQueries({ queryKey: ["github-user-repos"] });
+      queryClient.invalidateQueries({ queryKey: ["github-account-owners"] });
+      queryClient.invalidateQueries({ queryKey: ["agent-context"] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to connect GitHub token");
+    },
+  });
+};
+
+export const useGetGithubOwners = (enabled: boolean = true) => {
+  return useQuery({
+    queryKey: ["github-account-owners"],
+    queryFn: async () => {
+      const response = await client.api.github.account.owners.$get();
+      if (!response.ok) {
+        const errorData = await response.json() as { error?: string; code?: string };
+        throw new Error(errorData.error || "Failed to list GitHub owners");
+      }
+      const { data } = await response.json();
+      return data as {
+        login: string;
+        owners: Array<{ login: string; type: "User" | "Organization"; role?: string }>;
+      };
+    },
+    enabled,
+  });
+};
+
+export const useCreateGithubRepository = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (json: {
+      name: string;
+      owner?: string;
+      description?: string;
+      private?: boolean;
+      autoInit?: boolean;
+      projectId?: string;
+      branch?: string;
+      linkToProject?: boolean;
+    }) => {
+      const response = await client.api.github.account.repos.$post({ json });
+      if (!response.ok) {
+        const errorData = await response.json() as { error?: string; code?: string };
+        const err = new Error(errorData.error || "Failed to create repository") as Error & { code?: string };
+        err.code = errorData.code;
+        throw err;
+      }
+      return await response.json();
+    },
+    onSuccess: (result, variables) => {
+      toast.success("GitHub repository created");
+      if (variables.projectId) {
+        queryClient.invalidateQueries({
+          queryKey: GITHUB_INTEGRATION_QUERY_KEYS.repository(variables.projectId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["github-user-repos"] });
+      queryClient.invalidateQueries({ queryKey: ["agent-context"] });
+      void result;
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to create repository");
+    },
+  });
+};
+
 export const useSyncGitHubHistory = () => {
   const queryClient = useQueryClient();
 

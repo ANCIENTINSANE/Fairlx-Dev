@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { signUpWithGithub, signUpWithGoogle } from "@/lib/oauth";
+import { toast } from "sonner";
 
 import { loginSchema } from "../schemas";
 import { useLogin } from "../api/use-login";
@@ -115,7 +116,10 @@ export const SignInCard = ({ returnUrl, byobOrgSlug, error, prefillEmail }: Sign
         <div className="mb-3 flex flex-col gap-3">
           <button
             type="button"
-            onClick={() => signUpWithGoogle(returnUrl)}
+            onClick={async () => {
+              const result = await signUpWithGoogle(returnUrl);
+              if (result?.error) toast.error(result.error);
+            }}
             disabled={isPending}
             className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-transparent px-4 py-2 text-sm font-medium leading-5 text-foreground transition-all duration-200 hover:border-muted-foreground/30 hover:bg-accent active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -124,7 +128,10 @@ export const SignInCard = ({ returnUrl, byobOrgSlug, error, prefillEmail }: Sign
           </button>
           <button
             type="button"
-            onClick={() => signUpWithGithub(returnUrl)}
+            onClick={async () => {
+              const result = await signUpWithGithub(returnUrl);
+              if (result?.error) toast.error(result.error);
+            }}
             disabled={isPending}
             className="flex w-full items-center justify-center gap-3 rounded-lg border border-border bg-transparent px-4 py-2 text-sm font-medium leading-5 text-foreground transition-all duration-200 hover:border-muted-foreground/30 hover:bg-accent active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
           >

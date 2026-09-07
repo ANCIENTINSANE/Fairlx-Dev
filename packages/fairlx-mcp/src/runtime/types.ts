@@ -88,6 +88,7 @@ export interface McpCollections {
   orgMemberDepartments?: string;
   usageEvents?: string;
   wallets?: string;
+  codingSessions?: string;
 }
 
 export interface McpTokenRecord {

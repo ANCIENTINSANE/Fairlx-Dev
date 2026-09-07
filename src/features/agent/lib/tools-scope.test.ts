@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import type { AgentContext } from "../types";
 import { defaultHarnessData } from "./harness";
-import { applyScopeDefaults, executeTool, openaiToolsForTurn, trainingSaveTool } from "./tools";
+import { applyScopeDefaults, executeTool, failedToolResult, openaiToolsForTurn, trainingSaveTool } from "./tools";
 import { DEFAULT_ENABLED_TOOLS } from "../constants";
 
 function context(): AgentContext {
@@ -156,5 +156,51 @@ describe("executeTool destructive guard", () => {
       }),
     );
     expect(result.content).toContain("DESTRUCTIVE_NOT_REQUESTED");
+  });
+});
+
+describe("failedToolResult", () => {
+  it("turns a thrown GitHub 404 into tool content instead of crashing the turn", () => {
+    const result = failedToolResult("run1", "github_read_file", new Error("Path not found in repository: src/middleware.ts on main"));
+    expect(result.content).toContain("Path not found");
+    expect(result.event.type).toBe("error");
+    expect(result.missingCapability).toBeUndefined();
+  });
+});
+
+describe("request_capability", () => {
+  it("does not pause for GitHub when a repo is attached and the user connected GitHub", async () => {
+    const result = await executeTool(
+      "request_capability",
+      { capability: "code.read", reason: "Need to read School Stacker" },
+      ctx({
+        context: {
+          ...context(),
+          githubAccount: { connected: true, login: "ada" },
+        },
+      }),
+    );
+    expect(result.missingCapability).toBeUndefined();
+    expect(result.content).toContain("alreadyConnected");
+    expect(result.event.title).toBe("Already have code.read");
+  });
+
+  it("still pauses for GitHub when no account or repo is connected", async () => {
+    const result = await executeTool(
+      "request_capability",
+      { capability: "code.write", reason: "Create a GitHub repository" },
+      ctx({ context: { ...context(), githubRepos: [] } }),
+    );
+    expect(result.missingCapability).toBe("code.write");
+  });
+
+  it("still pauses for mail when no plugin is connected", async () => {
+    const result = await executeTool(
+      "request_capability",
+      { capability: "email.send", reason: "Send a client update" },
+      ctx(),
+    );
+    expect(result.missingCapability).toBe("email.send");
+    expect(result.event.title).toBe("Need email.send");
   });
 });

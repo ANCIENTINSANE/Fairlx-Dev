@@ -23,7 +23,8 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   terminal: {
-    description: "Record a planned shell command. Never executed on the Fairlx host.",
+    description:
+      "Run a shell command in the bound Azure coding-session sandbox when one exists. Otherwise record the command. Never executed on the Fairlx host.",
     parameters: {
       type: "object",
       properties: {
@@ -31,6 +32,91 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
         cwd: { type: "string" },
       },
       required: ["command"],
+    },
+  },
+  coding_session_start: {
+    description:
+      "Start or resume an Azure coding session for a work item: clone the linked repo in an isolated sandbox and branch fairlx/{key}. Privileged — waits for Accept unless all_access. Never runs git on the Fairlx host.",
+    parameters: {
+      type: "object",
+      properties: {
+        workItemId: { type: "string", description: "Work item id or key (WEB-12)." },
+        repoId: { type: "string" },
+        baseBranch: { type: "string" },
+        exposePort: { type: "number", description: "Optional port to expose for Preview." },
+      },
+      required: ["workItemId"],
+    },
+  },
+  coding_session_exec: {
+    description: "Run a command inside the coding-session Azure sandbox. Never executed on the Fairlx host.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        cwd: { type: "string" },
+        sessionId: { type: "string" },
+      },
+      required: ["command"],
+    },
+  },
+  coding_session_status: {
+    description: "Get coding session status, preview URL, PR, and recent sandbox events.",
+    parameters: {
+      type: "object",
+      properties: { sessionId: { type: "string" }, workItemId: { type: "string" } },
+    },
+  },
+  github_merge_pr: {
+    description: "Merge a GitHub pull request after Accept. Prefer squash.",
+    parameters: {
+      type: "object",
+      properties: {
+        pullNumber: { type: "number" },
+        repoId: { type: "string" },
+        mergeMethod: { type: "string", enum: ["merge", "squash", "rebase"] },
+        commitTitle: { type: "string" },
+      },
+      required: ["pullNumber"],
+    },
+  },
+  github_request_reviewers: {
+    description: "Request reviewers on a GitHub pull request.",
+    parameters: {
+      type: "object",
+      properties: {
+        pullNumber: { type: "number" },
+        reviewers: { type: "array", items: { type: "string" } },
+        teamReviewers: { type: "array", items: { type: "string" } },
+        repoId: { type: "string" },
+      },
+      required: ["pullNumber"],
+    },
+  },
+  github_account_status: {
+    description:
+      "Check whether this Fairlx user has a GitHub account connected (OAuth or PAT). Use before creating a repository.",
+    parameters: { type: "object", properties: {} },
+  },
+  github_list_owners: {
+    description:
+      "List the connected GitHub personal login and organizations. If more than one owner is returned, ask the user where to create the repository before github_create_repo.",
+    parameters: { type: "object", properties: {} },
+  },
+  github_create_repo: {
+    description:
+      "Create a GitHub repository with a README (autoInit) under the user's personal account or an organization, then link it to this Fairlx project. Privileged — waits for Accept. If owners.length > 1 and owner is omitted, returns needsOwnerChoice instead of creating.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Repository name." },
+        owner: { type: "string", description: "GitHub login or organization. Required when the user has orgs." },
+        description: { type: "string" },
+        private: { type: "boolean" },
+        autoInit: { type: "boolean", description: "Create with a README. Defaults true." },
+        linkToProject: { type: "boolean", description: "Link the new repo to this Fairlx project. Defaults true." },
+      },
+      required: ["name"],
     },
   },
   file_search: {
@@ -132,7 +218,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
       properties: {
         agent: {
           type: "string",
-          enum: ["planner", "researcher", "builder", "git", "reviewer", "ops", "security", "workflow"],
+          enum: ["planner", "researcher", "builder", "git", "reviewer", "ops", "security", "workflow", "tester"],
         },
         subject: {
           type: "string",
@@ -240,7 +326,8 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   request_capability: {
-    description: "Request the user connect a missing plugin. Use when mail, GitHub write, or another capability is not configured.",
+    description:
+      "Request the user connect a missing plugin. Use for email.send when mail is not configured, or code.write when GitHub is not connected and the user asked to create or link a repository. Never call this for GitHub if the prompt says the account is connected or a repo is linked.",
     parameters: {
       type: "object",
       properties: {
@@ -276,17 +363,27 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   github_list_files: {
-    description: "List files in a linked GitHub repository.",
+    description:
+      "List files in a linked GitHub repository. Omit repoId to use this project's linked repo. repoId may be a Fairlx id or owner/repo. Use paths from the listing; do not guess.",
     parameters: {
       type: "object",
-      properties: { path: { type: "string" }, repoId: { type: "string" }, branch: { type: "string" } },
+      properties: {
+        path: { type: "string", description: "Directory to list. Omit for the repo root." },
+        repoId: { type: "string", description: "Fairlx repo id or owner/repo. Omit to use the linked project repo." },
+        branch: { type: "string" },
+      },
     },
   },
   github_read_file: {
-    description: "Read a file from a linked GitHub repository.",
+    description:
+      "Read a file from a linked GitHub repository. Path must come from github_list_files. Missing files return an error — continue the audit; do not stop.",
     parameters: {
       type: "object",
-      properties: { path: { type: "string" }, repoId: { type: "string" }, branch: { type: "string" } },
+      properties: {
+        path: { type: "string", description: "Exact file path from a prior github_list_files listing." },
+        repoId: { type: "string", description: "Fairlx repo id or owner/repo. Omit to use the linked project repo." },
+        branch: { type: "string" },
+      },
       required: ["path"],
     },
   },

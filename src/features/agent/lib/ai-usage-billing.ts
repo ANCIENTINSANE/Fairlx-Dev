@@ -31,6 +31,7 @@ export type AgentChatUsageContext = {
     estimatedCompletionChars?: number;
     role?: AgentLlmUsagePayload["role"];
     specialist?: string;
+    subagentId?: string;
     iteration?: number;
 };
 
@@ -63,6 +64,7 @@ export async function resolveAgentChatCharge(params: AgentChatUsageContext): Pro
     return {
         role: params.role === "subagent" ? "subagent" : "orchestrator",
         specialist: params.specialist,
+        subagentId: params.subagentId,
         iteration: params.iteration,
         operationId: params.operationId,
         model: params.target.model,

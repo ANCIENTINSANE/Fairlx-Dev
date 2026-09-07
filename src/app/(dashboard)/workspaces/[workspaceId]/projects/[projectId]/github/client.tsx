@@ -21,15 +21,15 @@ import {
   ConnectRepository,
 } from "@/features/github-integration/components";
 import { useGetRepository } from "@/features/github-integration";
+import { useCanManageGithubIntegration } from "@/features/github-integration/hooks/use-can-manage-github";
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
-import { useProjectPermissions } from "@/hooks/use-project-permissions";
 
 export const GitHubIntegrationClient = () => {
   const projectId = useProjectId();
   const workspaceId = useWorkspaceId();
   const { data: repository, isLoading } = useGetRepository(projectId);
-  const { isProjectAdmin } = useProjectPermissions({ projectId, workspaceId });
-  const canManageGithub = isProjectAdmin;
+  const { canManage } = useCanManageGithubIntegration({ projectId, workspaceId });
+  const canManageGithub = canManage;
 
   const documentationPath = workspaceId
     ? `/workspaces/${workspaceId}/projects/${projectId}/github/documentation`

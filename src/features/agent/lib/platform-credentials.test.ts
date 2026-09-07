@@ -4,6 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import {
   DEEPSEEK_FLASH_MODEL_ID,
+  DEEPSEEK_PRO_MODEL_ID,
   FOUNDRY_GPT_LUNA_MODEL_ID,
   GROK_46_MODEL_ID,
   LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID,
@@ -55,6 +56,8 @@ describe("Platform Grok environment-based visibility", () => {
       expect(models.map((m) => m.id)).toContain(GROK_46_MODEL_ID);
       expect(models.map((m) => m.id)).toContain(FOUNDRY_GPT_LUNA_MODEL_ID);
       expect(models.map((m) => m.id)).toContain(DEEPSEEK_FLASH_MODEL_ID);
+      expect(models.map((m) => m.id)).toContain(DEEPSEEK_PRO_MODEL_ID);
+      expect(models.find((m) => m.id === DEEPSEEK_PRO_MODEL_ID)?.role).toBe("custom");
     });
 
     it("returns Grok credentials in development when API key is set", () => {
@@ -101,8 +104,13 @@ describe("Platform Grok environment-based visibility", () => {
 
       const models = getPlatformModels();
       expect(models.map((m) => m.id)).not.toContain(GROK_46_MODEL_ID);
-      expect(models.map((m) => m.id)).toEqual([FOUNDRY_GPT_LUNA_MODEL_ID, DEEPSEEK_FLASH_MODEL_ID]);
+      expect(models.map((m) => m.id)).toEqual([
+        FOUNDRY_GPT_LUNA_MODEL_ID,
+        DEEPSEEK_FLASH_MODEL_ID,
+        DEEPSEEK_PRO_MODEL_ID,
+      ]);
       expect(models.find((m) => m.id === DEEPSEEK_FLASH_MODEL_ID)?.role).toBe("default");
+      expect(models.find((m) => m.id === DEEPSEEK_PRO_MODEL_ID)?.role).toBe("custom");
     });
 
     it("returns empty Grok API key and null credentials in production", () => {
@@ -187,6 +195,33 @@ describe("Platform Grok environment-based visibility", () => {
       expect(platformFoundryHasKey()).toBe(true);
     });
 
+    it("resolves DeepSeek V4 Pro to the project chat completions API", () => {
+      const config = defaultAiStoredConfig();
+      const target = resolveChatTarget({
+        ...config,
+        mode: "manual",
+        selectedModelId: DEEPSEEK_PRO_MODEL_ID,
+      });
+      expect(target.modelId).toBe(DEEPSEEK_PRO_MODEL_ID);
+      expect(target.model).toBe("DeepSeek-V4-Pro");
+      expect(target.api).toBe("chat_completions");
+      expect(target.url).toBe(
+        "https://projectfairlx-resource.services.ai.azure.com/api/projects/projectfairlx/openai/v1/chat/completions",
+      );
+      expect(target.headers["api-key"]).toBe("test-deepseek-key");
+    });
+
+    it("keeps DeepSeek V4 Flash on the Flash deployment when Pro is selected separately", () => {
+      const config = defaultAiStoredConfig();
+      const flash = resolveChatTarget({
+        ...config,
+        mode: "manual",
+        selectedModelId: DEEPSEEK_FLASH_MODEL_ID,
+      });
+      expect(flash.model).toBe("DeepSeek-V4-Flash");
+      expect(flash.modelId).toBe(DEEPSEEK_FLASH_MODEL_ID);
+    });
+
     it("resolves Foundry GPT-5.6 Luna to the resource Responses API", () => {
       const config = defaultAiStoredConfig();
       const target = resolveChatTarget({
@@ -244,6 +279,16 @@ describe("Platform Grok environment-based visibility", () => {
       vi.stubEnv("ENABLE_PLATFORM_GROK", "false");
       expect(isPlatformGrokEnabled()).toBe(false);
       expect(getPlatformDefaultModelId()).toBe(DEEPSEEK_FLASH_MODEL_ID);
+    });
+  });
+
+  describe("extra Foundry deployments", () => {
+    it("overlays GPT-5.4 when AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT is set", () => {
+      vi.stubEnv("AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT", "gpt-5.4-fairlx");
+      const models = getPlatformModels();
+      const gpt54 = models.find((model) => model.id === "gpt-5.4");
+      expect(gpt54?.modelId).toBe("gpt-5.4-fairlx");
+      expect(gpt54?.isPlatform).toBe(true);
     });
   });
 });

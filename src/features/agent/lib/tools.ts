@@ -44,14 +44,19 @@ import {
 } from "./doc-turn-limits";
 import { fetchPublicPage, searchPublicWeb } from "./web-research";
 import { attachedSearchPayload, extractAttachedFiles } from "./attachments";
-import { catalogForCapability, missingCapabilities } from "../plugins/catalog";
+import { catalogForCapability, hasCapability, missingCapabilities } from "../plugins/catalog";
 import { sendMailViaPlugin } from "../plugins/mail";
 import { githubCapabilityGap, parsePrFiles } from "../plugins/github-helpers";
 import {
+  githubAccountStatus,
   githubCommitFilesAndOpenPr,
+  githubCreateRepo,
+  githubListAccountOwners,
   githubListFiles,
+  githubMergePullRequest,
   githubOpenPullRequest,
   githubReadFile,
+  githubRequestReviewers,
   githubWriteFile,
   resolveGithubRepo,
 } from "../plugins/github";
@@ -59,6 +64,15 @@ import { scanSourceFiles, verifyFindings } from "../plugins/security";
 import { commentMailedWorkItem, publishSecurityFindings } from "./fairlx-side-effects";
 import { createAgentJob, getAgentJob } from "./jobs";
 import { scheduleAgentJob } from "./schedule-job";
+import {
+  findActiveCodingSessionForWorkItem,
+  findCodingSessionByRun,
+  getCodingSession,
+  updateCodingSession,
+  appendSessionEvent,
+} from "./coding-sessions";
+import { startOrResumeCodingSession } from "./coding-session-start";
+import { getSandboxDriver, redactSecrets } from "./sandbox";
 
 export type ToolExecutionContext = {
   runId: string;
@@ -106,7 +120,7 @@ function compactEventPayload(payload: unknown): unknown {
   }
   const source = payload as Record<string, unknown>;
   const slim: Record<string, unknown> = {};
-  for (const key of ["server", "tool", "error", "query", "name", "kind", "command", "cwd", "status"]) {
+  for (const key of ["server", "tool", "error", "query", "name", "kind", "command", "cwd", "status", "sessionId", "sandboxId", "previewUrl", "exitCode"]) {
     if (source[key] != null) slim[key] = source[key];
   }
   return Object.keys(slim).length ? slim : { truncated: true };
@@ -127,6 +141,14 @@ function event(
     payload: compactEventPayload(payload),
     createdAt: new Date().toISOString(),
     runId,
+  };
+}
+
+export function failedToolResult(runId: string, name: string, error: unknown): ToolExecutionResult {
+  const message = error instanceof Error ? error.message : String(error || "Tool failed");
+  return {
+    content: JSON.stringify({ error: message }),
+    event: event(runId, "error", `${name} failed`, message, { error: message }),
   };
 }
 
@@ -310,12 +332,40 @@ export async function executeTool(
     }
     case "terminal": {
       const command = asString(parsed.command || parsed.cmd || parsed.input);
-      const cwd = asString(parsed.cwd) || ".";
+      const cwd = asString(parsed.cwd) || "/workspace";
+      if (ctx.databases && command) {
+        const session = await findCodingSessionByRun(ctx.databases, runId);
+        if (session?.sandboxId) {
+          try {
+            const result = await getSandboxDriver().exec(session.sandboxId, command, cwd);
+            const payload = {
+              command: redactSecrets(command),
+              cwd,
+              status: result.exitCode === 0 ? "ok" : "failed",
+              stdout: result.stdout.slice(0, 8000),
+              stderr: result.stderr.slice(0, 2000),
+              exitCode: result.exitCode,
+              sandboxId: session.sandboxId,
+              sessionId: session.id,
+            };
+            return {
+              content: JSON.stringify(payload),
+              event: event(runId, "terminal", command, result.stdout.slice(0, 400) || result.stderr.slice(0, 200), payload),
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Sandbox exec failed";
+            return {
+              content: JSON.stringify({ error: message, command: redactSecrets(command) }),
+              event: event(runId, "error", "Sandbox exec failed", message),
+            };
+          }
+        }
+      }
       const payload = {
         command,
         cwd,
         status: "recorded",
-        note: "sandbox: command recorded, not executed on host",
+        note: "No coding session sandbox is bound to this run. Call coding_session_start first. Never executed on the Fairlx host.",
       };
       return {
         content: JSON.stringify(payload),
@@ -323,7 +373,7 @@ export async function executeTool(
           runId,
           "terminal",
           command || "Recorded terminal command",
-          "sandbox: command recorded, not executed on host",
+          payload.note,
           payload,
         ),
       };
@@ -817,17 +867,32 @@ export async function executeTool(
     }
     case "request_capability": {
       const capability = (asString(parsed.capability) || "email.send") as AgentCapability;
-      const catalog = catalogForCapability(capability);
+      const plugins = ctx.plugins ?? harness.plugins;
+      const granted = hasCapability(plugins, context, capability);
+      const catalog = granted ? [] : catalogForCapability(capability);
       const payload = {
         capability,
+        granted,
+        alreadyConnected: granted,
         reason: asString(parsed.reason),
         catalogIds: catalog.map((item) => item.id),
-        missing: missingCapabilities(`${capability} ${asString(parsed.reason)}`, ctx.plugins ?? harness.plugins, context),
+        missing: granted
+          ? []
+          : missingCapabilities(`${capability} ${asString(parsed.reason)}`, plugins, context),
+        instruction: granted
+          ? `Capability ${capability} is already available. Do not ask the user to reconnect. Call github_list_files, github_read_file, github_write_file, github_open_pr, or security_review as needed.`
+          : undefined,
       };
       return {
         content: JSON.stringify(payload),
-        event: event(runId, "request_capability", `Need ${capability}`, payload.reason, payload),
-        missingCapability: capability,
+        event: event(
+          runId,
+          "request_capability",
+          granted ? `Already have ${capability}` : `Need ${capability}`,
+          payload.reason,
+          payload,
+        ),
+        missingCapability: granted ? undefined : capability,
       };
     }
     case "persist_memory": {
@@ -905,37 +970,159 @@ export async function executeTool(
           : undefined,
       };
     }
+    case "github_account_status": {
+      try {
+        const result = await githubAccountStatus({
+          databases: ctx.databases,
+          context,
+          userId: ctx.userId,
+          projectId: ctx.projectId,
+        });
+        return {
+          content: JSON.stringify(result),
+          event: event(runId, "github_account_status", result.connected ? "GitHub account connected" : "GitHub account missing", undefined, result),
+        };
+      } catch (error) {
+        const payload = { error: error instanceof Error ? error.message : "GitHub account status failed" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "GitHub account status failed", payload.error, payload),
+          missingCapability: githubCapabilityGap(payload),
+        };
+      }
+    }
+    case "github_list_owners": {
+      try {
+        const result = await githubListAccountOwners({
+          databases: ctx.databases,
+          userId: ctx.userId,
+          projectId: ctx.projectId,
+        });
+        return {
+          content: JSON.stringify(result),
+          event: event(
+            runId,
+            "error" in result ? "error" : "github_list_owners",
+            "error" in result ? "GitHub owners failed" : "Listed GitHub owners",
+            "error" in result ? result.error : undefined,
+            result,
+          ),
+          missingCapability: githubCapabilityGap(result),
+        };
+      } catch (error) {
+        const payload = { error: error instanceof Error ? error.message : "Failed to list GitHub owners" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "GitHub owners failed", payload.error, payload),
+          missingCapability: githubCapabilityGap(payload),
+        };
+      }
+    }
+    case "github_create_repo": {
+      try {
+        const result = await githubCreateRepo({
+          databases: ctx.databases,
+          userId: ctx.userId,
+          projectId: ctx.projectId,
+          name: asString(parsed.name),
+          owner: asString(parsed.owner) || undefined,
+          description: asString(parsed.description) || undefined,
+          private: Boolean(parsed.private),
+          autoInit: parsed.autoInit !== false,
+          linkToProject: parsed.linkToProject !== false,
+        });
+        const failed = "error" in result && !("fullName" in result);
+        return {
+          content: JSON.stringify(result),
+          event: event(
+            runId,
+            failed ? "error" : "github_create_repo",
+            failed ? "Create GitHub repository failed" : `Created ${"fullName" in result ? result.fullName : asString(parsed.name)}`,
+            failed && "error" in result ? result.error : undefined,
+            result,
+          ),
+          missingCapability: githubCapabilityGap(result),
+        };
+      } catch (error) {
+        const payload = { error: error instanceof Error ? error.message : "Create GitHub repository failed" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "Create GitHub repository failed", payload.error, payload),
+          missingCapability: githubCapabilityGap(payload),
+        };
+      }
+    }
     case "github_list_files": {
-      const result = await githubListFiles({
-        databases: ctx.databases,
-        context,
-        plugins: ctx.plugins ?? harness.plugins,
-        path: asString(parsed.path) || undefined,
-        repoId: asString(parsed.repoId) || undefined,
-        projectId: ctx.projectId,
-      });
-      return {
-        content: JSON.stringify(result),
-        event: event(runId, "github_list_files", "Listed repo files", undefined, result),
-        missingCapability: githubCapabilityGap(result),
-      };
+      try {
+        const result = await githubListFiles({
+          databases: ctx.databases,
+          context,
+          plugins: ctx.plugins ?? harness.plugins,
+          path: asString(parsed.path) || undefined,
+          repoId: asString(parsed.repoId) || undefined,
+          projectId: ctx.projectId,
+          branch: asString(parsed.branch) || undefined,
+        });
+        const failed = "error" in result;
+        return {
+          content: JSON.stringify(result),
+          event: event(
+            runId,
+            failed ? "error" : "github_list_files",
+            failed ? "List repo files failed" : "Listed repo files",
+            failed ? result.error : undefined,
+            result,
+          ),
+          missingCapability: githubCapabilityGap(result),
+        };
+      } catch (error) {
+        const payload = {
+          error: error instanceof Error ? error.message : "Failed to list files",
+          path: asString(parsed.path) || "/",
+          missing: true,
+        };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "List repo files failed", payload.error, payload),
+        };
+      }
     }
     case "github_read_file": {
       const path = asString(parsed.path);
-      const result = await githubReadFile({
-        databases: ctx.databases,
-        context,
-        plugins: ctx.plugins ?? harness.plugins,
-        path,
-        repoId: asString(parsed.repoId) || undefined,
-        projectId: ctx.projectId,
-        branch: asString(parsed.branch) || undefined,
-      });
-      return {
-        content: JSON.stringify(result),
-        event: event(runId, "github_read_file", path || "Read file", undefined, { path }),
-        missingCapability: githubCapabilityGap(result),
-      };
+      try {
+        const result = await githubReadFile({
+          databases: ctx.databases,
+          context,
+          plugins: ctx.plugins ?? harness.plugins,
+          path,
+          repoId: asString(parsed.repoId) || undefined,
+          projectId: ctx.projectId,
+          branch: asString(parsed.branch) || undefined,
+        });
+        const failed = "error" in result;
+        return {
+          content: JSON.stringify(result),
+          event: event(
+            runId,
+            failed ? "error" : "github_read_file",
+            failed ? path || "Read file failed" : path || "Read file",
+            failed ? result.error : undefined,
+            { path, ...result },
+          ),
+          missingCapability: githubCapabilityGap(result),
+        };
+      } catch (error) {
+        const payload = {
+          error: error instanceof Error ? error.message : "Failed to read file",
+          path,
+          missing: true,
+          hint: "List the parent folder with github_list_files and only read paths from that listing.",
+        };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", path || "Read file failed", payload.error, payload),
+        };
+      }
     }
     case "github_write_file": {
       try {
@@ -1036,6 +1223,17 @@ export async function executeTool(
               repoId,
               projectId: ctx.projectId,
             });
+        if (ctx.databases && !("error" in result) && "html_url" in result) {
+          const session = await findCodingSessionByRun(ctx.databases, runId);
+          if (session) {
+            await updateCodingSession(ctx.databases, session.id, {
+              status: "awaiting_review",
+              prNumber: typeof result.number === "number" ? result.number : session.prNumber,
+              prUrl: typeof result.html_url === "string" ? result.html_url : session.prUrl,
+              events: appendSessionEvent(session.events, "pr", title, result),
+            });
+          }
+        }
         return {
           content: JSON.stringify(result),
           event: event(runId, "github_open_pr", title || "Opened pull request", undefined, result),
@@ -1140,6 +1338,226 @@ export async function executeTool(
         content: JSON.stringify(payload),
         event: event(runId, "agent_job_status", job ? `${job.kind} ${job.status}` : "Job not found", undefined, payload),
       };
+    }
+    case "coding_session_start": {
+      if (!ctx.databases) {
+        return {
+          content: JSON.stringify({ error: "Coding sessions are unavailable in this turn." }),
+          event: event(runId, "error", "Coding session unavailable"),
+        };
+      }
+      const workItemId = asString(parsed.workItemId);
+      const plugins = ctx.plugins ?? harness.plugins;
+      const job = await createAgentJob(ctx.databases, {
+        userId: ctx.userId,
+        runId,
+        kind: "coding_session",
+        payload: {
+          workItemId,
+          repoId: asString(parsed.repoId) || undefined,
+          projectId: ctx.projectId,
+          baseBranch: asString(parsed.baseBranch) || undefined,
+          exposePort: typeof parsed.exposePort === "number" ? parsed.exposePort : undefined,
+        },
+      });
+      if (job) {
+        scheduleAgentJob({
+          databases: ctx.databases,
+          userId: ctx.userId,
+          jobId: job.id,
+          context,
+          plugins,
+          mcp,
+          mcpAuth: ctx.mcpAuth,
+          harness,
+          projectId: ctx.projectId,
+          workspaceId: ctx.workspaceId,
+        });
+        const payload = { jobId: job.id, status: job.status, workItemId };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "coding_session_start", "Queued coding session", workItemId, payload),
+        };
+      }
+      try {
+        const result = await startOrResumeCodingSession({
+          databases: ctx.databases,
+          userId: ctx.userId,
+          runId,
+          context,
+          harness,
+          plugins,
+          workItemId,
+          projectId: ctx.projectId,
+          repoId: asString(parsed.repoId) || undefined,
+          baseBranch: asString(parsed.baseBranch) || undefined,
+          exposePort: typeof parsed.exposePort === "number" ? parsed.exposePort : undefined,
+        });
+        const failed = "error" in result;
+        return {
+          content: JSON.stringify(result),
+          event: event(
+            runId,
+            failed ? "error" : "coding_session_start",
+            failed ? "Coding session failed" : "Coding session started",
+            workItemId,
+            result,
+          ),
+          missingCapability: githubCapabilityGap(result),
+        };
+      } catch (error) {
+        const payload = { error: error instanceof Error ? error.message : "Coding session failed" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "Coding session failed", payload.error, payload),
+        };
+      }
+    }
+    case "coding_session_exec": {
+      if (!ctx.databases) {
+        return {
+          content: JSON.stringify({ error: "Coding sessions are unavailable in this turn." }),
+          event: event(runId, "error", "Sandbox exec unavailable"),
+        };
+      }
+      const command = asString(parsed.command);
+      const session =
+        (asString(parsed.sessionId) ? await getCodingSession(ctx.databases, asString(parsed.sessionId)) : null) ??
+        (await findCodingSessionByRun(ctx.databases, runId));
+      if (!session?.sandboxId) {
+        const payload = { error: "No sandbox is bound. Call coding_session_start first." };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "No coding session sandbox", payload.error, payload),
+        };
+      }
+      try {
+        const result = await getSandboxDriver().exec(session.sandboxId, command, asString(parsed.cwd) || "/workspace");
+        await updateCodingSession(ctx.databases, session.id, {
+          events: appendSessionEvent(session.events, "exec", redactSecrets(command), {
+            exitCode: result.exitCode,
+          }),
+        });
+        const payload = {
+          sessionId: session.id,
+          command: redactSecrets(command),
+          stdout: result.stdout.slice(0, 8000),
+          stderr: result.stderr.slice(0, 2000),
+          exitCode: result.exitCode,
+        };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "coding_session_exec", command, result.stdout.slice(0, 400), payload),
+        };
+      } catch (error) {
+        const payload = { error: error instanceof Error ? error.message : "Sandbox exec failed" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "Sandbox exec failed", payload.error, payload),
+        };
+      }
+    }
+    case "coding_session_status": {
+      if (!ctx.databases) {
+        return {
+          content: JSON.stringify({ error: "Coding sessions are unavailable in this turn." }),
+          event: event(runId, "error", "Session status unavailable"),
+        };
+      }
+      const session =
+        (asString(parsed.sessionId) ? await getCodingSession(ctx.databases, asString(parsed.sessionId)) : null) ??
+        (await findCodingSessionByRun(ctx.databases, runId)) ??
+        (asString(parsed.workItemId)
+          ? await findActiveCodingSessionForWorkItem(ctx.databases, asString(parsed.workItemId))
+          : null);
+      const payload = session ?? { error: "Session not found" };
+      return {
+        content: JSON.stringify(payload),
+        event: event(
+          runId,
+          "coding_session_status",
+          session ? `${session.status}${session.previewUrl ? ` · preview` : ""}` : "Session not found",
+          session?.headBranch,
+          session
+            ? {
+                sessionId: session.id,
+                status: session.status,
+                previewUrl: session.previewUrl,
+                prUrl: session.prUrl,
+              }
+            : payload,
+        ),
+      };
+    }
+    case "github_merge_pr": {
+      try {
+        const result = await githubMergePullRequest({
+          databases: ctx.databases,
+          context,
+          plugins: ctx.plugins ?? harness.plugins,
+          pullNumber: Number(parsed.pullNumber),
+          repoId: asString(parsed.repoId) || undefined,
+          projectId: ctx.projectId,
+          commitTitle: asString(parsed.commitTitle) || undefined,
+          mergeMethod:
+            parsed.mergeMethod === "merge" || parsed.mergeMethod === "rebase" || parsed.mergeMethod === "squash"
+              ? parsed.mergeMethod
+              : "squash",
+        });
+        if (ctx.databases && !("error" in result)) {
+          const session = await findCodingSessionByRun(ctx.databases, runId);
+          if (session) {
+            await updateCodingSession(ctx.databases, session.id, {
+              status: "merged",
+              events: appendSessionEvent(session.events, "merged", `Merged PR #${parsed.pullNumber}`),
+            });
+          }
+        }
+        const failed = "error" in result;
+        return {
+          content: JSON.stringify(result),
+          event: event(
+            runId,
+            failed ? "error" : "github_merge_pr",
+            failed ? "Merge failed" : `Merged PR #${parsed.pullNumber}`,
+            undefined,
+            result,
+          ),
+          missingCapability: githubCapabilityGap(result),
+        };
+      } catch (error) {
+        const payload = { error: error instanceof Error ? error.message : "Merge failed" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "Merge failed", payload.error, payload),
+        };
+      }
+    }
+    case "github_request_reviewers": {
+      try {
+        const reviewers = Array.isArray(parsed.reviewers)
+          ? parsed.reviewers.map((item) => String(item)).filter(Boolean)
+          : [];
+        const result = await githubRequestReviewers({
+          databases: ctx.databases,
+          context,
+          plugins: ctx.plugins ?? harness.plugins,
+          pullNumber: Number(parsed.pullNumber),
+          reviewers,
+          repoId: asString(parsed.repoId) || undefined,
+          projectId: ctx.projectId,
+        });
+        return {
+          content: JSON.stringify(result),
+          event: event(runId, "github_request_reviewers", `Requested reviewers on PR #${parsed.pullNumber}`, undefined, result),
+        };
+      } catch (error) {
+        const payload = { error: error instanceof Error ? error.message : "Request reviewers failed" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "error", "Request reviewers failed", payload.error, payload),
+        };
+      }
     }
     default: {
       const payload = { name, args: parsed };

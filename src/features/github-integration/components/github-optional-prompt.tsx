@@ -6,8 +6,8 @@ import { Github } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useProjectPermissions } from "@/hooks/use-project-permissions";
 import { useGetRepository } from "../api/use-github";
+import { useCanManageGithubIntegration } from "../hooks/use-can-manage-github";
 import { ConnectRepository } from "./connect-repository";
 
 const storageKey = (projectId: string) => `fairlx:skip-github:${projectId}`;
@@ -38,12 +38,11 @@ export function GitHubAddOneButton({
   workspaceId: string;
   className?: string;
 }) {
-  const { isProjectAdmin, isLoading } = useProjectPermissions({ projectId, workspaceId });
-  const settingsHref = `/workspaces/${workspaceId}/projects/${projectId}/settings?tab=integrations`;
+  const { canManage, isLoading } = useCanManageGithubIntegration({ projectId, workspaceId });
 
   if (isLoading) return null;
 
-  if (isProjectAdmin) {
+  if (canManage) {
     return (
       <ConnectRepository
         projectId={projectId}
@@ -58,9 +57,9 @@ export function GitHubAddOneButton({
   }
 
   return (
-    <Button type="button" size="sm" className={cn("h-8 px-3 text-xs font-semibold", className)} asChild>
-      <Link href={settingsHref}>Add one</Link>
-    </Button>
+    <span className={cn("text-[11px] text-muted-foreground", className)}>
+      Ask a workspace admin or someone with project settings access to attach a repository.
+    </span>
   );
 }
 
@@ -76,7 +75,14 @@ export function GitHubOptionalPrompt({
   const { data: repository, isLoading } = useGetRepository(projectId);
   const { skipped, skip } = useSkipGithubPrompt(projectId);
 
-  if (!projectId || isLoading || repository || skipped) return null;
+  const isLinked =
+    repository &&
+    repository.status !== "authenticating" &&
+    repository.githubUrl !== "pending" &&
+    repository.owner !== "pending" &&
+    repository.repositoryName !== "pending";
+
+  if (!projectId || isLoading || isLinked || skipped) return null;
 
   const docsHref = `/workspaces/${workspaceId}/projects/${projectId}/docs`;
 

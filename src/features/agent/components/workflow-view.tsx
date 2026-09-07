@@ -45,7 +45,7 @@ import {
   useStopAgentRun,
 } from "../api/use-agent-runs";
 import { useAgentMutationSync } from "../hooks/use-agent-mutation-sync";
-import { selectedModelLabel } from "../lib/client-defaults";
+import { crewModelHints, selectedModelLabel } from "../lib/client-defaults";
 import { clockTime, relativeTime } from "../lib/agent-ui";
 import { extractBoardProject, withWorkspaceFallback } from "../lib/project-launch";
 import { aggregateLlmUsage, formatCompactUsageLine, looksLikeLlmUsageEvent } from "../lib/run-usage";
@@ -54,6 +54,9 @@ import { AgentChatThread } from "./agent-chat-thread";
 import { AgentCommandInput } from "./agent-command-input";
 import { AgentCrewPanel } from "./agent-crew-panel";
 import { GitHubOptionalPrompt } from "@/features/github-integration/components";
+import { DiffViewer, type CheckRun, type DiffFile } from "./diff-viewer";
+import { CodingSessionPanel } from "./coding-session-panel";
+import { useCommentCodingSession, useGetCodingSession, useMergeCodingSession, useStartCodingSession } from "../api/use-coding-session";
 
 
 function FloatingComposer({ children }: { children: React.ReactNode }) {
@@ -205,6 +208,18 @@ function WorkflowSidebar({
     }
     return list;
   }, [workspaceProjects, project]);
+  const { data: sessionPayload } = useGetCodingSession({
+    runId: run.id,
+    projectId: project?.id,
+  });
+  const startSession = useStartCodingSession();
+  const commentSession = useCommentCodingSession();
+  const mergeSession = useMergeCodingSession();
+  const session = sessionPayload?.session;
+  const diffFiles = (Array.isArray(sessionPayload?.diff?.files) ? sessionPayload.diff.files : []) as DiffFile[];
+  const checks = (Array.isArray(sessionPayload?.diff?.checks) ? sessionPayload.diff.checks : []) as CheckRun[];
+  const walkthrough = typeof sessionPayload?.walkthrough === "string" ? sessionPayload.walkthrough : undefined;
+  const workItemId = context?.workItems.find((item) => item.projectId === project?.id)?.id;
   const staging = harness?.gitStaging?.items ?? [];
   const live = events
     .filter((event) => event.type !== "context_meter" && !looksLikeLlmUsageEvent(event))
@@ -216,8 +231,9 @@ function WorkflowSidebar({
     setActivityOpen(activityLive);
   }, [activityLive]);
   const usage = aggregateLlmUsage(events);
+  const models = crewModelHints(ai, run);
   const repo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
-  const terminals = events.filter((event) => event.type === "terminal");
+  const terminals = events.filter((event) => event.type === "terminal" || event.type === "coding_session_exec");
   const githubUrl = repo?.githubUrl || (repo?.owner && repo.repositoryName ? `https://github.com/${repo.owner}/${repo.repositoryName}` : "");
   const prLinks = events
     .filter((event) => event.type === "github_open_pr" || event.type === "github_write_file")
@@ -232,7 +248,7 @@ function WorkflowSidebar({
     .filter((item) => item.url);
 
   return (
-    <aside className="hidden lg:flex w-80 bg-sidebar border-l border-sidebar-border flex-col flex-shrink-0 h-full">
+    <aside className="hidden lg:flex w-96 bg-sidebar border-l border-sidebar-border flex-col flex-shrink-0 h-full">
       {/* Tabs Header at top of Right Sidebar */}
       <div className="flex border-b border-sidebar-border bg-sidebar shrink-0">
         {(
@@ -270,7 +286,15 @@ function WorkflowSidebar({
                 selectedProject={project}
                 workspaceId={workspace?.id}
               />
-              <AgentCrewPanel run={run} />
+              <AgentCrewPanel run={run} ai={ai} />
+              <CodingSessionPanel
+                session={session}
+                onStart={
+                  workItemId
+                    ? () => startSession.mutate({ workItemId, projectId: project?.id, runId: run.id })
+                    : undefined
+                }
+              />
               {project && !repo && project.workspaceId ? (
                 <GitHubOptionalPrompt projectId={project.id} workspaceId={project.workspaceId} compact />
               ) : null}
@@ -359,9 +383,17 @@ function WorkflowSidebar({
                   <span className="text-muted-foreground">Model</span>
                   <span className="text-foreground font-medium truncate">{selectedModelLabel(ai)}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground">Mode</span>
                   <span className="text-foreground font-medium capitalize">{run.mode}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Orchestrator</span>
+                  <span className="text-foreground font-medium truncate">{models.orchestratorModelName}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Workers</span>
+                  <span className="text-foreground font-medium truncate">{models.workerModelName}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Steps</span>
@@ -386,6 +418,18 @@ function WorkflowSidebar({
 
         {tab === "changes" ? (
           <div className="space-y-3">
+            {session ? (
+              <DiffViewer
+                files={diffFiles}
+                checks={checks}
+                walkthrough={walkthrough}
+                onComment={(path, line, body) =>
+                  commentSession.mutate({ sessionId: session.id, path, line, body })
+                }
+                onMerge={session.prNumber ? () => mergeSession.mutate(session.id) : undefined}
+                merging={mergeSession.isPending}
+              />
+            ) : null}
             {prLinks.length ? (
               <div className="space-y-2">
                 {prLinks.map((item) => (
@@ -402,11 +446,11 @@ function WorkflowSidebar({
                 ))}
               </div>
             ) : null}
-            {staging.length === 0 && !prLinks.length ? (
+            {staging.length === 0 && !prLinks.length && !session ? (
               <p className="text-xs text-muted-foreground px-1">
                 {repo
                   ? "No pull requests yet. Accept a GitHub write to open a real PR."
-                  : "Link a GitHub repo or connect a PAT to edit code."}
+                  : "Connect your GitHub account to edit code."}
               </p>
             ) : (
               staging.map((item) => (
@@ -441,7 +485,9 @@ function WorkflowSidebar({
           <div className="space-y-2">
             {terminals.length === 0 ? (
               <p className="text-xs text-muted-foreground px-1">
-                No recorded commands. The agent logs planned terminal commands here.
+                {session?.sandboxId
+                  ? "No sandbox output yet. The agent’s terminal and coding_session_exec results appear here."
+                  : "No recorded commands. Start a coding session so commands run in Azure, not on the Fairlx host."}
               </p>
             ) : (
               terminals.map((event) => (
@@ -457,6 +503,13 @@ function WorkflowSidebar({
 
         {tab === "preview" ? (
           <div className="space-y-3">
+            {session?.previewUrl ? (
+              <iframe
+                title="Coding session preview"
+                src={session.previewUrl}
+                className="w-full min-h-[28rem] rounded-lg border border-sidebar-border bg-background"
+              />
+            ) : null}
             {githubUrl ? (
               <>
                 <p className="text-xs text-muted-foreground px-1">
@@ -515,6 +568,7 @@ function WorkflowViewInner() {
   const deleteRun = useDeleteAgentRun();
   const patchRun = usePatchAgentRun();
   const { data: harness } = useGetAgentHarness();
+  const { data: ai } = useGetAgentAiConfig();
   const updateHarness = useUpdateAgentHarness();
   const queryClient = useQueryClient();
   const stickToBottomRef = useRef(true);

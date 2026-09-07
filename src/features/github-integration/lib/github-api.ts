@@ -1,5 +1,103 @@
 import { GITHUB_API_BASE } from "../constants";
 
+/** Decode a GitHub path once so `%28portal%29` becomes `(portal)` and we never double-encode. */
+export function decodeGitHubContentsPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^\.\//, "").trim();
+  if (!normalized) return "";
+  return normalized
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+}
+
+/**
+ * Encode one GitHub Contents URL segment at a time.
+ * Leave `()` as-is (Next.js route groups). Encode `[]` and spaces.
+ */
+export function encodeGitHubContentsPath(path: string): string {
+  const decoded = decodeGitHubContentsPath(path);
+  if (!decoded) return "";
+  return decoded.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+}
+
+type GitTreeEntry = {
+  path: string;
+  type?: string;
+  sha?: string;
+  size?: number;
+};
+
+export function listGitTreeChildren(tree: GitTreeEntry[], dirPath: string): Array<{
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  size: number;
+  sha: string;
+}> {
+  const prefix = dirPath ? `${dirPath.replace(/\/+$/, "")}/` : "";
+  const seen = new Map<string, { name: string; path: string; type: "file" | "dir"; size: number; sha: string }>();
+  for (const entry of tree) {
+    const entryPath = entry.path || "";
+    if (prefix && !entryPath.startsWith(prefix)) continue;
+    const rest = prefix ? entryPath.slice(prefix.length) : entryPath;
+    if (!rest) continue;
+    const slash = rest.indexOf("/");
+    const name = slash === -1 ? rest : rest.slice(0, slash);
+    const childPath = `${prefix}${name}`;
+    const isDirectFile = slash === -1 && entry.type === "blob";
+    const current = seen.get(name);
+    if (isDirectFile) {
+      seen.set(name, {
+        name,
+        path: childPath,
+        type: "file",
+        size: entry.size ?? 0,
+        sha: entry.sha || "",
+      });
+    } else if (!current || current.type !== "file") {
+      seen.set(name, {
+        name,
+        path: childPath,
+        type: "dir",
+        size: 0,
+        sha: entry.sha || current?.sha || "",
+      });
+    }
+  }
+  return [...seen.values()];
+}
+
+const gitTreeCache = new Map<string, { at: number; tree: GitTreeEntry[] }>();
+const gitTreeInflight = new Map<string, Promise<GitTreeEntry[]>>();
+const GIT_TREE_TTL_MS = 60_000;
+
+function stubContent(item: {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  size: number;
+  sha: string;
+}): GitHubFileContent {
+  return {
+    name: item.name,
+    path: item.path,
+    sha: item.sha,
+    size: item.size,
+    url: "",
+    html_url: "",
+    git_url: "",
+    download_url: null,
+    type: item.type,
+  };
+}
+
 interface GitHubFileContent {
   name: string;
   path: string;
@@ -49,6 +147,10 @@ export class GitHubAPI {
     this.token = token || process.env.GH_PERSONAL_TOKEN || "";
   }
 
+  getAccessToken(): string {
+    return this.token;
+  }
+
   private getHeaders() {
     const headers: Record<string, string> = {
       Accept: "application/vnd.github.v3+json",
@@ -89,6 +191,70 @@ export class GitHubAPI {
       }
       throw error;
     }
+  }
+
+  private async loadGitTree(owner: string, repo: string, branch: string): Promise<GitTreeEntry[]> {
+    const key = `${owner}/${repo}:${branch}`;
+    const cached = gitTreeCache.get(key);
+    if (cached && Date.now() - cached.at < GIT_TREE_TTL_MS) return cached.tree;
+    const inflight = gitTreeInflight.get(key);
+    if (inflight) return inflight;
+    const pending = (async () => {
+      const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+      const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+      if (!response.ok) return [];
+      const data = (await response.json()) as { tree?: GitTreeEntry[] };
+      const tree = Array.isArray(data.tree) ? data.tree : [];
+      gitTreeCache.set(key, { at: Date.now(), tree });
+      return tree;
+    })().finally(() => {
+      gitTreeInflight.delete(key);
+    });
+    gitTreeInflight.set(key, pending);
+    return pending;
+  }
+
+  private async contentsFromGitTree(
+    owner: string,
+    repo: string,
+    path: string,
+    branch: string,
+  ): Promise<GitHubFileContent[] | null> {
+    const tree = await this.loadGitTree(owner, repo, branch);
+    if (!tree.length) return null;
+    const decoded = decodeGitHubContentsPath(path);
+    const blob = tree.find((entry) => entry.path === decoded && entry.type === "blob");
+    if (blob) {
+      return [
+        stubContent({
+          name: blob.path.split("/").pop() || blob.path,
+          path: blob.path,
+          type: "file",
+          size: blob.size ?? 0,
+          sha: blob.sha || "",
+        }),
+      ];
+    }
+    const children = listGitTreeChildren(tree, decoded);
+    if (children.length) return children.map(stubContent);
+    if (tree.some((entry) => entry.path === decoded && entry.type === "tree")) return [];
+    return null;
+  }
+
+  private async readBlob(owner: string, repo: string, sha: string): Promise<string> {
+    const response = await this.fetchWithRetry(
+      `${GITHUB_API_BASE}/repos/${owner}/${repo}/git/blobs/${sha}`,
+      { headers: this.getHeaders() },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to read git blob ${sha}: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { content?: string; encoding?: string };
+    if (!data.content) throw new Error(`Content not available for blob ${sha}`);
+    if ((data.encoding || "base64") === "base64") {
+      return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
+    }
+    return data.content;
   }
 
   /**
@@ -206,23 +372,26 @@ export class GitHubAPI {
     path: string = "",
     branch: string = "main"
   ): Promise<GitHubFileContent[]> {
-    const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
+    const decoded = decodeGitHubContentsPath(path);
+    const encodedPath = encodeGitHubContentsPath(decoded);
+    const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`;
     
     const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
 
-    if (!response.ok) {
-      if (response.status === 404) {
-        // Try with master branch
-        if (branch === "main") {
-          return this.getContents(owner, repo, path, "master");
-        }
-        throw new Error("Path not found in repository");
-      }
-      throw new Error(`Failed to fetch contents: ${response.statusText}`);
+    if (response.ok) {
+      const data = await response.json();
+      return Array.isArray(data) ? data : [data];
     }
 
-    const data = await response.json();
-    return Array.isArray(data) ? data : [data];
+    if (response.status === 404) {
+      if (branch === "main" && !decoded) {
+        return this.getContents(owner, repo, path, "master");
+      }
+      const fromTree = await this.contentsFromGitTree(owner, repo, decoded, branch);
+      if (fromTree) return fromTree;
+      throw new Error(`Path not found in repository: ${decoded || "/"} on ${branch}`);
+    }
+    throw new Error(`Failed to fetch contents: ${response.statusText}`);
   }
 
   /**
@@ -234,19 +403,26 @@ export class GitHubAPI {
     path: string,
     branch: string = "main"
   ): Promise<string> {
-    const contents = await this.getContents(owner, repo, path, branch);
+    const decoded = decodeGitHubContentsPath(path);
+    const contents = await this.getContents(owner, repo, decoded, branch);
     const file = contents[0];
 
     if (!file || file.type !== "file") {
-      throw new Error(`Invalid file type for ${path}`);
+      throw new Error(`Invalid file type for ${decoded}`);
     }
 
-    // If content is present, use it
     if (file.content) {
       return Buffer.from(file.content, "base64").toString("utf-8");
     }
 
-    // If content is missing (e.g. for files > 1MB), use download_url
+    if (file.sha) {
+      try {
+        return await this.readBlob(owner, repo, file.sha);
+      } catch {
+        // Fall through to download_url when the blob endpoint is unavailable.
+      }
+    }
+
     if (file.download_url) {
       const response = await this.fetchWithRetry(file.download_url, {});
       if (!response.ok) {
@@ -255,7 +431,7 @@ export class GitHubAPI {
       return await response.text();
     }
 
-    throw new Error(`Content not available for ${path}`);
+    throw new Error(`Content not available for ${decoded}`);
   }
 
   /**
@@ -825,10 +1001,66 @@ export class GitHubAPI {
     owner: { login: string };
     default_branch: string;
   }>> {
-    const url = `${GITHUB_API_BASE}/user/repos?per_page=100&sort=updated`;
+    const url = `${GITHUB_API_BASE}/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`;
     const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
     if (!response.ok) {
       throw new Error(`Failed to list repositories: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getAuthenticatedUser(): Promise<{ login: string; id: number; type?: string }> {
+    const url = `${GITHUB_API_BASE}/user`;
+    const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+    if (!response.ok) {
+      throw new Error(`Failed to load GitHub user: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async listUserOrganizations(): Promise<Array<{ login: string; id: number; description?: string | null }>> {
+    const url = `${GITHUB_API_BASE}/user/orgs?per_page=100`;
+    const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+    if (!response.ok) {
+      throw new Error(`Failed to list GitHub organizations: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async createRepository(params: {
+    name: string;
+    owner?: string;
+    description?: string;
+    private?: boolean;
+    autoInit?: boolean;
+  }): Promise<{
+    name: string;
+    full_name: string;
+    html_url: string;
+    private: boolean;
+    default_branch: string;
+    owner: { login: string };
+  }> {
+    const login = (await this.getAuthenticatedUser()).login;
+    const owner = (params.owner || "").trim();
+    const isOrg = owner && owner.toLowerCase() !== login.toLowerCase();
+    const url = isOrg ? `${GITHUB_API_BASE}/orgs/${owner}/repos` : `${GITHUB_API_BASE}/user/repos`;
+    const response = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        ...this.getHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: params.name,
+        description: params.description || undefined,
+        private: Boolean(params.private),
+        auto_init: params.autoInit !== false,
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to create repository: ${response.statusText}`);
     }
     return response.json();
   }
@@ -979,6 +1211,203 @@ export class GitHubAPI {
     }
     const json = (await response.json()) as { number: number; html_url: string; title: string };
     return { number: json.number, html_url: json.html_url, title: json.title };
+  }
+
+  async compareCommits(owner: string, repo: string, base: string, head: string): Promise<{
+    html_url?: string;
+    ahead_by: number;
+    behind_by: number;
+    files: Array<{
+      filename: string;
+      status: string;
+      additions: number;
+      deletions: number;
+      changes: number;
+      patch?: string;
+    }>;
+  }> {
+    const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
+    const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to compare ${base}...${head}`);
+    }
+    const json = (await response.json()) as {
+      html_url?: string;
+      ahead_by?: number;
+      behind_by?: number;
+      files?: Array<{
+        filename: string;
+        status: string;
+        additions: number;
+        deletions: number;
+        changes: number;
+        patch?: string;
+      }>;
+    };
+    return {
+      html_url: json.html_url,
+      ahead_by: json.ahead_by ?? 0,
+      behind_by: json.behind_by ?? 0,
+      files: json.files ?? [],
+    };
+  }
+
+  async listPullRequestFiles(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+  ): Promise<
+    Array<{
+      filename: string;
+      status: string;
+      additions: number;
+      deletions: number;
+      changes: number;
+      patch?: string;
+    }>
+  > {
+    const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`;
+    const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to list PR files: ${response.statusText}`);
+    }
+    return (await response.json()) as Array<{
+      filename: string;
+      status: string;
+      additions: number;
+      deletions: number;
+      changes: number;
+      patch?: string;
+    }>;
+  }
+
+  async createReview(params: {
+    owner: string;
+    repo: string;
+    pullNumber: number;
+    body?: string;
+    event?: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  }): Promise<{ id: number; html_url?: string }> {
+    const url = `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}/pulls/${params.pullNumber}/reviews`;
+    const response = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        body: params.body || "",
+        event: params.event || "COMMENT",
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to create review: ${response.statusText}`);
+    }
+    const json = (await response.json()) as { id: number; html_url?: string };
+    return { id: json.id, html_url: json.html_url };
+  }
+
+  async createReviewComment(params: {
+    owner: string;
+    repo: string;
+    pullNumber: number;
+    body: string;
+    path: string;
+    line: number;
+    side?: "LEFT" | "RIGHT";
+    commitId?: string;
+  }): Promise<{ id: number; html_url?: string }> {
+    let commitId = params.commitId;
+    if (!commitId) {
+      const prUrl = `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}/pulls/${params.pullNumber}`;
+      const prResponse = await this.fetchWithRetry(prUrl, { headers: this.getHeaders() });
+      if (!prResponse.ok) {
+        const text = await prResponse.text();
+        throw new Error(text.slice(0, 400) || "Failed to load pull request for review comment");
+      }
+      const pr = (await prResponse.json()) as { head?: { sha?: string } };
+      commitId = pr.head?.sha;
+    }
+    const url = `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}/pulls/${params.pullNumber}/comments`;
+    const response = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        body: params.body,
+        path: params.path,
+        line: params.line,
+        side: params.side || "RIGHT",
+        commit_id: commitId,
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to create review comment: ${response.statusText}`);
+    }
+    const json = (await response.json()) as { id: number; html_url?: string };
+    return { id: json.id, html_url: json.html_url };
+  }
+
+  async listCheckRuns(
+    owner: string,
+    repo: string,
+    ref: string,
+  ): Promise<Array<{ name: string; status: string; conclusion: string | null; html_url?: string }>> {
+    const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/check-runs`;
+    const response = await this.fetchWithRetry(url, {
+      headers: { ...this.getHeaders(), Accept: "application/vnd.github+json" },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to list check runs: ${response.statusText}`);
+    }
+    const json = (await response.json()) as {
+      check_runs?: Array<{ name: string; status: string; conclusion: string | null; html_url?: string }>;
+    };
+    return json.check_runs ?? [];
+  }
+
+  async mergePullRequest(params: {
+    owner: string;
+    repo: string;
+    pullNumber: number;
+    commitTitle?: string;
+    mergeMethod?: "merge" | "squash" | "rebase";
+  }): Promise<{ merged: boolean; sha?: string; message?: string; html_url?: string }> {
+    const url = `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}/pulls/${params.pullNumber}/merge`;
+    const response = await this.fetchWithRetry(url, {
+      method: "PUT",
+      headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        commit_title: params.commitTitle,
+        merge_method: params.mergeMethod || "squash",
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to merge pull request: ${response.statusText}`);
+    }
+    return (await response.json()) as { merged: boolean; sha?: string; message?: string; html_url?: string };
+  }
+
+  async requestReviewers(params: {
+    owner: string;
+    repo: string;
+    pullNumber: number;
+    reviewers: string[];
+  }): Promise<{ requested: string[] }> {
+    const url = `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}/pulls/${params.pullNumber}/requested_reviewers`;
+    const response = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewers: params.reviewers }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text.slice(0, 400) || `Failed to request reviewers: ${response.statusText}`);
+    }
+    const json = (await response.json()) as { requested_reviewers?: Array<{ login: string }> };
+    return { requested: (json.requested_reviewers ?? []).map((item) => item.login) };
   }
 }
 

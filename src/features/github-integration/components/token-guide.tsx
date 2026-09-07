@@ -132,16 +132,23 @@ export const TokenGuide = () => {
                           repo
                         </code>
                         <span className="text-muted-foreground">
-                          (Read and write on private repositories)
+                          (Read, write, and create private repositories)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                        <CheckCircle2 className="h-3 w-3" />
+                        <code className="bg-background px-2 py-0.5 rounded font-mono">
+                          read:org
+                        </code>
+                        <span className="text-muted-foreground">
+                          (List organizations so Fairlx can ask personal vs org)
                         </span>
                       </div>
                     </div>
                     <Alert className="mt-2">
                       <AlertCircle className="h-3 w-3" />
                       <AlertDescription className="text-xs">
-                        The classic <strong>repo</strong> scope is required for the Agent to commit on a branch
-                        and open a pull request. Writes still wait for Accept/Deny in the Agent. Fine-grained
-                        tokens need Contents read/write plus Pull requests write.
+                        The classic <strong>repo</strong> and <strong>read:org</strong> scopes are required so Fairlx can create repositories, commit, open pull requests, and ask whether to use your personal account or an organization. Writes still wait for Accept/Deny in the Agent. Fine-grained tokens need Administration (create repo), Contents read/write, and Pull requests write.
                       </AlertDescription>
                     </Alert>
                   </div>

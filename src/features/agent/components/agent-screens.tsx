@@ -963,7 +963,7 @@ export function AgentIntegrationsScreen() {
             <EmptyState
               icon={GitBranch}
               title="No repositories linked"
-              body="Link a GitHub repo to a Fairlx project to inspect it from Agent runs."
+              body="Connect GitHub on your Fairlx profile, then have a project lead attach one repository in Integrations."
             />
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">

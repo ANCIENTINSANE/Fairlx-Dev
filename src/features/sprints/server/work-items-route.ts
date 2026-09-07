@@ -730,6 +730,29 @@ const app = new Hono()
         });
       }
 
+      void import("@/features/agent/lib/coding-session-hooks")
+        .then(({ maybeStartSessionFromAssignees, maybeTriageCodingSession }) =>
+          Promise.all([
+            data.assigneeIds?.length
+              ? maybeStartSessionFromAssignees({
+                  databases,
+                  userId: user.$id,
+                  workItem,
+                  assigneeIds: data.assigneeIds,
+                  user,
+                })
+              : Promise.resolve(),
+            maybeTriageCodingSession({
+              databases,
+              userId: user.$id,
+              workItem,
+              status: String(workItem.status || ""),
+              user,
+            }),
+          ]),
+        )
+        .catch(() => {});
+
       await invalidateCachePattern(CKPattern.workItemLists(data.workspaceId));
 
       return c.json({ data: workItem });
@@ -824,6 +847,17 @@ const app = new Hono()
             dispatchWorkitemEvent(event).catch(() => { });
           }).catch(() => { });
         }
+        void import("@/features/agent/lib/coding-session-hooks")
+          .then(({ maybeTriageCodingSession }) =>
+            maybeTriageCodingSession({
+              databases,
+              userId: user.$id,
+              workItem: updatedWorkItem,
+              status: String(updates.status),
+              user,
+            }),
+          )
+          .catch(() => {});
       }
 
       // Priority change notification
@@ -860,6 +894,17 @@ const app = new Hono()
         if (addedAssignees.length > 0) {
           const event = createAssignedEvent(taskLike, user.$id, userName, addedAssignees);
           dispatchWorkitemEvent(event).catch(() => { });
+          void import("@/features/agent/lib/coding-session-hooks")
+            .then(({ maybeStartSessionFromAssignees }) =>
+              maybeStartSessionFromAssignees({
+                databases,
+                userId: user.$id,
+                workItem: updatedWorkItem,
+                assigneeIds: addedAssignees,
+                user,
+              }),
+            )
+            .catch(() => {});
         }
 
         const removedAssignees = oldIds.filter((id: string) => !newIds.includes(id));

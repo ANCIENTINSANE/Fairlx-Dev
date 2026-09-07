@@ -56,7 +56,8 @@ import {
 import { isPersistedTruncatedAssistant, sanitizeAssistantVisible } from "../lib/visible-content";
 import { splitMarkdownWorkItemTable, type AgentWorkItem } from "../lib/work-item-table";
 import { findPendingConfirmation, isWriteToolCall } from "../lib/write-guard";
-import { findPendingPlugin } from "../plugins/catalog";
+import { findPendingPlugin, isGithubCapability } from "../plugins/catalog";
+import { isLinkedGithubRepo } from "../lib/github-scope";
 import type { AgentChatMessage, AgentRun, AgentToolEvent } from "../types";
 import { AgentMemberTable } from "./agent-member-table";
 import { AgentWorkItemTable } from "./agent-work-item-table";
@@ -1082,7 +1083,10 @@ export function AgentChatThread({
   const pendingPlugin = findPendingPlugin(events);
   const effectiveProjectId = run.projectId || harness?.settings.defaultProjectId;
   const project = context?.projects.find((item) => item.id === effectiveProjectId);
-  const linkedRepo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
+  const linkedRepo = (context?.githubRepos ?? []).find(
+    (item) => item.projectId === project?.id && isLinkedGithubRepo(item),
+  );
+  const githubAccountConnected = Boolean(context?.githubAccount?.connected);
   const currentAction = [...events].reverse().find(
     (event) => event.type !== "context_meter" && event.type !== "confirmation_resolved",
   );
@@ -1198,7 +1202,12 @@ export function AgentChatThread({
       })}
 
       {awaitingPlugin && pendingPlugin ? (
-        <PluginConnectCard pending={pendingPlugin} runId={run.id} />
+        <PluginConnectCard
+          pending={pendingPlugin}
+          runId={run.id}
+          projectId={project?.id}
+          alreadyGranted={Boolean(isGithubCapability(pendingPlugin.capability) && githubAccountConnected)}
+        />
       ) : null}
 
       {awaiting && pending ? (

@@ -7,7 +7,7 @@ import { matchingAutomations, rankKnowledge } from "./search";
 import { isPersonalSessionMode, SESSION_MODE_INSTRUCTIONS } from "./session-context";
 import { firstName } from "./agent-ui";
 import { PROJECT_DOC_MARKDOWN_GUIDE, documentationPackInstructions } from "@fairlx/mcp-server/markdown";
-import { formatProjectGithubLine, hasProjectGithubRepo } from "./github-scope";
+import { formatProjectGithubLine, hasGithubAccount, hasProjectGithubRepo } from "./github-scope";
 import {
   buildTrainingInterviewPrompt,
   formatTrainingSnapshot,
@@ -139,8 +139,25 @@ export function buildSystemPrompt(params: {
   lines.push("", formatDeleteIntentContext(userTexts));
   if (query) lines.push(`Task: ${query.slice(0, 1200)}`);
   const connected = (harness.plugins ?? []).filter((plugin) => plugin.status === "connected");
+  const githubLinked = hasProjectGithubRepo(context, project?.id);
   if (connected.length) {
-    lines.push(`Plugins: ${connected.map((plugin) => plugin.displayName).join(", ")}.`);
+    lines.push(
+      `Plugins: ${connected.map((plugin) => plugin.displayName).join(", ")}${
+        githubLinked && hasGithubAccount(context) ? ". GitHub repository already attached — do not request GitHub access." : hasGithubAccount(context) ? ". GitHub account already connected — do not request GitHub access." : ""
+      }.`,
+    );
+  } else if (githubLinked && hasGithubAccount(context)) {
+    lines.push(
+      "Plugins: Fairlx platform and the attached GitHub repository. Code actions run as this user's GitHub account. Never call request_capability for GitHub. Mail still needs connecting only if you send email.",
+    );
+  } else if (githubLinked) {
+    lines.push(
+      "Plugins: Fairlx platform. A GitHub repository is attached, but this user must connect their GitHub account before code actions.",
+    );
+  } else if (hasGithubAccount(context)) {
+    lines.push(
+      "Plugins: Fairlx platform and the connected GitHub account. Never call request_capability for GitHub. Mail still needs connecting only if you send email.",
+    );
   } else {
     lines.push("Plugins: Fairlx platform only. Mail, GitHub write, and extra MCP need connecting.");
   }
@@ -165,9 +182,13 @@ export function buildSystemPrompt(params: {
     "- Documentation is not parallel specialist work. Do not emit one delegate_agent per PRD, FRD, BRD, or other document type. A researcher may search the web first; then one writer saves at most two researched documents.",
     "- For billing, usage, spend, wallet balance, invoices, or cost by model (Grok, Luna, DeepSeek), call fairlx_usage_summary. Pass scope=organization (or organizationId) for the org bill; omit ids for this workspace. period is YYYY-MM. Do not search_harness for billing — spend lives in the usage ledger, not local knowledge.",
     "- Org departments own org permissions (billing, members, settings). List them with fairlx_department_list. Create with fairlx_department_create — pass departments: [{ name, permissions }] using keys like org.members.view and org.billing.manage. Add keys to an existing department with fairlx_department_permission_add. Do not invent org_department_create, create_role, or permission_grant.",
-    hasProjectGithubRepo(context, project?.id)
-      ? "- Edit code through github_read_file, github_write_file, and github_open_pr on linked repos. Pass files[] on github_open_pr for multi-file PRs. Never claim you ran git on the Fairlx host."
-      : "- No GitHub repo is linked. Do not call github_write_file or github_open_pr. If the user asked to edit code, tell them to add a repository (Add one) — do not block planning or documentation on that.",
+    githubLinked && hasGithubAccount(context)
+      ? "- GitHub is attached to this project. Code actions run as this user's GitHub account. Call github_list_files first, then github_read_file only on listed paths. A missing path is a skip, not a stop. Never call request_capability for code.read or code.write. For implementation, call coding_session_start (Accept-gated) so clone/test/preview run in Azure — never git or shell on the Fairlx host. Pass files[] on github_open_pr for multi-file PRs, or push from the sandbox then merge with github_merge_pr after Accept."
+      : githubLinked
+        ? "- A GitHub repository is attached to this project, but this user has not connected their GitHub account. Call request_capability with code.write so they can Sign in with GitHub. Do not use a project token."
+      : hasGithubAccount(context)
+        ? "- GitHub account is connected to this user's Fairlx profile but this project has no attached repo. If they can attach (see the GitHub context line), github_list_owners then github_create_repo with linkToProject true. If they cannot attach, create with linkToProject false and tell them to ask a lead. Do not call request_capability. Do not call github_list_files until a repo is attached."
+        : "- No GitHub repo is attached and this user has not connected GitHub to their Fairlx profile. Do not call github_write_file, github_open_pr, or coding_session_start. If they asked to create a GitHub repository, call request_capability with code.write so they can Sign in with GitHub or paste a PAT. Do not block planning or documentation on that.",
     `- ${documentationPackInstructions(hasProjectGithubRepo(context, project?.id))} ${PROJECT_DOC_MARKDOWN_GUIDE}`,
     "- Be concise in chat replies. Project documents are the opposite: long, cited research studies. Never save a short outline.",
   );

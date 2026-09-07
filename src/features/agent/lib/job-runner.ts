@@ -7,6 +7,7 @@ import { parsePrFiles } from "../plugins/github-helpers";
 import { scanSourceFiles, verifyFindings } from "../plugins/security";
 import { publishSecurityFindings } from "./fairlx-side-effects";
 import { getAgentJob, updateAgentJob } from "./jobs";
+import { startOrResumeCodingSession } from "./coding-session-start";
 
 export type AgentJobRunParams = {
   databases: Databases;
@@ -113,6 +114,46 @@ async function runGithubPrJob(params: AgentJobRunParams & { job: AgentJob }): Pr
   }
 }
 
+async function runCodingSessionJob(params: AgentJobRunParams & { job: AgentJob }): Promise<AgentJob | null> {
+  const { databases, job, context, plugins, harness } = params;
+  await updateAgentJob(databases, job.id, {
+    status: "running",
+    progress: { step: "Creating sandbox", percent: 10 },
+  });
+  if (!harness) {
+    return updateAgentJob(databases, job.id, { status: "failed", error: "Harness is required for a coding session." });
+  }
+  try {
+    const result = await startOrResumeCodingSession({
+      databases,
+      userId: params.userId,
+      runId: job.runId || "",
+      context,
+      harness,
+      plugins,
+      workItemId: String(job.payload.workItemId || ""),
+      projectId: typeof job.payload.projectId === "string" ? job.payload.projectId : params.projectId,
+      repoId: typeof job.payload.repoId === "string" ? job.payload.repoId : undefined,
+      baseBranch: typeof job.payload.baseBranch === "string" ? job.payload.baseBranch : undefined,
+      exposePort: typeof job.payload.exposePort === "number" ? job.payload.exposePort : undefined,
+      investigateOnly: job.payload.investigateOnly === true,
+    });
+    if ("error" in result) {
+      return updateAgentJob(databases, job.id, { status: "failed", error: String(result.error) });
+    }
+    return updateAgentJob(databases, job.id, {
+      status: "completed",
+      progress: { step: "Ready", percent: 100 },
+      result,
+    });
+  } catch (error) {
+    return updateAgentJob(databases, job.id, {
+      status: "failed",
+      error: error instanceof Error ? error.message : "Coding session job failed",
+    });
+  }
+}
+
 export async function executeAgentJob(params: AgentJobRunParams): Promise<AgentJob | null> {
   const job = await getAgentJob(params.databases, params.userId, params.jobId);
   if (!job) return null;
@@ -123,6 +164,9 @@ export async function executeAgentJob(params: AgentJobRunParams): Promise<AgentJ
   }
   if (job.kind === "github_pr") {
     return runGithubPrJob({ ...params, job });
+  }
+  if (job.kind === "coding_session") {
+    return runCodingSessionJob({ ...params, job });
   }
   return updateAgentJob(params.databases, job.id, {
     status: "failed",

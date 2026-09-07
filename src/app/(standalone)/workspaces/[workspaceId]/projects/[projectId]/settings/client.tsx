@@ -98,11 +98,17 @@ const ProjectIdSettingsClientContent = () => {
     workspaceId: project?.workspaceId || "",
   });
 
-  // Project-level permissions for delete
-  const { canDeleteProject } = useProjectPermissions({
+  const {
+    canDeleteProject,
+    isProjectAdmin,
+    canEditProjectSettings,
+    canManageProjectSettings,
+  } = useProjectPermissions({
     projectId,
     workspaceId: project?.workspaceId,
   });
+  const canManageGithub =
+    isAdmin || isProjectAdmin || canEditProjectSettings || canManageProjectSettings;
 
   // Mutations
   const { mutate: updateProject, isPending: isUpdating } = useUpdateProject();
@@ -723,7 +729,7 @@ const ProjectIdSettingsClientContent = () => {
             {activeTab === "integrations" && (
               <Card>
                 <CardContent className="pt-6">
-                  <ProjectIntegrationsSettings projectId={projectId} isAdmin={isAdmin} />
+                  <ProjectIntegrationsSettings projectId={projectId} isAdmin={canManageGithub} />
                 </CardContent>
               </Card>
             )}

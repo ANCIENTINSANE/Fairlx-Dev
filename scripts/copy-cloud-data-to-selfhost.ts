@@ -48,6 +48,21 @@ function client(endpoint: string, project: string, key: string) {
   return new Client().setEndpoint(endpoint).setProject(project).setKey(key);
 }
 
+type DestAttr = {
+  key: string;
+  type: string;
+  required: boolean;
+  array?: boolean;
+  default?: unknown;
+  elements?: string[];
+  size?: number;
+};
+
+const FIELD_ALIASES: Record<string, Record<string, string>> = {
+  billing_accounts: { status: "billingStatus" },
+  billing_audit_logs: { description: "metadata" },
+};
+
 function stripMeta(doc: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(doc)) {
@@ -57,57 +72,282 @@ function stripMeta(doc: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-async function copyDocuments(src: Databases, dst: Databases, databaseId: string) {
-  const collections = await src.listCollections(databaseId, [Query.limit(100)]);
-  console.log(`Collections: ${collections.collections.length} (total ${collections.total})`);
+function fallbackValue(
+  attr: DestAttr,
+  data: Record<string, unknown>,
+  collectionId: string,
+): unknown {
+  if (collectionId === "project_members" && attr.key === "roleId") {
+    return String(data.role || data.roleName || "member");
+  }
+  if (attr.default !== undefined && attr.default !== null) return attr.default;
+  if (attr.array) return [];
+  switch (attr.type) {
+    case "integer":
+    case "double":
+      return 0;
+    case "boolean":
+      return false;
+    case "datetime":
+      return new Date().toISOString();
+    case "enum":
+      return attr.elements?.[0] ?? "";
+    default:
+      return "";
+  }
+}
 
-  for (const col of collections.collections) {
-    let copied = 0;
-    let skipped = 0;
-    let failed = 0;
+function coerceValue(value: unknown, attr: DestAttr): unknown {
+  if (value === null || value === undefined) return value;
+  if (attr.array) return Array.isArray(value) ? value : [value];
+  if (attr.elements?.length && typeof value === "string") {
+    if (attr.elements.includes(value)) return value;
+    const upper = value.toUpperCase();
+    if (attr.elements.includes(upper)) return upper;
+    const aliases: Record<string, string> = {
+      CREDIT: "REWARD_CREDIT",
+      DEBIT: "USAGE",
+      credit: "REWARD_CREDIT",
+      debit: "USAGE",
+    };
+    const mapped = aliases[value] || aliases[upper];
+    if (mapped && attr.elements.includes(mapped)) return mapped;
+    return attr.elements[0];
+  }
+  if (attr.type === "integer" && typeof value === "string") {
+    const n = Number.parseInt(value, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (attr.type === "double" && typeof value === "string") {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (attr.type === "boolean") return Boolean(value);
+  if (typeof value === "string" && attr.size && value.length > attr.size) {
+    return value.slice(0, attr.size);
+  }
+  return value;
+}
+
+function adaptDocument(
+  data: Record<string, unknown>,
+  attrs: DestAttr[],
+  collectionId: string,
+): Record<string, unknown> {
+  const aliases = FIELD_ALIASES[collectionId] || {};
+  const sourced = { ...data };
+  for (const [from, to] of Object.entries(aliases)) {
+    if (sourced[to] == null && sourced[from] != null) sourced[to] = sourced[from];
+  }
+
+  const byKey = new Map(attrs.map((attr) => [attr.key, attr]));
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(sourced)) {
+    const attr = byKey.get(key);
+    if (!attr) continue;
+    if (value === null || value === undefined) continue;
+    out[key] = coerceValue(value, attr);
+  }
+
+  for (const attr of attrs) {
+    const current = out[attr.key];
+    const missing =
+      current === undefined ||
+      current === null ||
+      (attr.required && current === "" && attr.type === "string");
+    if (!attr.required && missing) continue;
+    if (!missing) continue;
+    out[attr.key] = fallbackValue(attr, sourced, collectionId);
+  }
+  return out;
+}
+
+async function listDestAttributes(
+  dst: Databases,
+  databaseId: string,
+  collectionId: string,
+): Promise<DestAttr[] | null> {
+  try {
+    const all: DestAttr[] = [];
     let cursor: string | undefined;
     for (;;) {
-      const page = await src.listDocuments(
-        databaseId,
-        col.$id,
-        cursor
-          ? [Query.limit(100), Query.cursorAfter(cursor)]
-          : [Query.limit(100)],
+      const page = await withRetry(() =>
+        dst.listAttributes(
+          databaseId,
+          collectionId,
+          cursor ? [Query.limit(100), Query.cursorAfter(cursor)] : [Query.limit(100)],
+        ),
       );
-      if (!page.documents.length) break;
-      for (const doc of page.documents) {
-        const data = stripMeta(doc as unknown as Record<string, unknown>);
-        try {
-          await dst.createDocument(
+      for (const raw of page.attributes as Array<Record<string, unknown>>) {
+        const status = String(raw.status || "available");
+        if (status && status !== "available") continue;
+        all.push({
+          key: String(raw.key),
+          type:
+            Array.isArray(raw.elements) && (raw.elements as unknown[]).length
+              ? "enum"
+              : String(raw.type),
+          required: Boolean(raw.required),
+          array: Boolean(raw.array),
+          default: raw.default,
+          elements: Array.isArray(raw.elements) ? (raw.elements as string[]) : undefined,
+          size: typeof raw.size === "number" ? raw.size : undefined,
+        });
+      }
+      if (page.attributes.length < 100) break;
+      cursor = String((page.attributes[page.attributes.length - 1] as { key: string }).key);
+    }
+    return all;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`  ${collectionId}: dest collection missing or unread (${msg})`);
+    return null;
+  }
+}
+
+function appwriteCode(err: unknown): number | undefined {
+  return (err as { code?: number }).code;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry<T>(fn: () => Promise<T>, attempts = 8): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+      const code = appwriteCode(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      const retryable =
+        code === 429 ||
+        code === 500 ||
+        code === 502 ||
+        code === 503 ||
+        msg.toLowerCase().includes("fetch failed") ||
+        msg.toLowerCase().includes("timeout") ||
+        msg.toLowerCase().includes("network") ||
+        msg.toLowerCase().includes("econnreset") ||
+        msg.toLowerCase().includes("socket");
+      if (!retryable || i === attempts - 1) throw err;
+      await sleep(1000 * 2 ** i);
+    }
+  }
+  throw last;
+}
+
+async function mapPool<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (index < items.length) {
+      const item = items[index++];
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function listAllCollections(src: Databases, databaseId: string) {
+  const all = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await withRetry(() =>
+      src.listCollections(
+        databaseId,
+        cursor ? [Query.limit(100), Query.cursorAfter(cursor)] : [Query.limit(100)],
+      ),
+    );
+    all.push(...page.collections);
+    if (page.collections.length < 100) break;
+    cursor = page.collections[page.collections.length - 1].$id;
+  }
+  return all;
+}
+
+async function copyDocuments(src: Databases, dst: Databases, databaseId: string) {
+  const collections = await listAllCollections(src, databaseId);
+  const only = (process.env.ONLY_COLLECTIONS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const onlyFrom = process.env.ONLY_FROM || "";
+  const startAt = onlyFrom ? collections.findIndex((col) => col.$id === onlyFrom) : 0;
+  const selected = collections.filter((col) => {
+    if (only.length && !only.includes(col.$id)) return false;
+    if (onlyFrom && startAt >= 0) {
+      return collections.findIndex((item) => item.$id === col.$id) >= startAt;
+    }
+    return true;
+  });
+  console.log(
+    `Collections: ${selected.length}/${collections.length}${only.length ? ` [${only.join(",")}]` : ""}${onlyFrom ? ` (from ${onlyFrom})` : ""}`,
+  );
+
+  for (const col of selected) {
+    try {
+      const attrs = await listDestAttributes(dst, databaseId, col.$id);
+      if (!attrs) continue;
+
+      let copied = 0;
+      let skipped = 0;
+      let failed = 0;
+      let cursor: string | undefined;
+      let total = 0;
+      for (;;) {
+        const page = await withRetry(() =>
+          src.listDocuments(
             databaseId,
             col.$id,
-            doc.$id,
-            data,
-            doc.$permissions,
+            cursor
+              ? [Query.limit(100), Query.cursorAfter(cursor)]
+              : [Query.limit(100)],
+          ),
+        );
+        total = page.total;
+        if (!page.documents.length) break;
+        await mapPool(page.documents, 8, async (doc) => {
+          const data = adaptDocument(
+            stripMeta(doc as unknown as Record<string, unknown>),
+            attrs,
+            col.$id,
           );
-          copied++;
-        } catch (err) {
-          const code = (err as { code?: number }).code;
-          if (code === 409) {
-            skipped++;
-          } else {
+          try {
+            await withRetry(() =>
+              dst.createDocument(databaseId, col.$id, doc.$id, data, doc.$permissions),
+            );
+            copied++;
+          } catch (err) {
+            if (appwriteCode(err) === 409) {
+              skipped++;
+              return;
+            }
             failed++;
             if (failed <= 5) {
               const msg = err instanceof Error ? err.message : String(err);
-              console.warn(`  ${col.$id}/${doc.$id}: ${msg}`);
+              console.warn(`\n  ${col.$id}/${doc.$id}: ${msg}`);
             }
           }
-        }
+        });
+        process.stdout.write(
+          `\r  ${col.$id}: copied=${copied} skipped=${skipped} failed=${failed} / ${total}   `,
+        );
+        if (page.documents.length < 100) break;
+        cursor = page.documents[page.documents.length - 1].$id;
       }
-      process.stdout.write(
-        `\r  ${col.$id}: copied=${copied} skipped=${skipped} failed=${failed} / ${page.total}   `,
+      console.log(
+        `\r  ${col.$id}: copied=${copied} skipped=${skipped} failed=${failed} / ${total}                    `,
       );
-      if (page.documents.length < 100) break;
-      cursor = page.documents[page.documents.length - 1].$id;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`  ${col.$id}: collection aborted (${msg})`);
     }
-    console.log(
-      `\r  ${col.$id}: copied=${copied} skipped=${skipped} failed=${failed}                    `,
-    );
   }
 }
 
@@ -132,25 +372,30 @@ async function copyFiles(
     let failed = 0;
     let cursor: string | undefined;
     for (;;) {
-      const page = await src.listFiles(
-        bucket.$id,
-        cursor
-          ? [Query.limit(100), Query.cursorAfter(cursor)]
-          : [Query.limit(100)],
+      const page = await withRetry(() =>
+        src.listFiles(
+          bucket.$id,
+          cursor
+            ? [Query.limit(100), Query.cursorAfter(cursor)]
+            : [Query.limit(100)],
+        ),
       );
       if (!page.files.length) break;
       for (const file of page.files) {
         try {
           const downloadUrl = `${cloud.endpoint}/storage/buckets/${bucket.$id}/files/${file.$id}/download`;
-          const response = await fetch(downloadUrl, {
-            headers: {
-              "x-appwrite-project": cloud.project,
-              "x-appwrite-key": cloud.key,
-            },
+          const response = await withRetry(async () => {
+            const res = await fetch(downloadUrl, {
+              headers: {
+                "x-appwrite-project": cloud.project,
+                "x-appwrite-key": cloud.key,
+              },
+            });
+            if (!res.ok) {
+              throw new Error(`download ${res.status} ${await res.text()}`);
+            }
+            return res;
           });
-          if (!response.ok) {
-            throw new Error(`download ${response.status} ${await response.text()}`);
-          }
           const buffer = Buffer.from(await response.arrayBuffer());
           const input = InputFile.fromBuffer(buffer, file.name);
           await dst.createFile(bucket.$id, file.$id, input, file.$permissions);

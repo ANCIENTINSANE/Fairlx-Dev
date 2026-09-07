@@ -4,11 +4,132 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `.env.example`
+- `.gitignore`
+- `docs/coding-sessions.md`
+- `packages/fairlx-mcp/src/catalog.test.ts`
+- `packages/fairlx-mcp/src/runtime/types.ts`
+- `packages/fairlx-mcp/src/tools/billing.test.ts`
+- `packages/fairlx-mcp/src/tools/billing.ts`
+- `packages/fairlx-mcp/src/tools/catalog.ts`
+- `packages/fairlx-mcp/src/tools/coding-session.test.ts`
+- `packages/fairlx-mcp/src/tools/coding-session.ts`
+- `packages/fairlx-mcp/src/tools/index.ts`
+- `packages/fairlx-mcp/src/tools/write.ts`
+- `packages/fairlx-multi-agent/src/config.ts`
+- `scripts/copy-cloud-data-to-selfhost.ts`
+- `scripts/database-initialization/collections/agent-coding-sessions.ts`
+- `scripts/database-initialization/collections/github-accounts.ts`
+- `scripts/database-initialization/setup-agent-collections.ts`
+- `scripts/database-initialization/setup-database.ts`
+- `scripts/database-initialization/setup-runner.ts`
+- `scripts/wipe-github-connections.ts`
+- `src/app/(dashboard)/workspaces/[workspaceId]/projects/[projectId]/github/client.tsx`
+- `src/app/(standalone)/workspaces/[workspaceId]/projects/[projectId]/settings/client.tsx`
+- `src/config.ts`
+- `src/features/agent/api/use-coding-session.ts`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-crew-panel.tsx`
+- `src/features/agent/components/agent-ops-screens.tsx`
+- `src/features/agent/components/agent-screens.tsx`
+- `src/features/agent/components/coding-session-panel.tsx`
+- `src/features/agent/components/diff-viewer.tsx`
+- `src/features/agent/components/manage-models-dialog.tsx`
+- `src/features/agent/components/plugin-connect-card.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/agent/constants.ts`
+- `src/features/agent/lib/agent-core.test.ts`
+- `src/features/agent/lib/ai-usage-billing.ts`
+- `src/features/agent/lib/brain/brain.test.ts`
+- `src/features/agent/lib/brain/definitions.ts`
+- `src/features/agent/lib/brain/select.ts`
+- `src/features/agent/lib/client-defaults.ts`
+- `src/features/agent/lib/coding-session-hooks.ts`
+- `src/features/agent/lib/coding-session-start.ts`
+- `src/features/agent/lib/coding-sessions.test.ts`
+- `src/features/agent/lib/coding-sessions.ts`
+- `src/features/agent/lib/context.ts`
+- `src/features/agent/lib/github-scope.test.ts`
+- `src/features/agent/lib/github-scope.ts`
+- `src/features/agent/lib/graph.ts`
+- `src/features/agent/lib/job-runner.ts`
+- `src/features/agent/lib/model-context.test.ts`
+- `src/features/agent/lib/model-context.ts`
+- `src/features/agent/lib/platform-credentials.test.ts`
+- `src/features/agent/lib/platform-credentials.ts`
+- `src/features/agent/lib/prompt-budget.ts`
+- `src/features/agent/lib/prompt.ts`
+- `src/features/agent/lib/run-usage.test.ts`
+- `src/features/agent/lib/run-usage.ts`
+- `src/features/agent/lib/runs.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/sandbox/azure.ts`
+- `src/features/agent/lib/sandbox/index.ts`
+- `src/features/agent/lib/sandbox/stub.ts`
+- `src/features/agent/lib/sandbox/types.ts`
+- `src/features/agent/lib/subagent-tree.test.ts`
+- `src/features/agent/lib/subagent-tree.ts`
+- `src/features/agent/lib/tool-schemas.ts`
+- `src/features/agent/lib/tools-scope.test.ts`
+- `src/features/agent/lib/tools.ts`
+- `src/features/agent/lib/transcribe.test.ts`
+- `src/features/agent/lib/turn-errors.test.ts`
+- `src/features/agent/lib/turn-errors.ts`
+- `src/features/agent/lib/write-guard.test.ts`
+- `src/features/agent/lib/write-guard.ts`
+- `src/features/agent/plugins/catalog.test.ts`
+- `src/features/agent/plugins/catalog.ts`
+- `src/features/agent/plugins/github-helpers.ts`
+- `src/features/agent/plugins/github.ts`
+- `src/features/agent/plugins/index.ts`
+- `src/features/agent/server/route.ts`
+- `src/features/agent/types.ts`
+- `src/features/auth/components/linked-providers.tsx`
+- `src/features/auth/components/sign-in-card.tsx`
+- `src/features/auth/components/sign-up-card.tsx`
+- `src/features/comments/server/route.ts`
+- `src/features/github-integration/__tests__/github-accounts.test.ts`
+- `src/features/github-integration/__tests__/github-contents-path.test.ts`
+- `src/features/github-integration/__tests__/github-permissions.test.ts`
+- `src/features/github-integration/__tests__/github-pr-review.test.ts`
+- `src/features/github-integration/api/use-github.ts`
+- `src/features/github-integration/components/connect-repository.tsx`
+- `src/features/github-integration/components/github-optional-prompt.tsx`
+- `src/features/github-integration/components/token-guide.tsx`
+- `src/features/github-integration/hooks/use-can-manage-github.ts`
+- `src/features/github-integration/lib/github-accounts.ts`
+- `src/features/github-integration/lib/github-api.ts`
+- `src/features/github-integration/lib/github-link.ts`
+- `src/features/github-integration/lib/github-permissions.ts`
+- `src/features/github-integration/schemas.ts`
+- `src/features/github-integration/server/account-route.ts`
+- `src/features/github-integration/server/documentation-route.ts`
+- `src/features/github-integration/server/index.ts`
+- `src/features/github-integration/server/oauth-route.ts`
+- `src/features/github-integration/server/route.ts`
+- `src/features/github-integration/server/webhook-route.ts`
+- `src/features/github-integration/types.ts`
+- `src/features/mcp/bind-runtime.ts`
+- `src/features/sprints/server/work-items-route.ts`
+- `src/lib/ai-model-pricing.ts`
+- `src/lib/oauth-redirect.test.ts`
+- `src/lib/oauth-redirect.ts`
+- `src/lib/oauth.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `b5cda5c` | chore: bump version to 0.2.107 [skip ci] | github-actions[bot] |
+| 2026-09-06 | `c0f8f8a` | Merge pull request #309 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-06 | `cf1647a` | chore: bump version to 0.2.106 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `b276c5e` | refactor: use hard page redirects for auth flows and improve workspace navigation consistency across the app | Happyesss |
+| 2026-09-06 | `210d465` | chore: bump version to 0.2.106 [skip ci] | github-actions[bot] |
+| 2026-09-06 | `9756ebb` | Merge pull request #308 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-09-06 | `dc87db5` | chore: bump version to 0.2.105 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `3a0d23c` | feat: implement dismissible Linear-inspired suggestion cards in AgentCommandInput and reorder AgentHome layout | Happyesss |
 | 2026-09-06 | `412c5b9` | chore: bump version to 0.2.104 [skip ci] | github-actions[bot] |
@@ -93,11 +214,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-31 | `45ab287` | Merge pull request #291 from ANCIENTINSANE/main | Shashank Kumar Rathour |
 | 2026-08-31 | `8050192` | feat: replace static agent dashboard with live harness screens and run loop | ANCIENTINSANE |
 | 2026-08-31 | `bc96244` | fix: add targeted setup for agent MCP and AI Appwrite collections | ANCIENTINSANE |
-| 2026-08-31 | `527582e` | feat: seed Azure Grok 4.6 and DeepSeek V4 Flash as agent platform models | ANCIENTINSANE |
-| 2026-08-30 | `6cbc2cb` | feat: add agent MCP servers and AI model configuration | ANCIENTINSANE |
-| 2026-08-30 | `5ef28b8` | chore: bump version to 0.2.73 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `a44a939` | Merge pull request #290 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-30 | `3fd5675` | Merge branch 'stemlen:main' into main | Surendra Codes |
-| 2026-08-30 | `2709267` | chore: bump version to 0.2.72 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-06T17:33:43.935Z
+Last generated: 2026-09-07T18:55:59.220Z

@@ -78,6 +78,8 @@ describe("usage event summarizer", () => {
     expect(displayModelName("grok-4.6")).toBe("Grok 4.6");
     expect(displayModelName("gpt-5.6-luna")).toBe("GPT-5.6 Luna");
     expect(displayModelName("DeepSeek-V4-Flash")).toBe("DeepSeek V4 Flash");
+    expect(displayModelName("DeepSeek-V4-Pro")).toBe("DeepSeek V4 Pro");
+    expect(displayModelName("deepseek-pro")).toBe("DeepSeek V4 Pro");
   });
 
   it("labels agent chat separately from generic AI", () => {

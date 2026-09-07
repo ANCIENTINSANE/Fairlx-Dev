@@ -2,6 +2,8 @@ import type { Databases } from "node-appwrite";
 
 import {
   DEEPSEEK_FLASH_MODEL_ID,
+  DEEPSEEK_PRO_MODEL_ID,
+  FOUNDRY_GPT_LUNA_MODEL_ID,
   GROK_46_MODEL_ID,
   getPlatformDefaultModelId,
   isPlatformGrokEnabled,
@@ -51,11 +53,11 @@ import {
   unwrapListCall,
   toolsWhenContextIsTight,
 } from "./tool-loop";
-import { executeTool, openaiToolsForTurn, trainingSaveTool, type OpenAiTool } from "./tools";
+import { executeTool, failedToolResult, openaiToolsForTurn, trainingSaveTool, type OpenAiTool } from "./tools";
 import { compactJsonString } from "./truncate";
 import { getRun, listRuns, updateRun } from "./runs";
 import { getPersonalAgent } from "./personal-agent-store";
-import { AGENT_CHAT_TIMEOUT_MS, formatAgentTurnError, isContextLengthError, withTransientFetchRetry } from "./turn-errors";
+import { AGENT_CHAT_TIMEOUT_MS, formatAgentTurnError, isContextLengthError, modelHttpError, withTransientFetchRetry } from "./turn-errors";
 import { sanitizeAssistantVisible } from "./visible-content";
 import { extractBoardProjectFromTool } from "./project-launch";
 import { specialistById } from "./graph";
@@ -111,6 +113,20 @@ function thoughtEvent(runId: string, title: string, detail?: string, payload?: u
     payload,
     createdAt: new Date().toISOString(),
     runId,
+  };
+}
+
+function attachSubagent(event: AgentToolEvent, subagentId: string, specialist: string): AgentToolEvent {
+  const payload =
+    event.payload && typeof event.payload === "object" ? { ...(event.payload as Record<string, unknown>) } : {};
+  return {
+    ...event,
+    payload: {
+      ...payload,
+      id: typeof payload.id === "string" && payload.id ? payload.id : subagentId,
+      subagentId,
+      specialist,
+    },
   };
 }
 
@@ -221,7 +237,7 @@ export function resolveChatTarget(stored: AgentAiConfigStored): ChatTarget {
         "Content-Type": "application/json",
         [creds.authHeader]: creds.apiKey,
       },
-      model: creds.deployment || model.modelId,
+      model: model.modelId || creds.deployment,
       maxOutputTokens: model.maxOutputTokens,
       maxInputTokens: model.maxInputTokens,
       modelId: model.id,
@@ -259,6 +275,36 @@ export function resolveWorkerTarget(stored: AgentAiConfigStored): ChatTarget {
   if (flash) {
     try {
       return resolveChatTarget({ ...stored, mode: "manual", selectedModelId: flash.id });
+    } catch {
+      // fall through
+    }
+  }
+  return resolveChatTarget(stored);
+}
+
+export function resolveSessionBuilderTarget(stored: AgentAiConfigStored): ChatTarget {
+  const preferred = [
+    process.env.AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT?.trim() ? "gpt-5.4" : "",
+    process.env.AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT?.trim() ? "gpt-5.6-sol" : "",
+    DEEPSEEK_PRO_MODEL_ID,
+  ].filter(Boolean);
+  for (const id of preferred) {
+    const model = stored.models.find((item) => item.id === id && item.isEnabled);
+    if (!model) continue;
+    try {
+      return resolveChatTarget({ ...stored, mode: "manual", selectedModelId: model.id });
+    } catch {
+      // try next overlay
+    }
+  }
+  return resolveWorkerTarget(stored);
+}
+
+export function resolveReviewerTarget(stored: AgentAiConfigStored): ChatTarget {
+  const luna = stored.models.find((item) => item.id === FOUNDRY_GPT_LUNA_MODEL_ID && item.isEnabled);
+  if (luna) {
+    try {
+      return resolveChatTarget({ ...stored, mode: "manual", selectedModelId: luna.id });
     } catch {
       // fall through
     }
@@ -386,13 +432,13 @@ async function chatCompletion(
           if (!response.ok) {
             const message =
               json?.error?.message || json?.message || `Chat completion failed (${response.status})`;
-            throw new Error(message);
+            throw modelHttpError(message, response.status, response.headers.get("Retry-After"));
           }
           const raw = json ?? {};
           if (target.api === "responses" || isResponsesResponse(raw)) {
             const normalized = fromResponsesResponse(raw);
             if (normalized.error?.message && String((raw as { status?: string }).status || "") === "failed") {
-              throw new Error(normalized.error.message);
+              throw modelHttpError(normalized.error.message, 500);
             }
             return normalized as OpenAiChatCompletionResponse;
           }
@@ -402,7 +448,7 @@ async function chatCompletion(
           clearInterval(poll);
         }
       },
-      { attempts: 3, shouldRetry: () => !cancelledRuns.has(runId) },
+      { attempts: 5, shouldRetry: () => !cancelledRuns.has(runId) },
     );
   } catch (error) {
     console.error("[agent] chat completion failed", {
@@ -597,9 +643,13 @@ export async function runAgentTurn(params: {
 
   let target: ChatTarget;
   let workerTarget: ChatTarget;
+  let builderTarget: ChatTarget;
+  let reviewerTarget: ChatTarget;
   try {
     target = resolveChatTarget(stored);
     workerTarget = resolveWorkerTarget(stored);
+    builderTarget = resolveSessionBuilderTarget(stored);
+    reviewerTarget = resolveReviewerTarget(stored);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to resolve model.";
     return persistUnlessStopped({ status: "failed", error: message });
@@ -615,7 +665,7 @@ export async function runAgentTurn(params: {
     completion: unknown,
     chatTarget: ChatTarget,
     operationId: string,
-    extra?: { role?: "orchestrator" | "subagent"; specialist?: string; iteration?: number },
+    extra?: { role?: "orchestrator" | "subagent"; specialist?: string; subagentId?: string; iteration?: number },
   ) => {
     const ctx = {
       databases,
@@ -628,6 +678,7 @@ export async function runAgentTurn(params: {
       completion,
       role: extra?.role,
       specialist: extra?.specialist,
+      subagentId: extra?.subagentId,
       iteration: extra?.iteration,
     };
     void recordAgentChatUsage(ctx);
@@ -700,6 +751,14 @@ export async function runAgentTurn(params: {
     permissionType: permissionType(),
     turnLimits,
   });
+
+  const runTool = async (name: string, args: unknown, options?: { userAccepted?: boolean }) => {
+    try {
+      return await executeTool(name, args, toolContext({ userAccepted: options?.userAccepted }));
+    } catch (error) {
+      return failedToolResult(run.id, name, error);
+    }
+  };
 
   const refuseUnsolicitedDestructive = (
     call: AgentToolCall,
@@ -802,7 +861,7 @@ export async function runAgentTurn(params: {
       return [];
     }
 
-    const result = await executeTool(canonical.name, canonical.arguments, toolContext({ userAccepted: options?.userAccepted }));
+    const result = await runTool(canonical.name, canonical.arguments, { userAccepted: options?.userAccepted });
     if (result.harnessPatch) {
       harness = await upsertHarness(databases, user.$id, result.harnessPatch);
     }
@@ -895,7 +954,7 @@ export async function runAgentTurn(params: {
       capability === "email.send"
         ? "Connect Outlook, Gmail, Resend, or a mail MCP server to send email."
         : capability === "code.write" || capability === "code.read"
-          ? "Link a GitHub repository or add a repo token to edit code."
+          ? "Connect your GitHub account to your Fairlx profile. Sign in with GitHub or paste a PAT with repo and read:org."
           : `Connect a plugin for ${capability}.`;
     nextEvents.push({
       id: crypto.randomUUID(),
@@ -960,26 +1019,32 @@ export async function runAgentTurn(params: {
         runId: run.id,
       });
       await persistMergedEvents(events);
+      const specialistTarget =
+        specialist === "builder" || specialist === "git"
+          ? builderTarget
+          : specialist === "reviewer"
+            ? reviewerTarget
+            : workerTarget;
       const completion = await chatCompletion(
-        workerTarget,
+        specialistTarget,
         {
-          model: workerTarget.model,
+          model: specialistTarget.model,
           messages: toOpenAiMessages(specialistSystem, messages, {
-            maxInputTokens: workerTarget.maxInputTokens,
+            maxInputTokens: specialistTarget.maxInputTokens,
           }),
           temperature: 0.2,
-          ...(workerTarget.maxOutputTokens ? { max_tokens: workerTarget.maxOutputTokens } : {}),
+          ...(specialistTarget.maxOutputTokens ? { max_tokens: specialistTarget.maxOutputTokens } : {}),
           ...(isolatedTools.length ? { tools: isolatedTools, tool_choice: "auto" } : {}),
         },
         run.id,
       );
       const usageEvent = await captureUsage(
         completion,
-        workerTarget,
+        specialistTarget,
         `${run.id}:sub:${subagentId}:${iteration}`,
-        { role: "subagent", specialist, iteration },
+        { role: "subagent", specialist, subagentId, iteration },
       );
-      if (usageEvent) events.push(usageEvent);
+      if (usageEvent) events.push(attachSubagent(usageEvent, subagentId, specialist));
       await persistMergedEvents(events);
       const collected = collectToolCalls(completion?.choices?.[0], mcpToolNames);
       if (!collected.toolCalls.length) {
@@ -1040,7 +1105,7 @@ export async function runAgentTurn(params: {
           harness = await upsertHarness(databases, user.$id, result.harnessPatch);
         }
         if (result.missingCapability) pluginGap = result.missingCapability;
-        events.push(result.event);
+        events.push(attachSubagent(result.event, subagentId, specialist));
         messages.push({
           id: crypto.randomUUID(),
           role: "tool",
@@ -1069,13 +1134,13 @@ export async function runAgentTurn(params: {
               return {
                 call,
                 skip: false as const,
-                result: await executeTool(call.name, call.arguments, toolContext()),
+                result: await runTool(call.name, call.arguments),
               };
             }),
           );
           for (const item of settled) {
             if (item.skip) {
-              events.push(thoughtEvent(run.id, item.title));
+              events.push(attachSubagent(thoughtEvent(run.id, item.title), subagentId, specialist));
               messages.push({
                 id: crypto.randomUUID(),
                 role: "tool",
@@ -1094,7 +1159,13 @@ export async function runAgentTurn(params: {
             if (specialistSkip.has(call.id) || specialistCoalesced.has(call.id)) {
               const listed = unwrapListCall(call);
               const skippedFetch = listed.tool === "web_fetch" || call.name === "web_fetch";
-              events.push(thoughtEvent(run.id, skippedFetch ? "Skipped extra page fetch" : "Skipped extra work-item get"));
+              events.push(
+                attachSubagent(
+                  thoughtEvent(run.id, skippedFetch ? "Skipped extra page fetch" : "Skipped extra work-item get"),
+                  subagentId,
+                  specialist,
+                ),
+              );
               messages.push({
                 id: crypto.randomUUID(),
                 role: "tool",
@@ -1105,7 +1176,7 @@ export async function runAgentTurn(params: {
               });
               continue;
             }
-            const result = await executeTool(call.name, call.arguments, toolContext());
+            const result = await runTool(call.name, call.arguments);
             await applySpecialistResult(call, result);
             await persistMergedEvents(events);
           }
@@ -1504,7 +1575,7 @@ export async function runAgentTurn(params: {
             if (stoppedBeforeBatch) return stoppedBeforeBatch;
             const settled = await Promise.all(
               batch.map(async (call) => {
-                const result = await executeTool(call.name, call.arguments, toolContext());
+                const result = await runTool(call.name, call.arguments);
                 if (result.event) await persistMergedEvents([result.event]);
                 if (!result.delegate) {
                   return { call, result, specialist: undefined as Awaited<ReturnType<typeof runSpecialistPass>> | undefined };

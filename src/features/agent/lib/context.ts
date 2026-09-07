@@ -15,6 +15,9 @@ import {
   WORK_ITEMS_ID,
   WORKSPACES_ID,
 } from "@/config";
+import { getGithubAccountPublic, isPendingGithubRepo } from "@/features/github-integration/lib/github-accounts";
+import { canManageProjectGithubIntegration } from "@/features/github-integration/lib/github-permissions";
+import { resolveUserProjectAccess } from "@/lib/permissions/resolveUserProjectAccess";
 import type { AgentContext } from "../types";
 
 type MemberDoc = Models.Document & { workspaceId: string; role?: string };
@@ -127,14 +130,28 @@ export async function loadAgentContext(
     Query.limit(20),
   ]);
 
-  const githubRepos = workspaceIds.length
+  const projectIds = projects.map((project) => project.$id).slice(0, 100);
+  const githubReposByWorkspace = workspaceIds.length
     ? await safeList(databases, GITHUB_REPOS_ID, [
         Query.equal("workspaceId", workspaceIds),
         Query.limit(50),
       ])
     : [];
-
-  const projectIds = projects.map((project) => project.$id).slice(0, 100);
+  const githubRepoIds = new Set(githubReposByWorkspace.map((repo) => repo.$id));
+  const missingProjectIds = projectIds.filter(
+    (id) => !githubReposByWorkspace.some((repo) => String(repo.projectId ?? "") === id),
+  );
+  const githubReposByProject =
+    missingProjectIds.length > 0
+      ? await safeList(databases, GITHUB_REPOS_ID, [
+          Query.equal("projectId", missingProjectIds.slice(0, 100)),
+          Query.limit(50),
+        ])
+      : [];
+  const githubRepos = [
+    ...githubReposByWorkspace,
+    ...githubReposByProject.filter((repo) => !githubRepoIds.has(repo.$id)),
+  ];
   const integrations = workspaceIds.length
     ? await safeList(databases, PROJECT_INTEGRATIONS_ID, [
         Query.equal("workspaceId", workspaceIds),
@@ -187,6 +204,32 @@ export async function loadAgentContext(
       ])) as OrgDoc[])
     : [];
 
+  const githubAccount = await getGithubAccountPublic(databases, user.$id);
+
+  const githubAttachProjectIds: string[] = [];
+  for (const project of projects) {
+    const workspaceRole = roleByWorkspace.get(project.workspaceId);
+    if (canManageProjectGithubIntegration({ workspaceRole })) {
+      githubAttachProjectIds.push(project.$id);
+      continue;
+    }
+    try {
+      const access = await resolveUserProjectAccess(databases, user.$id, project.$id);
+      if (
+        canManageProjectGithubIntegration({
+          workspaceRole,
+          isProjectAdmin: access.isAdmin,
+          isProjectOwner: access.isOwner,
+          permissions: access.permissions,
+        })
+      ) {
+        githubAttachProjectIds.push(project.$id);
+      }
+    } catch {
+      // Skip projects whose access cannot be resolved.
+    }
+  }
+
   return {
     user: {
       id: user.$id,
@@ -233,7 +276,16 @@ export async function loadAgentContext(
       workspaceId: String(item.workspaceId ?? ""),
       createdAt: item.$createdAt,
     })),
-    githubRepos: githubRepos.map((repo) => ({
+    githubRepos: githubRepos
+      .filter((repo) =>
+        !isPendingGithubRepo({
+          githubUrl: String(repo.githubUrl ?? ""),
+          owner: String(repo.owner ?? ""),
+          repositoryName: String(repo.repositoryName ?? repo.name ?? ""),
+          status: String(repo.status ?? ""),
+        }),
+      )
+      .map((repo) => ({
       id: repo.$id,
       repositoryName: String(repo.repositoryName ?? repo.name ?? ""),
       owner: String(repo.owner ?? ""),
@@ -242,6 +294,11 @@ export async function loadAgentContext(
       projectId: String(repo.projectId ?? ""),
       branch: String(repo.branch ?? ""),
     })),
+    githubAccount: {
+      connected: githubAccount.connected,
+      login: githubAccount.githubLogin,
+    },
+    githubAttachProjectIds,
     integrations: [...integrations, ...integrationsByProject].map((item) => ({
       id: item.$id,
       provider: String(item.provider ?? ""),

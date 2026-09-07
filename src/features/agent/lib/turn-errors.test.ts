@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAgentTurnError, isContextLengthError, isTransientModelFetchError } from "./turn-errors";
+import {
+  formatAgentTurnError,
+  isContextLengthError,
+  isRateLimitError,
+  isTransientModelFetchError,
+  modelErrorRetryDelayMs,
+  modelHttpError,
+} from "./turn-errors";
 
 describe("formatAgentTurnError", () => {
   it("maps AbortError to a timeout message", () => {
@@ -34,6 +41,18 @@ describe("formatAgentTurnError", () => {
     expect(formatAgentTurnError(new Error("fetch failed"))).toBe(
       "The model provider connection dropped. Retry the same message.",
     );
+  });
+
+  it("maps DeepSeek Azure rate limits to a retryable message", () => {
+    const error = modelHttpError(
+      "Your requests to DeepSeek-V4-Flash for DeepSeek-V4-Flash in southindia have exceeded rate limit.",
+      429,
+    );
+    expect(isRateLimitError(error)).toBe(true);
+    expect(isTransientModelFetchError(error)).toBe(true);
+    expect(formatAgentTurnError(error)).toMatch(/rate limit/i);
+    expect(modelErrorRetryDelayMs(error, 1)).toBe(2000);
+    expect(modelErrorRetryDelayMs(error, 3)).toBe(8000);
   });
 });
 

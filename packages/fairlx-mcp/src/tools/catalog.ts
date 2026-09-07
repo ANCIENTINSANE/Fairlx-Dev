@@ -1550,6 +1550,66 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
     rateClass: "read",
     scopes: ["billing:read"],
   },
+  {
+    name: "fairlx_coding_session_start",
+    description:
+      "Start or resume a Fairlx coding session for a work item (Azure sandbox clone). Privileged in the in-app agent; MCP queues the session object.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workItemId: id,
+        baseBranch: { type: "string" },
+      },
+      required: ["workItemId"],
+    },
+    riskTier: 3,
+    rateClass: "write",
+    scopes: ["tasks:write"],
+    permission: PERMISSIONS.EDIT_TASKS,
+  },
+  {
+    name: "fairlx_coding_session_status",
+    description: "Get a Fairlx coding session (sandbox, preview URL, PR) by sessionId or workItemId.",
+    inputSchema: {
+      type: "object",
+      properties: { sessionId: id, workItemId: id },
+    },
+    riskTier: 1,
+    rateClass: "read",
+    scopes: ["tasks:read"],
+    permission: PERMISSIONS.VIEW_TASKS,
+  },
+  {
+    name: "fairlx_coding_session_comment",
+    description: "Attach a hunk or review comment to a coding session so Fairlx Agent iterates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: id,
+        body: { type: "string" },
+        path: { type: "string" },
+        line: { type: "number" },
+      },
+      required: ["sessionId", "body"],
+    },
+    riskTier: 2,
+    rateClass: "write",
+    scopes: ["comments:write"],
+    permission: PERMISSIONS.CREATE_COMMENTS,
+  },
+  {
+    name: "fairlx_coding_session_merge",
+    description: "Request merge of the coding session pull request. Completes after Accept in Fairlx unless all_access.",
+    inputSchema: {
+      type: "object",
+      properties: { sessionId: id },
+      required: ["sessionId"],
+    },
+    riskTier: 3,
+    rateClass: "write",
+    scopes: ["tasks:write"],
+    permission: PERMISSIONS.EDIT_TASKS,
+  },
 ];
 
 const TOOL_NAME_ALIASES: Record<string, string> = {

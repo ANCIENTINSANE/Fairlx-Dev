@@ -75,11 +75,13 @@ export type GitHubEvent = Models.Document & {
  * and associate the callback with the correct project.
  */
 export interface GitHubOAuthState {
-  projectId: string;
   userId: string;
   timestamp: number;
+  projectId?: string;
   githubUrl?: string;
   branch?: string;
+  runId?: string;
+  returnTo?: string;
 }
 
 

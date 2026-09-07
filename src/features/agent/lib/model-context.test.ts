@@ -5,6 +5,7 @@ import { withWorkingContextWindow, workingContextWindow } from "./model-context"
 describe("workingContextWindow", () => {
   it("gives DeepSeek and Luna a 256k working prompt window", () => {
     expect(workingContextWindow("DeepSeek-V4-Flash").maxInputTokens).toBe(256_000);
+    expect(workingContextWindow("DeepSeek-V4-Pro").maxInputTokens).toBe(256_000);
     expect(workingContextWindow("gpt-5.6-luna").maxInputTokens).toBe(256_000);
   });
 

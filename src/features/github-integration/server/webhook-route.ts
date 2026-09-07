@@ -519,12 +519,9 @@ async function processIssuesEvent(
   const repoConfig = repositories.documents[0];
   const createTasksFromIssues = repoConfig.createTasksFromIssues;
 
-  // Decrypt access token and initialize storage for image processing
-  let decryptedToken = repoConfig.accessToken;
-  if (decryptedToken && decryptedToken.includes(":")) {
-    const { decryptToken } = await import("../lib/encryption");
-    decryptedToken = decryptToken(decryptedToken);
-  }
+  const { resolveLinkedRepoGithubToken } = await import("../lib/github-accounts");
+  const resolved = await resolveLinkedRepoGithubToken(databases, repoConfig);
+  const decryptedToken = resolved?.token;
   const { storage } = await createAdminClient();
 
   const rawBodyText = issue.body || "";
