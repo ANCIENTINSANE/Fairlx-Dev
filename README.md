@@ -18,36 +18,13 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-07T23:22:26.666Z
+**Last updated:** 2026-09-07T23:22:30.952Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `packages/fairlx-multi-agent/src/roles.test.ts`
-- `packages/fairlx-multi-agent/src/roles.ts`
-- `scripts/database-initialization/collections/agent-jobs.ts`
-- `src/features/agent/api/use-personal-agent.ts`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-face.tsx`
-- `src/features/agent/components/agent-floating-chat.tsx`
-- `src/features/agent/components/agent-home.tsx`
-- `src/features/agent/components/agent-scope-bar.tsx`
-- `src/features/agent/components/daily-cockpit.tsx`
-- `src/features/agent/components/personal-agent-setup.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/face/animations.css`
-- `src/features/agent/face/engine.ts`
-- `src/features/agent/face/face.css`
-- `src/features/agent/face/fairlx-agent-face.tsx`
-- `src/features/agent/face/index.ts`
-- `src/features/agent/face/mouth-paths.ts`
-- `src/features/agent/face/present.test.ts`
-- …and 32 more files
-
 **Latest commits**
 
+- `6281509` feat: implement agent personal stand-in system with voice training, approval workflows, and visual face animations (2026-09-08)
 - `0c1ae00` chore: bump version to 0.2.108 [skip ci] (2026-09-07)
 - `3a80594` Merge pull request #310 from ANCIENTINSANE/main (2026-09-08)
 - `7c00a2b` feat: run GitHub code actions as the user and isolate coding sessions (2026-09-08)
