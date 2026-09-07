@@ -8,7 +8,8 @@
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
-/docs
+/docs/*
+!/docs/coding-sessions.md
 
 /.github
 

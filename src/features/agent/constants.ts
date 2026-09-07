@@ -17,13 +17,20 @@ export const AGENT_BRIEFING_QUERY_KEY = ["agent-briefing"] as const;
 export const PERSONAL_AGENT_QUERY_KEY = ["personal-agent"] as const;
 export const AGENT_PLUGINS_QUERY_KEY = ["agent-plugins"] as const;
 export const AGENT_JOBS_QUERY_KEY = ["agent-jobs"] as const;
+export const AGENT_CODING_SESSIONS_QUERY_KEY = ["agent-coding-sessions"] as const;
 
 export const PLATFORM_XAI_PROVIDER_ID = "platform-xai";
 export const PLATFORM_DEEPSEEK_PROVIDER_ID = "platform-deepseek";
 export const PLATFORM_FOUNDRY_PROVIDER_ID = "platform-foundry";
 export const GROK_46_MODEL_ID = "grok-4.6";
 export const DEEPSEEK_FLASH_MODEL_ID = "deepseek-flash";
+export const DEEPSEEK_PRO_MODEL_ID = "deepseek-pro";
 export const FOUNDRY_GPT_LUNA_MODEL_ID = "gpt-5.6-luna";
+export const FOUNDRY_GPT54_MODEL_ID = "gpt-5.4";
+export const FOUNDRY_GPT55_MODEL_ID = "gpt-5.5";
+export const FOUNDRY_GPT_SOL_MODEL_ID = "gpt-5.6-sol";
+export const FOUNDRY_CLAUDE_SONNET_MODEL_ID = "claude-sonnet";
+export const FOUNDRY_CLAUDE_OPUS_MODEL_ID = "claude-opus";
 export const LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID = "foundry-deepseek-v4";
 
 export const DEFAULT_FAIRLX_MCP_SERVER_NAME = "fairlx";
@@ -136,6 +143,19 @@ export const PLATFORM_DEEPSEEK_MODEL: AgentModel = {
   ...workingContextWindow("DeepSeek-V4-Flash"),
 };
 
+export const PLATFORM_DEEPSEEK_PRO_MODEL: AgentModel = {
+  id: DEEPSEEK_PRO_MODEL_ID,
+  providerId: PLATFORM_DEEPSEEK_PROVIDER_ID,
+  modelId: "DeepSeek-V4-Pro",
+  displayName: "DeepSeek V4 Pro",
+  role: "custom",
+  isEnabled: true,
+  isPlatform: true,
+  toolCalling: true,
+  vision: true,
+  ...workingContextWindow("DeepSeek-V4-Pro"),
+};
+
 export const PLATFORM_FOUNDRY_MODEL: AgentModel = {
   id: FOUNDRY_GPT_LUNA_MODEL_ID,
   providerId: PLATFORM_FOUNDRY_PROVIDER_ID,
@@ -149,6 +169,35 @@ export const PLATFORM_FOUNDRY_MODEL: AgentModel = {
   ...workingContextWindow("gpt-5.6-luna"),
 };
 
+const EXTRA_FOUNDRY_SPECS: Array<{ id: string; env: string; displayName: string }> = [
+  { id: FOUNDRY_GPT54_MODEL_ID, env: "AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT", displayName: "GPT-5.4" },
+  { id: FOUNDRY_GPT55_MODEL_ID, env: "AGENT_FOUNDRY_GPT55_AZURE_DEPLOYMENT", displayName: "GPT-5.5" },
+  { id: FOUNDRY_GPT_SOL_MODEL_ID, env: "AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT", displayName: "GPT-5.6 Sol" },
+  { id: FOUNDRY_CLAUDE_SONNET_MODEL_ID, env: "AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_DEPLOYMENT", displayName: "Claude Sonnet" },
+  { id: FOUNDRY_CLAUDE_OPUS_MODEL_ID, env: "AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_DEPLOYMENT", displayName: "Claude Opus" },
+];
+
+export function extraFoundryModels(): AgentModel[] {
+  return EXTRA_FOUNDRY_SPECS.flatMap((spec) => {
+    const deployment = process.env[spec.env]?.trim();
+    if (!deployment) return [];
+    return [
+      {
+        id: spec.id,
+        providerId: PLATFORM_FOUNDRY_PROVIDER_ID,
+        modelId: deployment,
+        displayName: spec.displayName,
+        role: "custom" as const,
+        isEnabled: true,
+        isPlatform: true,
+        toolCalling: true,
+        vision: true,
+        ...workingContextWindow(deployment),
+      },
+    ];
+  });
+}
+
 export function getPlatformProviders(): AgentProviderStored[] {
   if (isPlatformGrokEnabled()) {
     return [PLATFORM_XAI_PROVIDER, PLATFORM_FOUNDRY_PROVIDER, PLATFORM_DEEPSEEK_PROVIDER];
@@ -157,16 +206,21 @@ export function getPlatformProviders(): AgentProviderStored[] {
 }
 
 export function getPlatformModels(): AgentModel[] {
+  const extra = extraFoundryModels();
   if (isPlatformGrokEnabled()) {
     return [
       PLATFORM_GROK_MODEL,
       { ...PLATFORM_FOUNDRY_MODEL, role: "custom" },
       { ...PLATFORM_DEEPSEEK_MODEL, role: "flash" },
+      PLATFORM_DEEPSEEK_PRO_MODEL,
+      ...extra,
     ];
   }
   return [
     { ...PLATFORM_FOUNDRY_MODEL, role: "custom" },
     { ...PLATFORM_DEEPSEEK_MODEL, role: "default" },
+    PLATFORM_DEEPSEEK_PRO_MODEL,
+    ...extra,
   ];
 }
 
@@ -185,6 +239,7 @@ export const PLATFORM_MODELS: AgentModel[] = [
   PLATFORM_GROK_MODEL,
   { ...PLATFORM_FOUNDRY_MODEL, role: "custom" },
   { ...PLATFORM_DEEPSEEK_MODEL, role: "flash" },
+  PLATFORM_DEEPSEEK_PRO_MODEL,
 ];
 
 export function getMcpServerIcon(name: string): { kind: "icon" | "badge"; value: string; className?: string } {
@@ -400,6 +455,54 @@ export const AGENT_TOOL_CATALOG = [
     description: "Open a GitHub pull request from a branch.",
   },
   {
+    id: "github_merge_pr",
+    name: "Merge pull request",
+    icon: "fa-solid fa-code-merge",
+    description: "Merge a GitHub pull request after Accept.",
+  },
+  {
+    id: "github_request_reviewers",
+    name: "Request reviewers",
+    icon: "fa-solid fa-user-check",
+    description: "Request reviewers on a GitHub pull request.",
+  },
+  {
+    id: "github_account_status",
+    name: "GitHub account",
+    icon: "fa-brands fa-github",
+    description: "Check whether this Fairlx user has GitHub connected.",
+  },
+  {
+    id: "github_list_owners",
+    name: "GitHub owners",
+    icon: "fa-solid fa-sitemap",
+    description: "List the personal GitHub account and organizations for create-repo.",
+  },
+  {
+    id: "github_create_repo",
+    name: "Create GitHub repo",
+    icon: "fa-solid fa-plus",
+    description: "Create a GitHub repository with a README and link it to this project.",
+  },
+  {
+    id: "coding_session_start",
+    name: "Start coding session",
+    icon: "fa-solid fa-cloud",
+    description: "Clone the linked repo in an Azure sandbox and branch fairlx/{workItemKey}.",
+  },
+  {
+    id: "coding_session_exec",
+    name: "Sandbox exec",
+    icon: "fa-solid fa-terminal",
+    description: "Run a command in the coding-session sandbox. Never on the Fairlx host.",
+  },
+  {
+    id: "coding_session_status",
+    name: "Session status",
+    icon: "fa-solid fa-heart-pulse",
+    description: "Get coding session status, preview URL, and PR.",
+  },
+  {
     id: "security_review",
     name: "Security review",
     icon: "fa-solid fa-shield-halved",
@@ -434,6 +537,14 @@ export const NEW_AGENT_TOOL_IDS = [
   "github_read_file",
   "github_write_file",
   "github_open_pr",
+  "github_merge_pr",
+  "github_request_reviewers",
+  "github_account_status",
+  "github_list_owners",
+  "github_create_repo",
+  "coding_session_start",
+  "coding_session_exec",
+  "coding_session_status",
   "security_review",
   "agent_job_status",
   "web_fetch",

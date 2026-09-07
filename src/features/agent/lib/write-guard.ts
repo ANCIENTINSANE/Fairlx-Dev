@@ -7,10 +7,18 @@ import type {
   AgentWriteRisk,
 } from "../types";
 
-const HARNESS_WRITES = new Set(["create_project", "mail_send", "github_write_file", "github_open_pr"]);
+const HARNESS_WRITES = new Set([
+  "create_project",
+  "mail_send",
+  "github_write_file",
+  "github_open_pr",
+  "github_merge_pr",
+  "github_create_repo",
+  "coding_session_start",
+]);
 const WRITE_NAME_RE = /_(create|update|delete|add|set|start|complete|split|sync|remove|mark_read)$/i;
 const PRIVILEGED_NAME_RE =
-  /(mail_send|github_write_file|github_open_pr|create_project|project_create|_delete|_remove|member_add|member_invite|workspace_member|organization_update|security_review|notify|doc_create|doc_update)/i;
+  /(mail_send|github_write_file|github_open_pr|github_merge_pr|github_create_repo|coding_session_start|create_project|project_create|_delete|_remove|member_add|member_invite|workspace_member|organization_update|security_review|notify|doc_create|doc_update)/i;
 
 export function mcpToolNameFromCall(call: AgentToolCall): string | undefined {
   if (call.name !== "mcp_call" && call.name !== "create_project") {
@@ -284,6 +292,20 @@ export function confirmationSummary(call: AgentToolCall): string {
   }
   if (call.name === "github_open_pr") {
     return label ? `Open PR: ${label}?` : "Open a GitHub pull request?";
+  }
+  if (call.name === "github_merge_pr") {
+    const number = nested.pullNumber;
+    return number ? `Merge pull request #${number}?` : "Merge this pull request?";
+  }
+  if (call.name === "github_create_repo") {
+    const name = String(nested.name || label).trim();
+    const owner = String(nested.owner || "").trim();
+    if (name && owner) return `Create GitHub repository ${owner}/${name}?`;
+    return name ? `Create GitHub repository ${name}?` : "Create a GitHub repository?";
+  }
+  if (call.name === "coding_session_start") {
+    const item = String(nested.workItemId || label).trim();
+    return item ? `Start a coding session for ${item}?` : "Start an Azure coding session?";
   }
   if (/create|add/i.test(mcpName) || call.name === "create_project") {
     return label ? `Create ${label}?` : `Create via ${action}?`;

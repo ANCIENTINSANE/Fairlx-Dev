@@ -358,7 +358,7 @@ export function AgentGitScreen() {
             <EmptyState
               icon={GitBranch}
               title="No repositories linked"
-              body="Link a GitHub repo on a project, or connect a PAT in Agent plugins, so the Agent can read files and open PRs."
+              body="Connect GitHub on your Fairlx profile. A workspace admin or someone with project settings access attaches one repository to the project. Code actions run as your GitHub user."
             />
           ) : (
             <div className="grid sm:grid-cols-2 gap-3">

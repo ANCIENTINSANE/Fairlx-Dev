@@ -43,6 +43,7 @@ export function resolveConfig(partial?: Partial<MultiAgentConfig>): MultiAgentCo
 export const MODEL_PRICES: Record<string, { input: number; output: number }> = {
   "grok-4.6": { input: 3, output: 15 },
   "DeepSeek-V4-Flash": { input: 0.14, output: 0.28 },
+  "DeepSeek-V4-Pro": { input: 1.74, output: 3.48 },
   "gemini-2.5-flash": { input: 0.15, output: 0.6 },
   "gemini-2.5-pro": { input: 1.25, output: 10 },
   "claude-3.7-sonnet": { input: 3, output: 15 },

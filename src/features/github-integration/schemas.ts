@@ -35,9 +35,11 @@ export const oauthCallbackSchema = z.object({
 });
 
 export const oauthAuthorizeSchema = z.object({
-  projectId: z.string().min(1, "Project ID is required"),
+  projectId: z.string().optional(),
   githubUrl: z.string().optional(),
   branch: z.string().optional(),
+  runId: z.string().optional(),
+  returnTo: z.string().optional(),
 });
 
 

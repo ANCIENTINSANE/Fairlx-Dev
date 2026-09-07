@@ -136,6 +136,17 @@ export const createComment = async (data: {
       console.error("[Comments] Failed to dispatch comment event:", err);
     });
 
+    void import("@/features/agent/lib/coding-session-hooks")
+      .then(({ maybeAttachFairlxMention }) =>
+        maybeAttachFairlxMention({
+          databases,
+          userId: data.authorId,
+          workItemId: data.taskId,
+          content: data.content,
+        }),
+      )
+      .catch(() => {});
+
     // 2. Dispatch individual mention notifications for each mentioned user
     for (const mentionedUserId of mentionedUserIds) {
       if (mentionedUserId === data.authorId) continue; // Don't notify self

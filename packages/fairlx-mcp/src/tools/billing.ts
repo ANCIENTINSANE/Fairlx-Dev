@@ -60,6 +60,7 @@ export function displayModelName(raw: string): string {
   if (!n) return "Unknown model";
   if (/luna|gpt-5\.6/.test(n)) return "GPT-5.6 Luna";
   if (/grok/.test(n)) return "Grok 4.6";
+  if (/v4-pro|deepseek-pro/.test(n)) return "DeepSeek V4 Pro";
   if (/deepseek|v4-flash/.test(n)) return "DeepSeek V4 Flash";
   return raw.trim();
 }

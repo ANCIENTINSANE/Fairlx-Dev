@@ -23,6 +23,7 @@ import { useGetIdentities, LinkedIdentity } from "../api/use-get-identities";
 import { useUnlinkIdentity } from "../api/use-unlink-identity";
 import { signUpWithGoogle, signUpWithGithub } from "@/lib/oauth";
 import { SetPasswordDialog } from "./set-password-dialog";
+import { toast } from "sonner";
 
 /**
  * Provider icon mapping
@@ -101,7 +102,11 @@ export function LinkedProviders() {
     const handleLinkGoogle = async () => {
         setIsLinkingGoogle(true);
         try {
-            await signUpWithGoogle();
+            const result = await signUpWithGoogle("/profile");
+            if (result?.error) {
+                toast.error(result.error);
+                setIsLinkingGoogle(false);
+            }
         } catch {
             setIsLinkingGoogle(false);
         }
@@ -110,7 +115,11 @@ export function LinkedProviders() {
     const handleLinkGithub = async () => {
         setIsLinkingGithub(true);
         try {
-            await signUpWithGithub();
+            const result = await signUpWithGithub("/profile");
+            if (result?.error) {
+                toast.error(result.error);
+                setIsLinkingGithub(false);
+            }
         } catch {
             setIsLinkingGithub(false);
         }

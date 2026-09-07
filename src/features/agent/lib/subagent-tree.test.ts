@@ -63,6 +63,10 @@ describe("subagent tree", () => {
     expect(crew.children[0]?.status).toBe("working");
     expect(crew.children[0]?.lastAction).toBe("researcher thinking");
     expect(crew.children[1]?.status).toBe("done");
+    expect(crew.directLive).toBe(1);
+    expect(crew.directTotal).toBe(2);
+    expect(crew.nestedTotal).toBe(0);
+    expect(crew.children[0]?.modelName).toBe("DeepSeek V4 Flash");
   });
 
   it("nests a specialist under the parent that launched it", () => {
@@ -89,6 +93,9 @@ describe("subagent tree", () => {
     expect(crew.children[0]?.children).toHaveLength(1);
     expect(crew.children[0]?.children[0]?.label).toBe("Auth");
     expect(crew.types.find((item) => item.specialist === "builder")?.total).toBe(1);
+    expect(crew.directTotal).toBe(1);
+    expect(crew.nestedTotal).toBe(1);
+    expect(crew.nestedLive).toBe(1);
   });
 
   it("marks every specialist done when the run has finished", () => {
@@ -106,5 +113,85 @@ describe("subagent tree", () => {
     expect(crew.orchestratorStatus).toBe("done");
     expect(crew.live).toBe(0);
     expect(crew.children[0]?.status).toBe("done");
+  });
+
+  it("attaches live models and activity to the orchestrator and specialists", () => {
+    const crew = buildAgentCrew(
+      [
+        event("thought", "Working", {}),
+        event("llm_usage", "Model call", {
+          role: "orchestrator",
+          displayName: "Grok 4.6",
+          modelId: "grok-4.6",
+          promptTokens: 800,
+          completionTokens: 40,
+          totalTokens: 840,
+          billed: true,
+          costUSD: 0.01,
+        }),
+        event("subagent_started", "researcher started · Market", {
+          id: "r1",
+          specialist: "researcher",
+          parent: "orchestrator",
+          task: "Research plugins",
+          subject: "Market",
+        }),
+        event("github_list_files", "Listed repo files", { subagentId: "r1", specialist: "researcher" }),
+        event("llm_usage", "researcher · model call", {
+          role: "subagent",
+          specialist: "researcher",
+          subagentId: "r1",
+          operationId: "run1:sub:r1:0",
+          displayName: "DeepSeek V4 Flash",
+          modelId: "deepseek-flash",
+          promptTokens: 500,
+          completionTokens: 20,
+          totalTokens: 520,
+          billed: true,
+          costUSD: 0.001,
+        }),
+        event("subagent_progress", "researcher thinking", { id: "r1" }),
+      ],
+      "running",
+      { orchestratorModelName: "Grok 4.6", workerModelName: "DeepSeek V4 Flash" },
+    );
+
+    expect(crew.orchestratorModelName).toBe("Grok 4.6");
+    expect(crew.workerModelName).toBe("DeepSeek V4 Flash");
+    expect(crew.orchestratorCalls).toBe(1);
+    expect(crew.orchestratorActivity.some((item) => item.title === "Working")).toBe(true);
+    expect(crew.children[0]?.modelName).toBe("DeepSeek V4 Flash");
+    expect(crew.children[0]?.calls).toBe(1);
+    expect(crew.children[0]?.tokens).toBe(520);
+    expect(crew.children[0]?.activity.map((item) => item.title)).toEqual(
+      expect.arrayContaining(["Listed repo files", "researcher thinking"]),
+    );
+    expect(crew.roster.find((item) => item.specialist === "researcher")?.live).toBe(1);
+  });
+
+  it("resolves a worker model from usage operation ids when payloads omit subagentId", () => {
+    const crew = buildAgentCrew(
+      [
+        event("subagent_started", "builder started", {
+          id: "b1",
+          specialist: "builder",
+          parent: "orchestrator",
+          task: "Create stories",
+        }),
+        event("llm_usage", "builder · model call", {
+          role: "subagent",
+          specialist: "builder",
+          operationId: "abc:sub:b1:1",
+          displayName: "DeepSeek V4 Pro",
+          promptTokens: 100,
+          completionTokens: 10,
+          totalTokens: 110,
+          billed: true,
+        }),
+      ],
+      "running",
+    );
+    expect(crew.children[0]?.modelName).toBe("DeepSeek V4 Pro");
+    expect(crew.children[0]?.calls).toBe(1);
   });
 });

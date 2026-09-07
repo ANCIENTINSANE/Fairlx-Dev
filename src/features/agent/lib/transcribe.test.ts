@@ -88,7 +88,7 @@ describe("Azure transcription helpers", () => {
     const text = await transcribeAudioBlob(blob, "voice.webm", {
       AGENT_GROK_AZURE_API_KEY: "k",
       AGENT_GROK_AZURE_ENDPOINT: "https://personal-use-g1-resource.openai.azure.com",
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
     expect(text).toBe("hello board");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

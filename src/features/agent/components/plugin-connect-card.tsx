@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Plug } from "lucide-react";
 
@@ -14,21 +14,40 @@ import { catalogForCapability, type AgentPendingPlugin } from "../plugins/catalo
 import { AGENT_FIELD_CLASS } from "../constants";
 import { cn } from "@/lib/utils";
 import { PluginCredentialGuide, hasPluginCredentialGuide } from "./plugin-credential-guide";
+import { useGetOAuthStatus } from "@/features/github-integration/api/use-github";
 
 function isOauthMail(id: string) {
   return id === "outlook" || id === "gmail";
 }
 
+function isGithubPlugin(id: string) {
+  return id === "github";
+}
+
 export function PluginConnectCard({
   pending,
   runId,
+  alreadyGranted,
+  projectId,
 }: {
   pending: AgentPendingPlugin;
   runId?: string;
+  alreadyGranted?: boolean;
+  projectId?: string;
 }) {
   const { data } = useGetAgentPlugins();
   const connect = useConnectAgentPlugin();
   const continueRun = useContinueAgentRun();
+  const { data: githubOauth } = useGetOAuthStatus();
+  const githubOauthConfigured = githubOauth?.oauthConfigured ?? false;
+  const resumed = useRef(false);
+
+  useEffect(() => {
+    if (!alreadyGranted || !runId || resumed.current) return;
+    resumed.current = true;
+    continueRun.mutate({ runId });
+  }, [alreadyGranted, runId, continueRun]);
+
   const options = useMemo(() => {
     const fromPending = (data?.catalog ?? []).filter((item) => pending.catalogIds.includes(item.id));
     return fromPending.length ? fromPending : catalogForCapability(pending.capability);
@@ -45,8 +64,19 @@ export function PluginConnectCard({
     if (!isOauthMail(selected?.id ?? "") || !platformOauth) return true;
     return field.key !== "clientId" && field.key !== "clientSecret";
   });
+  const isGithubCapabilityPending =
+    pending.capability === "code.write" ||
+    pending.capability === "code.read" ||
+    pending.capability === "security.review";
 
   const startOauth = async () => {
+    if (selected && isGithubPlugin(selected.id)) {
+      const params = new URLSearchParams();
+      if (runId) params.set("runId", runId);
+      if (projectId) params.set("projectId", projectId);
+      window.location.href = `/api/github/oauth/authorize?${params.toString()}`;
+      return;
+    }
     if (!selected || !isOauthMail(selected.id)) return;
     if (!platformOauth && (!fields.clientId || !fields.clientSecret)) {
       toast.error("Add your app client ID and secret, then connect.");
@@ -87,6 +117,14 @@ export function PluginConnectCard({
     );
   };
 
+  if (alreadyGranted) {
+    return (
+      <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-4">
+        <p className="text-sm text-foreground">GitHub is already connected. Continuing…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-4 space-y-3">
       <div className="flex items-start gap-2">
@@ -97,6 +135,12 @@ export function PluginConnectCard({
         <p className="text-xs text-muted-foreground">
           Adding someone to a project with their email is an organization invite. That uses Fairlx members — not Outlook or Gmail.
           Connect mail only if you want the Agent to send a message.
+        </p>
+      ) : null}
+      {isGithubCapabilityPending ? (
+        <p className="text-xs text-muted-foreground">
+          Sign in with GitHub or paste a classic PAT with <span className="font-mono">repo</span> and{" "}
+          <span className="font-mono">read:org</span>. Access applies to every Fairlx project. After connecting, the Agent will ask whether to create the repository under your personal account or an organization.
         </p>
       ) : null}
       <form className="space-y-3" onSubmit={onSubmit}>
@@ -154,12 +198,24 @@ export function PluginConnectCard({
           </div>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" size="sm" disabled={connect.isPending || !selected}>
+          {selected && isGithubPlugin(selected.id) ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={!githubOauthConfigured}
+              onClick={() => void startOauth()}
+            >
+              Sign in with GitHub
+            </Button>
+          ) : null}
+          <Button type="submit" size="sm" disabled={connect.isPending || !selected} variant={selected && isGithubPlugin(selected.id) ? "outline" : "primary"}>
             {connect.isPending
               ? "Connecting…"
               : isOauthMail(selected?.id ?? "")
                 ? `Connect ${selected?.name ?? "mail"}`
-                : `Connect ${selected?.name ?? "plugin"}`}
+                : isGithubPlugin(selected?.id ?? "")
+                  ? "Connect with token"
+                  : `Connect ${selected?.name ?? "plugin"}`}
           </Button>
           {runId && pending.capability === "email.send" ? (
             <Button

@@ -71,6 +71,7 @@ export function parseLlmUsagePayload(event: AgentToolEvent): AgentLlmUsagePayloa
       return {
         role: raw.role === "subagent" ? "subagent" : "orchestrator",
         specialist: typeof raw.specialist === "string" ? raw.specialist : undefined,
+        subagentId: typeof raw.subagentId === "string" ? raw.subagentId : undefined,
         iteration: typeof raw.iteration === "number" ? raw.iteration : undefined,
         operationId: String(raw.operationId || event.id),
         model: String(raw.model || ""),
@@ -110,6 +111,7 @@ export function compactLlmUsagePayload(payload: unknown): Record<string, unknown
   return {
     role: parsed.role,
     specialist: parsed.specialist,
+    subagentId: parsed.subagentId,
     iteration: parsed.iteration,
     operationId: parsed.operationId,
     model: parsed.model,

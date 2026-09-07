@@ -89,6 +89,17 @@ const BUCKETS: Bucket[] = [
     ],
   },
   {
+    pattern: /\b(coding session|sandbox|preview url|in-app diff|hunk comment|merge the pr)\b/i,
+    names: [
+      "coding_session_start",
+      "coding_session_exec",
+      "coding_session_status",
+      "github_open_pr",
+      "github_merge_pr",
+      "terminal",
+    ],
+  },
+  {
     pattern: /\b(pr\b|pull request|commit|branch|repo|repository|diff|github|edit the code|patch)\b/i,
     names: [
       "git_status",
@@ -96,6 +107,13 @@ const BUCKETS: Bucket[] = [
       "github_read_file",
       "github_write_file",
       "github_open_pr",
+      "github_merge_pr",
+      "github_account_status",
+      "github_list_owners",
+      "github_create_repo",
+      "coding_session_start",
+      "coding_session_exec",
+      "coding_session_status",
       "code_inspect",
       "git_stage",
       "git_unstage",
@@ -233,6 +251,20 @@ export function selectToolsForTurn<T extends SelectableTool>(
     wanted.add("fairlx_sprint_create");
     wanted.add("fairlx_sprint_plan");
     wanted.add("fairlx_workspace_list");
+  }
+  if (options?.hasGithubRepo) {
+    wanted.add("github_list_files");
+    wanted.add("github_read_file");
+    wanted.add("github_write_file");
+    wanted.add("github_open_pr");
+    wanted.add("github_merge_pr");
+    wanted.add("github_account_status");
+    wanted.add("github_list_owners");
+    wanted.add("github_create_repo");
+    wanted.add("coding_session_start");
+    wanted.add("coding_session_exec");
+    wanted.add("coding_session_status");
+    wanted.add("security_review");
   }
   const skipGithubRead =
     options?.hasGithubRepo === false &&

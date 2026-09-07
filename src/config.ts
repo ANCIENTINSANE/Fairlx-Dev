@@ -24,6 +24,8 @@ export const COMMENTS_ID = process.env.NEXT_PUBLIC_APPWRITE_COMMENTS_ID!;
 
 // GitHub Integration Collections
 export const GITHUB_REPOS_ID = process.env.NEXT_PUBLIC_APPWRITE_GITHUB_REPOS_ID!;
+export const GITHUB_ACCOUNTS_ID =
+  process.env.NEXT_PUBLIC_APPWRITE_GITHUB_ACCOUNTS_ID || "github_accounts";
 export const CODE_DOCS_ID = process.env.NEXT_PUBLIC_APPWRITE_CODE_DOCS_ID!;
 export const GITHUB_EVENTS_ID = process.env.NEXT_PUBLIC_APPWRITE_GITHUB_EVENTS_ID!;
 export const GITHUB_COMMITS_ID = process.env.NEXT_PUBLIC_APPWRITE_GITHUB_COMMITS_ID || "github_commits";
@@ -215,6 +217,8 @@ export const PERSONAL_AGENTS_ID =
   process.env.NEXT_PUBLIC_APPWRITE_PERSONAL_AGENTS_ID || "personal_agents";
 export const AGENT_JOBS_ID =
   process.env.NEXT_PUBLIC_APPWRITE_AGENT_JOBS_ID || "agent_jobs";
+export const AGENT_CODING_SESSIONS_ID =
+  process.env.NEXT_PUBLIC_APPWRITE_AGENT_CODING_SESSIONS_ID || "agent_coding_sessions";
 
 // ===============================
 // Landing Page Supabase (GitHub Star Rewards)

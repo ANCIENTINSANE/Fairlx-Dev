@@ -5,6 +5,7 @@ import type {
   AgentPluginPublic,
   AgentToolEvent,
 } from "../types";
+import { linkedGithubRepos, hasGithubAccount } from "../lib/github-scope";
 
 export type PluginCatalogAuth = "platform" | "oauth" | "token" | "mcp";
 
@@ -34,13 +35,11 @@ export const PLUGIN_CATALOG: PluginCatalogItem[] = [
   {
     id: "github",
     name: "GitHub",
-    description: "Read files, commit on a branch, and open pull requests on linked repos.",
+    description: "Sign in once for all Fairlx projects. Create repos, read files, commit, and open pull requests.",
     capabilities: ["code.read", "code.write", "security.review"],
-    auth: "platform",
+    auth: "oauth",
     fields: [
-      { key: "token", label: "Personal access token with repo scope", secret: true },
-      { key: "owner", label: "Owner (if no repo is linked)", placeholder: "acme" },
-      { key: "repo", label: "Repository name (if no repo is linked)", placeholder: "app" },
+      { key: "token", label: "Personal access token (repo + read:org)", secret: true, placeholder: "ghp_…" },
     ],
   },
   {
@@ -138,6 +137,9 @@ export function inferCapabilities(query: string): AgentCapability[] {
   if (isOrgInviteIntent(query)) caps.add("members.invite");
   if (/\b(slack|discord|notify channel)\b/i.test(query)) caps.add("chat.notify");
   if (/\b(security|vulnerab|xss|ssrf|pentest|shannon|cve)\b/i.test(query)) caps.add("security.review");
+  if (/\b(create|make|new)\b.{0,60}\b(github\s+)?repo(sitor(y|ies))?\b/i.test(query) || /\bgithub\b.{0,40}\b(create|new)\b.{0,40}\brepo/i.test(query)) {
+    caps.add("code.write");
+  }
   if (/\b(pr\b|pull request|commit|edit the code|open a pr|patch the repo)\b/i.test(query)) {
     caps.add("code.read");
     caps.add("code.write");
@@ -160,11 +162,11 @@ export function hasCapability(
   if (capability === "chat.notify") {
     return context.integrations.some((item) => /slack|discord/i.test(item.provider ?? ""));
   }
-  if (capability === "code.read" || capability === "code.write") {
-    if (context.githubRepos.length > 0) return true;
+  if (capability === "code.read" || capability === "security.review") {
+    return linkedGithubRepos(context).length > 0 && hasGithubAccount(context);
   }
-  if (capability === "security.review") {
-    if (context.githubRepos.length > 0) return true;
+  if (capability === "code.write") {
+    return hasGithubAccount(context);
   }
   return plugins.some((plugin) => pluginHasCapability(plugin, capability));
 }
@@ -175,6 +177,10 @@ export function missingCapabilities(
   context: AgentContext,
 ): AgentCapability[] {
   return inferCapabilities(query).filter((cap) => !hasCapability(plugins, context, cap));
+}
+
+export function isGithubCapability(capability: AgentCapability): boolean {
+  return capability === "code.read" || capability === "code.write" || capability === "security.review";
 }
 
 export function catalogForCapability(capability: AgentCapability): PluginCatalogItem[] {

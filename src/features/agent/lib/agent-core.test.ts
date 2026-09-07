@@ -261,7 +261,7 @@ describe("graph and prompt", () => {
       run: run("Create project documentation"),
       mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
     });
-    expect(prompt).toMatch(/none linked/i);
+    expect(prompt).toMatch(/none attached/i);
     expect(prompt).toMatch(/do not call github_list_files/i);
     expect(prompt).toMatch(/Skip technical_spec, api_doc/);
     expect(prompt).not.toMatch(/then github_list_files or github_read_file/);

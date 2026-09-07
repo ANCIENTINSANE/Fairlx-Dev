@@ -533,8 +533,16 @@ async function workItemUpdate(
     documentId,
     patch
   );
-  const names = (await hydrateWorkItemAssignees(runtime, [updated]))[0] ?? [];
+    const names = (await hydrateWorkItemAssignees(runtime, [updated]))[0] ?? [];
   const epic = (await hydrateWorkItemEpics(runtime, [updated]))[0] ?? null;
+  const { maybeQueueFromWorkItemUpdate } = await import("./coding-session");
+  await maybeQueueFromWorkItemUpdate(
+    runtime,
+    auth,
+    updated,
+    Array.isArray(patch.assigneeIds) ? patch.assigneeIds.map(String) : undefined,
+    typeof patch.status === "string" ? patch.status : undefined,
+  );
   return toolResult({
     workItem: compactWorkItem(updated, names, epic),
     assigned: assigneeInput !== undefined ? names.length > 0 : undefined,
@@ -1168,6 +1176,8 @@ async function commentAdd(
       isEdited: false,
       parentId: optionalString(args, "parentId") ?? null,
     });
+    const { maybeCommentMention } = await import("./coding-session");
+    await maybeCommentMention(runtime, auth, documentId, content);
     return toolResult({ comment: withId(comment) });
   };
   const idem = optionalString(args, "idempotencyKey");

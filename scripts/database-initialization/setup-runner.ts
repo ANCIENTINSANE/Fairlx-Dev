@@ -47,6 +47,7 @@ import { setupProcessedEvents } from './collections/processed-events';
 import { setupWallets } from './collections/wallets';
 import { setupWalletTransactions } from './collections/wallet-transactions';
 import { setupGithubRepositories } from './collections/github-repositories';
+import { setupGithubAccounts } from './collections/github-accounts';
 import { setupCodeDocumentation } from './collections/code-documentation';
 import { setupProjectIntegrations } from './collections/project-integrations';
 import { setupMcpApiTokens } from './collections/mcp-api-tokens';
@@ -126,6 +127,7 @@ const collectionSetups: Array<{
         { name: 'Wallets', setup: setupWallets },
         { name: 'Wallet Transactions', setup: setupWalletTransactions },
         { name: 'GitHub Repositories', setup: setupGithubRepositories },
+        { name: 'GitHub Accounts', setup: setupGithubAccounts },
         { name: 'Code Documentation', setup: setupCodeDocumentation },
         { name: 'Project Integrations', setup: setupProjectIntegrations },
         { name: 'MCP API Tokens', setup: setupMcpApiTokens },

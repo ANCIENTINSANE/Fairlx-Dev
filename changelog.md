@@ -8,7 +8,13 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-08 | `7c00a2b` | feat: run GitHub code actions as the user and isolate coding sessions | ANCIENTINSANE |
+| 2026-09-06 | `b5cda5c` | chore: bump version to 0.2.107 [skip ci] | github-actions[bot] |
+| 2026-09-06 | `c0f8f8a` | Merge pull request #309 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-06 | `cf1647a` | chore: bump version to 0.2.106 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `b276c5e` | refactor: use hard page redirects for auth flows and improve workspace navigation consistency across the app | Happyesss |
+| 2026-09-06 | `210d465` | chore: bump version to 0.2.106 [skip ci] | github-actions[bot] |
+| 2026-09-06 | `9756ebb` | Merge pull request #308 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-09-06 | `dc87db5` | chore: bump version to 0.2.105 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `3a0d23c` | feat: implement dismissible Linear-inspired suggestion cards in AgentCommandInput and reorder AgentHome layout | Happyesss |
 | 2026-09-06 | `412c5b9` | chore: bump version to 0.2.104 [skip ci] | github-actions[bot] |
@@ -92,12 +98,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-31 | `c54459b` | chore: bump version to 0.2.74 [skip ci] | github-actions[bot] |
 | 2026-08-31 | `45ab287` | Merge pull request #291 from ANCIENTINSANE/main | Shashank Kumar Rathour |
 | 2026-08-31 | `8050192` | feat: replace static agent dashboard with live harness screens and run loop | ANCIENTINSANE |
-| 2026-08-31 | `bc96244` | fix: add targeted setup for agent MCP and AI Appwrite collections | ANCIENTINSANE |
-| 2026-08-31 | `527582e` | feat: seed Azure Grok 4.6 and DeepSeek V4 Flash as agent platform models | ANCIENTINSANE |
-| 2026-08-30 | `6cbc2cb` | feat: add agent MCP servers and AI model configuration | ANCIENTINSANE |
-| 2026-08-30 | `5ef28b8` | chore: bump version to 0.2.73 [skip ci] | github-actions[bot] |
-| 2026-08-30 | `a44a939` | Merge pull request #290 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-30 | `3fd5675` | Merge branch 'stemlen:main' into main | Surendra Codes |
-| 2026-08-30 | `2709267` | chore: bump version to 0.2.72 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-06T17:33:43.935Z
+Last generated: 2026-09-07T18:56:35.181Z

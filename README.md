@@ -18,18 +18,19 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-06T17:33:43.947Z
+**Last updated:** 2026-09-07T18:56:35.203Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
 **Latest commits**
 
+- `7c00a2b` feat: run GitHub code actions as the user and isolate coding sessions (2026-09-08)
+- `b5cda5c` chore: bump version to 0.2.107 [skip ci] (2026-09-06)
+- `c0f8f8a` Merge pull request #309 from Happyesss/main (2026-09-06)
+- `cf1647a` chore: bump version to 0.2.106 [skip ci] (2026-09-06)
 - `b276c5e` refactor: use hard page redirects for auth flows and improve workspace navigation consistency across the app (2026-09-06)
-- `dc87db5` chore: bump version to 0.2.105 [skip ci] (2026-09-06)
-- `3a0d23c` feat: implement dismissible Linear-inspired suggestion cards in AgentCommandInput and reorder AgentHome layout (2026-09-06)
-- `412c5b9` chore: bump version to 0.2.104 [skip ci] (2026-09-06)
-- `03593e4` Merge pull request #307 from ANCIENTINSANE/main (2026-09-06)
-- `fe9d2a6` fix: resolve sprints by name and fold duplicate sprint numbers (2026-09-06)
+- `210d465` chore: bump version to 0.2.106 [skip ci] (2026-09-06)
+- `9756ebb` Merge pull request #308 from Happyesss/main (2026-09-06)
 <!-- docs:latest:end -->
 
 ---

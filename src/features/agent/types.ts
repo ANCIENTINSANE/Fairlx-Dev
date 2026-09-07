@@ -145,7 +145,8 @@ export type AgentSpecialistId =
   | "reviewer"
   | "ops"
   | "security"
-  | "workflow";
+  | "workflow"
+  | "tester";
 
 export type AgentCapability =
   | "email.send"
@@ -193,7 +194,7 @@ export type AgentPluginPublic = {
   createdAt: string;
 };
 
-export type AgentJobKind = "security_review" | "github_pr";
+export type AgentJobKind = "security_review" | "github_pr" | "coding_session";
 export type AgentJobStatus = "queued" | "running" | "completed" | "failed";
 
 export type AgentJob = {
@@ -206,6 +207,47 @@ export type AgentJob = {
   payload: Record<string, unknown>;
   result?: Record<string, unknown>;
   error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CodingSessionStatus =
+  | "queued"
+  | "preparing"
+  | "running"
+  | "awaiting_review"
+  | "iterating"
+  | "merging"
+  | "merged"
+  | "failed"
+  | "stopped";
+
+export type CodingSessionEvent = {
+  id: string;
+  type: string;
+  detail?: string;
+  payload?: unknown;
+  createdAt: string;
+};
+
+export type CodingSession = {
+  id: string;
+  userId: string;
+  workItemId: string;
+  projectId: string;
+  workspaceId: string;
+  runId?: string;
+  repoId?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  status: CodingSessionStatus;
+  sandboxId?: string;
+  previewUrl?: string;
+  prNumber?: number;
+  prUrl?: string;
+  orchestratorModelId?: string;
+  workerModelId?: string;
+  events: CodingSessionEvent[];
   createdAt: string;
   updatedAt: string;
 };
@@ -305,6 +347,14 @@ export type AgentToolEventType =
   | "github_list_files"
   | "github_write_file"
   | "github_open_pr"
+  | "github_merge_pr"
+  | "github_request_reviewers"
+  | "github_account_status"
+  | "github_list_owners"
+  | "github_create_repo"
+  | "coding_session_start"
+  | "coding_session_exec"
+  | "coding_session_status"
   | "security_review"
   | "request_capability"
   | "persist_memory"
@@ -335,6 +385,7 @@ export type AgentToolEvent = {
 export type AgentLlmUsagePayload = {
   role: "orchestrator" | "subagent";
   specialist?: string;
+  subagentId?: string;
   iteration?: number;
   operationId: string;
   model: string;
@@ -369,7 +420,8 @@ export type AgentRun = {
   messages: AgentChatMessage[];
   events: AgentToolEvent[];
   error?: string;
-  kind?: "chat" | "training";
+  kind?: "chat" | "training" | "coding_session";
+  sessionId?: string;
   contextPeak?: {
     conversation: number;
     summarized_conversation: number;
@@ -550,6 +602,11 @@ export type AgentContext = {
   workItems: AgentContextWorkItem[];
   notifications: AgentContextNotification[];
   githubRepos: AgentContextRepo[];
+  githubAccount?: {
+    connected: boolean;
+    login?: string;
+  };
+  githubAttachProjectIds?: string[];
   integrations: AgentContextIntegration[];
   docs: AgentContextDoc[];
   organizations?: AgentContextOrganization[];

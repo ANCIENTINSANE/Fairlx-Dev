@@ -29,6 +29,7 @@ type RunDocument = {
 
 type RunExtra = {
   kind?: string;
+  sessionId?: string;
   contextPeak?: {
     conversation: number;
     summarized_conversation: number;
@@ -38,7 +39,12 @@ type RunExtra = {
 export function parseRun(doc: RunDocument): AgentRun {
   const extra = parseJson<RunExtra>(doc.extraJson, {});
   const prompt = doc.prompt;
-  const kind = isTrainingRun({ kind: extra.kind, prompt }) ? "training" : "chat";
+  const kind =
+    extra.kind === "coding_session"
+      ? "coding_session"
+      : isTrainingRun({ kind: extra.kind, prompt })
+        ? "training"
+        : "chat";
   const attachments = parseJson<Array<{ name: string; body: string }>>(doc.attachmentsJson, []);
   const messages = parseJson<AgentChatMessage[]>(doc.messagesJson, []).map((message, index) => {
     if (index !== 0 || message.role !== "user" || !attachments.length) return message;
@@ -59,6 +65,7 @@ export function parseRun(doc: RunDocument): AgentRun {
     events: parseJson<AgentToolEvent[]>(doc.eventsJson, []),
     error: doc.error || undefined,
     kind,
+    sessionId: extra.sessionId,
     contextPeak:
       contextPeak && typeof contextPeak.conversation === "number"
         ? {
@@ -84,8 +91,13 @@ export async function getRun(databases: Databases, userId: string, runId: string
   try {
     const doc = await databases.getDocument(DATABASE_ID, AGENT_RUNS_ID, runId);
     const run = parseRun(doc as unknown as RunDocument);
-    if (run.userId !== userId) return null;
-    return run;
+    if (run.userId === userId) return run;
+    if (run.kind === "coding_session" && run.projectId) {
+      const { resolveUserProjectAccess } = await import("@/lib/permissions/resolveUserProjectAccess");
+      const access = await resolveUserProjectAccess(databases, userId, run.projectId);
+      if (access.hasAccess) return run;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -185,6 +197,7 @@ export async function updateRun(
     error: string;
     extra: {
       kind?: string;
+      sessionId?: string;
       contextPeak?: {
         conversation: number;
         summarized_conversation: number;

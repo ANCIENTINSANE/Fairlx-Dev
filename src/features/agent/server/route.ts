@@ -72,7 +72,7 @@ import {
   trainingKickoffPrompt,
   trainingProgress,
 } from "../lib/personal-training";
-import { PLUGIN_CATALOG, toPublicPlugin } from "../plugins/catalog";
+import { PLUGIN_CATALOG, findPendingPlugin, hasCapability, isGithubCapability, toPublicPlugin } from "../plugins/catalog";
 import { buildPluginConnection, upsertPluginList } from "../plugins/connect";
 import {
   applyOauthTokensToSecrets,
@@ -88,6 +88,18 @@ import {
 import { getAgentJob, listAgentJobs, updateAgentJob } from "../lib/jobs";
 import { scheduleAgentJob } from "../lib/schedule-job";
 import { buildAgentMcpAuth } from "../lib/agent-auth";
+import {
+  findActiveCodingSessionForWorkItem,
+  findCodingSessionByRun,
+  getCodingSession,
+  listCodingSessionsForProject,
+  updateCodingSession,
+  appendSessionEvent,
+  guidedWalkthrough,
+} from "../lib/coding-sessions";
+import { startOrResumeCodingSession } from "../lib/coding-session-start";
+import { githubMergePullRequest, githubSessionDiff } from "../plugins/github";
+import { resolveUserProjectAccess } from "@/lib/permissions/resolveUserProjectAccess";
 
 const mcpServerSchema = z
   .object({
@@ -249,6 +261,27 @@ const harnessSchema = z.object({
 function sessionUser(c: Context) {
   const user = c.get("user");
   return { $id: user.$id, name: user.name, email: user.email };
+}
+
+function pluginContinueTitle(events: AgentRun["events"]): string {
+  const pending = findPendingPlugin(events ?? []);
+  if (pending && isGithubCapability(pending.capability)) {
+    return "Using your GitHub account";
+  }
+  return "Continued without connecting a mail plugin";
+}
+
+function withPluginConnected(run: AgentRun, title: string): AgentRun["events"] {
+  return [
+    ...(run.events ?? []),
+    {
+      id: crypto.randomUUID(),
+      type: "plugin_connected" as const,
+      title,
+      createdAt: new Date().toISOString(),
+      runId: run.id,
+    },
+  ];
 }
 
 function encryptionErrorResponse(error: unknown, c: Context) {
@@ -414,6 +447,24 @@ const app = new Hono()
     try {
       const run = await getRun(databases, user.$id, runId);
       if (!run) return c.json({ error: "Run not found." }, 404);
+      if (run.status === "awaiting_plugin" && !isAgentTurnInFlight(runId)) {
+        const pending = findPendingPlugin(run.events ?? []);
+        if (pending && isGithubCapability(pending.capability)) {
+          const [context, harness] = await Promise.all([
+            loadAgentContext(databases, user),
+            getOrCreateHarness(databases, user.$id),
+          ]);
+          if (hasCapability(harness.plugins, context, pending.capability)) {
+            const resumed = await updateRun(databases, runId, {
+              status: "running",
+              error: "",
+              events: withPluginConnected(run, "Using your GitHub account"),
+            });
+            scheduleAgentTurn({ databases, user, run: resumed });
+            return c.json({ data: resumed });
+          }
+        }
+      }
       return c.json({ data: run });
     } catch (error) {
       console.error("[agent] failed to get run", error);
@@ -461,16 +512,7 @@ const app = new Hono()
       const createdAt = new Date().toISOString();
       const events =
         existing.status === "awaiting_plugin"
-          ? [
-              ...existing.events,
-              {
-                id: crypto.randomUUID(),
-                type: "plugin_connected" as const,
-                title: "Continued without connecting a mail plugin",
-                createdAt,
-                runId: existing.id,
-              },
-            ]
+          ? withPluginConnected(existing, pluginContinueTitle(existing.events))
           : existing.events;
       const run = await updateRun(databases, runId, {
         status: "running",
@@ -514,16 +556,7 @@ const app = new Hono()
 
       const events =
         existing.status === "awaiting_plugin"
-          ? [
-              ...existing.events,
-              {
-                id: crypto.randomUUID(),
-                type: "plugin_connected" as const,
-                title: "Continued without connecting a mail plugin",
-                createdAt: new Date().toISOString(),
-                runId: existing.id,
-              },
-            ]
+          ? withPluginConnected(existing, pluginContinueTitle(existing.events))
           : existing.events;
       const run = await updateRun(databases, runId, { status: "running", error: "", events });
       scheduleAgentTurn({ databases, user, run });
@@ -754,6 +787,15 @@ const app = new Hono()
       try {
         const harness = await getOrCreateHarness(databases, user.$id);
         const connection = buildPluginConnection(json);
+        if (json.catalogId === "github" && json.fields?.token) {
+          const { upsertGithubAccount } = await import("@/features/github-integration/lib/github-accounts");
+          await upsertGithubAccount(databases, {
+            userId: user.$id,
+            token: json.fields.token,
+            authMethod: "pat",
+            scopes: "repo,read:org",
+          });
+        }
         const data = await upsertHarness(databases, user.$id, {
           plugins: upsertPluginList(harness.plugins, connection),
         });
@@ -1341,6 +1383,216 @@ const app = new Hono()
       console.error("[agent] failed to reset personal agent", error);
       return c.json({ error: "Failed to reset the personal agent." }, 500);
     }
+  })
+  .get(
+    "/coding-sessions",
+    sessionMiddleware,
+    zValidator(
+      "query",
+      z.object({
+        runId: z.string().optional(),
+        workItemId: z.string().optional(),
+        projectId: z.string().optional(),
+        sessionId: z.string().optional(),
+      }),
+    ),
+    async (c) => {
+      const user = sessionUser(c);
+      const query = c.req.valid("query");
+      const { databases } = await createAdminClient();
+      try {
+        let session = query.sessionId ? await getCodingSession(databases, query.sessionId) : null;
+        if (!session && query.runId) session = await findCodingSessionByRun(databases, query.runId);
+        if (!session && query.workItemId) {
+          session = await findActiveCodingSessionForWorkItem(databases, query.workItemId);
+        }
+        if (!session && query.projectId) {
+          const listed = await listCodingSessionsForProject(databases, query.projectId, 1);
+          session = listed[0] ?? null;
+        }
+        if (!session) return c.json({ data: null });
+        if (session.userId !== user.$id) {
+          const access = await resolveUserProjectAccess(databases, user.$id, session.projectId);
+          if (!access.hasAccess) return c.json({ error: "Coding session not found." }, 404);
+        }
+        let diff: Record<string, unknown> | null = null;
+        if (session.prNumber || session.headBranch) {
+          const [context, harness] = await Promise.all([
+            loadAgentContext(databases, user),
+            getOrCreateHarness(databases, user.$id),
+          ]);
+          const loaded = await githubSessionDiff({
+            databases,
+            context,
+            plugins: harness.plugins,
+            pullNumber: session.prNumber,
+            base: session.baseBranch,
+            head: session.headBranch,
+            repoId: session.repoId,
+            projectId: session.projectId,
+          });
+          diff = loaded && !("error" in loaded) ? loaded : null;
+        }
+        const files = Array.isArray((diff as { files?: unknown } | null)?.files)
+          ? ((diff as {
+              files: Array<{
+                filename: string;
+                status?: string;
+                additions?: number;
+                deletions?: number;
+                patch?: string;
+              }>;
+            }).files ?? [])
+          : [];
+        return c.json({ data: { session, diff, walkthrough: guidedWalkthrough(files) } });
+      } catch (error) {
+        console.error("[agent] failed to load coding session", error);
+        return c.json({ error: "Failed to load coding session." }, 500);
+      }
+    },
+  )
+  .post(
+    "/coding-sessions",
+    sessionMiddleware,
+    zValidator(
+      "json",
+      z.object({
+        workItemId: z.string().min(1),
+        projectId: z.string().optional(),
+        runId: z.string().optional(),
+        exposePort: z.number().optional(),
+      }),
+    ),
+    async (c) => {
+      const user = sessionUser(c);
+      const json = c.req.valid("json");
+      const { databases } = await createAdminClient();
+      try {
+        const [context, harness] = await Promise.all([
+          loadAgentContext(databases, user),
+          getOrCreateHarness(databases, user.$id),
+        ]);
+        const runId =
+          json.runId ||
+          (
+            await createRun(databases, {
+              userId: user.$id,
+              prompt: `Start a coding session for ${json.workItemId}. Call coding_session_start.`,
+              mode: harness.settings.mode,
+              workspaceId: harness.settings.defaultWorkspaceId,
+              projectId: json.projectId || harness.settings.defaultProjectId,
+              title: `Session ${json.workItemId}`,
+            })
+          ).id;
+        const result = await startOrResumeCodingSession({
+          databases,
+          userId: user.$id,
+          runId,
+          context,
+          harness,
+          plugins: harness.plugins,
+          workItemId: json.workItemId,
+          projectId: json.projectId,
+          exposePort: json.exposePort,
+        });
+        return c.json({ data: { ...result, runId } });
+      } catch (error) {
+        console.error("[agent] failed to start coding session", error);
+        return c.json({ error: "Failed to start coding session." }, 500);
+      }
+    },
+  )
+  .post(
+    "/coding-sessions/:sessionId/comment",
+    sessionMiddleware,
+    zValidator(
+      "json",
+      z.object({
+        path: z.string().min(1),
+        line: z.number(),
+        body: z.string().min(1).max(4000),
+      }),
+    ),
+    async (c) => {
+      const user = sessionUser(c);
+      const sessionId = c.req.param("sessionId");
+      const json = c.req.valid("json");
+      const { databases } = await createAdminClient();
+      const session = await getCodingSession(databases, sessionId);
+      if (!session) return c.json({ error: "Session not found." }, 404);
+      if (session.userId !== user.$id) {
+        const access = await resolveUserProjectAccess(databases, user.$id, session.projectId);
+        if (!access.hasAccess) return c.json({ error: "Session not found." }, 404);
+      }
+      if (!session.runId) return c.json({ error: "Session has no bound chat run." }, 409);
+      const run = await getRun(databases, user.$id, session.runId);
+      if (!run) return c.json({ error: "Bound run not found." }, 404);
+      await updateCodingSession(databases, session.id, {
+        status: "iterating",
+        events: appendSessionEvent(session.events, "hunk_comment", `${json.path}:${json.line} ${json.body}`),
+      });
+      const updated = await updateRun(databases, run.id, {
+        status: "running",
+        messages: [
+          ...run.messages,
+          {
+            id: crypto.randomUUID(),
+            role: "user",
+            content: `Fix this hunk in ${json.path}:${json.line}:\n${json.body}`,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      });
+      scheduleAgentTurn({ databases, user, run: updated });
+      return c.json({ data: { sessionId, runId: run.id } });
+    },
+  )
+  .post("/coding-sessions/:sessionId/merge", sessionMiddleware, async (c) => {
+    const user = sessionUser(c);
+    const sessionId = c.req.param("sessionId");
+    const { databases } = await createAdminClient();
+    const session = await getCodingSession(databases, sessionId);
+    if (!session) return c.json({ error: "Session not found." }, 404);
+    if (session.userId !== user.$id) {
+      const access = await resolveUserProjectAccess(databases, user.$id, session.projectId);
+      if (!access.hasAccess) return c.json({ error: "Session not found." }, 404);
+    }
+    if (!session.prNumber) return c.json({ error: "No pull request to merge yet." }, 409);
+    const harness = await getOrCreateHarness(databases, user.$id);
+    if (harness.settings.permissionType === "all_access") {
+      const context = await loadAgentContext(databases, user);
+      const result = await githubMergePullRequest({
+        databases,
+        context,
+        plugins: harness.plugins,
+        pullNumber: session.prNumber,
+        repoId: session.repoId,
+        projectId: session.projectId,
+      });
+      if ("error" in result) return c.json({ error: result.error }, 400);
+      await updateCodingSession(databases, session.id, {
+        status: "merged",
+        events: appendSessionEvent(session.events, "merged", `Merged PR #${session.prNumber}`),
+      });
+      return c.json({ data: result });
+    }
+    if (!session.runId) return c.json({ error: "Session has no bound chat run." }, 409);
+    const run = await getRun(databases, user.$id, session.runId);
+    if (!run) return c.json({ error: "Bound run not found." }, 404);
+    const updated = await updateRun(databases, run.id, {
+      status: "running",
+      messages: [
+        ...run.messages,
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: `Merge pull request #${session.prNumber} with github_merge_pr (squash). Wait for Accept.`,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+    scheduleAgentTurn({ databases, user, run: updated });
+    return c.json({ data: { queued: true, runId: run.id } });
   });
 
 export default app;

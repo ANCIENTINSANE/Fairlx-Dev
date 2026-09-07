@@ -44,6 +44,7 @@ import {
   ORG_MEMBER_DEPARTMENTS_ID,
   USAGE_EVENTS_ID,
   WALLETS_ID,
+  AGENT_CODING_SESSIONS_ID,
 } from "@/config";
 import { hashMcpToken } from "@/features/integrations/lib/helpers";
 import {
@@ -115,6 +116,7 @@ const COLLECTIONS: McpCollections = {
   orgMemberDepartments: ORG_MEMBER_DEPARTMENTS_ID,
   usageEvents: USAGE_EVENTS_ID,
   wallets: WALLETS_ID,
+  codingSessions: AGENT_CODING_SESSIONS_ID,
 };
 
 const IDEMPOTENCY_TTL_SECONDS = 60 * 60 * 24;

@@ -180,7 +180,7 @@ describe("run usage", () => {
       }),
     ]);
     expect(summary?.totalTokens).toBe(59_460);
-    expect(summary?.promptTokens + summary!.completionTokens).toBe(summary?.totalTokens);
+    expect(summary!.promptTokens + summary!.completionTokens).toBe(summary!.totalTokens);
     expect(summary?.costUSD).toBe(billed.costUSD);
     expect(Math.round(summary!.cacheHitPercent)).toBe(46);
     expect(formatUsd(summary!.costUSD)).not.toBe("$0.015");

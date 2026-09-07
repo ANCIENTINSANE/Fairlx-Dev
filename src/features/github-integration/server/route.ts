@@ -28,6 +28,13 @@ import { getMember } from "@/features/members/utils";
 import { connectGitHubRepoSchema } from "../schemas";
 import { GitHubRepository } from "../types";
 import { githubAPI, GitHubAPI } from "../lib/github-api";
+import {
+  isPendingGithubRepo,
+  resolveLinkedRepoGithubToken,
+  resolveUserGithubToken,
+  upsertGithubAccount,
+} from "../lib/github-accounts";
+import { GITHUB_ATTACH_FORBIDDEN, userCanManageProjectGithub } from "../lib/github-permissions";
 
 function getAppBaseUrl(): string | null {
   const raw = process.env.NEXT_PUBLIC_APP_URL?.trim();
@@ -114,15 +121,8 @@ async function verifyAndUpdateWebhookHelper(databases: Databases, repoConfig: Gi
 
   const expectedUrl = `${baseUrl}/api/github/webhooks/incoming/${projectId}`;
 
-  let activeToken: string | undefined = undefined;
-  if (repoConfig.accessToken) {
-    let token = repoConfig.accessToken;
-    if (token.includes(":")) {
-      const { decryptToken } = await import("../lib/encryption");
-      token = decryptToken(token);
-    }
-    activeToken = token;
-  }
+  const resolvedToken = await resolveLinkedRepoGithubToken(databases, repoConfig);
+  const activeToken = resolvedToken?.token;
 
   const api = new GitHubAPI(activeToken);
 
@@ -230,15 +230,8 @@ async function syncGitHubHistoryHelper(databases: Databases, projectId: string) 
     console.error("[GitHub Sync History] Failed to verify/update webhook:", err);
   }
 
-  let activeToken: string | undefined = undefined;
-  if (repoConfig.accessToken) {
-    let token = repoConfig.accessToken;
-    if (token.includes(":")) {
-      const { decryptToken } = await import("../lib/encryption");
-      token = decryptToken(token);
-    }
-    activeToken = token;
-  }
+  const resolvedToken = await resolveLinkedRepoGithubToken(databases, repoConfig);
+  const activeToken = resolvedToken?.token;
 
   const { storage } = await createAdminClient();
   const api = new GitHubAPI(activeToken);
@@ -597,40 +590,36 @@ const app = new Hono()
           return c.json({ error: "Unauthorized" }, 401);
         }
 
-        // Check if repo is already linked (determines connect vs. update)
         const existing = await databases.listDocuments<GitHubRepository>(
           DATABASE_ID,
           GITHUB_REPOS_ID,
-          [Query.equal("projectId", projectId)]
+          [Query.equal("projectId", projectId), Query.limit(100)]
         );
 
-        // RBAC: Only project admins/owners can create new repository connections.
-        // All project members can update/refetch an existing connection.
-        if (existing.total === 0) {
-          const { resolveUserProjectAccess } = await import(
-            "@/lib/permissions/resolveUserProjectAccess"
-          );
-          const access = await resolveUserProjectAccess(databases, user.$id, projectId);
-          if (!access.isAdmin) {
-            return c.json(
-              { error: "Only project admins and owners can connect repositories" },
-              403
-            );
-          }
+        const canAttach = await userCanManageProjectGithub(databases, user.$id, projectId);
+        if (!canAttach) {
+          return c.json({ error: GITHUB_ATTACH_FORBIDDEN }, 403);
         }
 
         // Parse GitHub URL
         const { owner, repo } = githubAPI.parseGitHubUrl(githubUrl);
 
-        // Verify repository exists and is accessible
-        let activeToken: string | undefined = githubToken || undefined;
-        if (!activeToken && existing.total > 0 && existing.documents[0].accessToken) {
-          let token = existing.documents[0].accessToken;
-          if (token.includes(":")) {
-            const { decryptToken } = await import("../lib/encryption");
-            token = decryptToken(token);
-          }
-          activeToken = token;
+        const personal = await resolveUserGithubToken(databases, user.$id);
+        let activeToken: string | undefined = githubToken || personal?.token;
+        if (githubToken) {
+          await upsertGithubAccount(databases, {
+            userId: user.$id,
+            token: githubToken,
+            authMethod: "pat",
+            scopes: "repo,read:org",
+          });
+          activeToken = githubToken;
+        }
+        if (!activeToken) {
+          return c.json(
+            { error: "Connect your GitHub account to your Fairlx profile first." },
+            400
+          );
         }
 
         const api = new GitHubAPI(activeToken);
@@ -648,64 +637,64 @@ const app = new Hono()
         }
 
         // Generate webhook secret and register webhook on GitHub
+        const keeper =
+          existing.documents.find((doc) => !isPendingGithubRepo(doc)) ?? existing.documents[0];
+        for (const doc of existing.documents) {
+          if (keeper && doc.$id !== keeper.$id) {
+            await databases.deleteDocument(DATABASE_ID, GITHUB_REPOS_ID, doc.$id);
+          }
+        }
+
         const webhookSecret = ID.unique();
         const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/github/webhooks/incoming/${projectId}`;
         let webhookId: number | undefined;
 
         let repository: GitHubRepository;
 
-        if (existing.total > 0) {
-          // Update existing - Clear old documentation when repository is updated
-          const oldRepo = existing.documents[0];
-          const repoChanged = oldRepo.githubUrl.toLowerCase() !== githubUrl.toLowerCase() || 
+        if (keeper) {
+          const oldRepo = keeper;
+          const repoChanged = oldRepo.githubUrl.toLowerCase() !== githubUrl.toLowerCase() ||
                              oldRepo.branch !== branch;
-          
+
           if (repoChanged) {
-            // Delete old documentation if repository URL or branch changed
             const oldDocs = await databases.listDocuments(
               DATABASE_ID,
               CODE_DOCS_ID,
               [Query.equal("projectId", projectId)]
             );
-            
+
             for (const doc of oldDocs.documents) {
               await databases.deleteDocument(DATABASE_ID, CODE_DOCS_ID, doc.$id);
             }
           }
 
-          // Delete old webhook if it exists
           if (oldRepo.webhookId) {
             try {
-              let oldToken = oldRepo.accessToken;
-              if (oldToken && oldToken.includes(":")) {
-                const { decryptToken } = await import("../lib/encryption");
-                oldToken = decryptToken(oldToken);
-              }
-              const oldApi = oldToken ? new GitHubAPI(oldToken) : api;
+              const oldResolved = await resolveLinkedRepoGithubToken(databases, oldRepo, user.$id);
+              const oldApi = oldResolved ? new GitHubAPI(oldResolved.token) : api;
               await oldApi.deleteWebhook(oldRepo.owner, oldRepo.repositoryName, oldRepo.webhookId);
             } catch (err) {
               console.error("[GitHub Webhook] Failed to delete old webhook during update:", err);
             }
           }
 
-          // Register new webhook
           try {
             const hook = await api.registerWebhook(owner, repo, webhookUrl, webhookSecret);
             webhookId = hook.id;
           } catch (err) {
             console.error("[GitHub Webhook] Failed to register new webhook during update:", err);
           }
-          
+
           repository = await databases.updateDocument<GitHubRepository>(
             DATABASE_ID,
             GITHUB_REPOS_ID,
-            existing.documents[0].$id,
+            keeper.$id,
             {
               githubUrl: githubUrl.toLowerCase(),
               repositoryName: repo,
               owner,
               branch,
-              ...(githubToken ? { accessToken: githubToken } : {}),
+              accessToken: "",
               status: "connected",
               lastSyncedAt: new Date().toISOString(),
               error: null,
@@ -715,7 +704,6 @@ const app = new Hono()
             }
           );
         } else {
-          // Register webhook for new connection
           try {
             const hook = await api.registerWebhook(owner, repo, webhookUrl, webhookSecret);
             webhookId = hook.id;
@@ -723,7 +711,6 @@ const app = new Hono()
             console.error("[GitHub Webhook] Failed to register webhook during link:", err);
           }
 
-          // Create new
           repository = await databases.createDocument<GitHubRepository>(
             DATABASE_ID,
             GITHUB_REPOS_ID,
@@ -735,7 +722,7 @@ const app = new Hono()
               repositoryName: repo,
               owner,
               branch: branch || "main",
-              accessToken: githubToken || undefined,
+              accessToken: "",
               status: "connected",
               lastSyncedAt: new Date().toISOString(),
               createdBy: user.$id,
@@ -806,17 +793,25 @@ const app = new Hono()
         }
 
         // Get linked repository
-        const repositories = await databases.listDocuments<GitHubRepository>(
+        const listed = await databases.listDocuments<GitHubRepository>(
           DATABASE_ID,
           GITHUB_REPOS_ID,
-          [Query.equal("projectId", projectId), Query.limit(1)]
+          [Query.equal("projectId", projectId), Query.limit(100)]
         );
 
-        if (repositories.total === 0) {
+        if (listed.total === 0) {
           return c.json({ data: null });
         }
 
-        const repo = repositories.documents[0];
+        const repo =
+          listed.documents.find((doc) => !isPendingGithubRepo(doc) && doc.status !== "authenticating") ??
+          listed.documents[0];
+
+        if (isPendingGithubRepo(repo) || repo.status === "authenticating") {
+          return c.json({ data: null });
+        }
+
+        const { accessToken: _accessToken, ...publicRepo } = repo;
 
         // Verify and update webhook in background
         verifyAndUpdateWebhookHelper(databases, repo).catch((err) => {
@@ -831,10 +826,11 @@ const app = new Hono()
             repo.$id,
             { status: 'connected' }
           );
-          return c.json({ data: updatedRepo });
+          const { accessToken: _updatedToken, ...publicUpdated } = updatedRepo;
+          return c.json({ data: publicUpdated });
         }
 
-        return c.json({ data: repo });
+        return c.json({ data: publicRepo });
       } catch (error: unknown) {
         return c.json(
           {
@@ -890,27 +886,15 @@ const app = new Hono()
           return c.json({ error: "Unauthorized" }, 401);
         }
 
-        // RBAC: Only project admins/owners can disconnect repositories
-        const { resolveUserProjectAccess } = await import(
-          "@/lib/permissions/resolveUserProjectAccess"
-        );
-        const access = await resolveUserProjectAccess(databases, user.$id, repository.projectId);
-        if (!access.isAdmin) {
-          return c.json(
-            { error: "Only project admins and owners can disconnect repositories" },
-            403
-          );
+        const canAttach = await userCanManageProjectGithub(databases, user.$id, repository.projectId);
+        if (!canAttach) {
+          return c.json({ error: GITHUB_ATTACH_FORBIDDEN }, 403);
         }
 
-        // Delete webhook from GitHub if registered
         if (repository.webhookId) {
           try {
-            let token = repository.accessToken;
-            if (token && token.includes(":")) {
-              const { decryptToken } = await import("../lib/encryption");
-              token = decryptToken(token);
-            }
-            const api = token ? new GitHubAPI(token) : githubAPI;
+            const resolved = await resolveLinkedRepoGithubToken(databases, repository, user.$id);
+            const api = resolved ? new GitHubAPI(resolved.token) : githubAPI;
             await api.deleteWebhook(repository.owner, repository.repositoryName, repository.webhookId);
           } catch (err) {
             console.error("[GitHub Webhook] Failed to delete webhook during disconnect:", err);
@@ -1036,28 +1020,14 @@ const app = new Hono()
           return c.json({ error: "Unauthorized" }, 401);
         }
 
-        // Get the GitHub token from the database
-        const repositories = await databases.listDocuments<GitHubRepository>(
-          DATABASE_ID,
-          GITHUB_REPOS_ID,
-          [Query.equal("projectId", projectId), Query.limit(1)]
-        );
-
-        if (repositories.total === 0 || !repositories.documents[0].accessToken) {
-          return c.json({ error: "Not authenticated with GitHub" }, 400);
+        // Get the GitHub token from the user's Fairlx-wide account, then this project.
+        const { resolveUserGithubToken } = await import("../lib/github-accounts");
+        const resolved = await resolveUserGithubToken(databases, user.$id, projectId);
+        if (!resolved) {
+          return c.json({ error: "Not authenticated with GitHub", code: "github_auth_required" }, 400);
         }
 
-        const repository = repositories.documents[0];
-        let decryptedToken = repository.accessToken;
-        if (!decryptedToken) {
-          return c.json({ error: "Not authenticated with GitHub" }, 400);
-        }
-        if (decryptedToken.includes(":")) {
-          const { decryptToken } = await import("../lib/encryption");
-          decryptedToken = decryptToken(decryptedToken);
-        }
-
-        const api = new GitHubAPI(decryptedToken);
+        const api = new GitHubAPI(resolved.token);
         const repos = await api.listUserRepositories();
 
         return c.json({ data: repos });
@@ -1113,28 +1083,13 @@ const app = new Hono()
           return c.json({ error: "Unauthorized" }, 401);
         }
 
-        // Get the GitHub token from the database
-        const repositories = await databases.listDocuments<GitHubRepository>(
-          DATABASE_ID,
-          GITHUB_REPOS_ID,
-          [Query.equal("projectId", projectId), Query.limit(1)]
-        );
-
-        if (repositories.total === 0 || !repositories.documents[0].accessToken) {
-          return c.json({ error: "Not authenticated with GitHub" }, 400);
+        const { resolveUserGithubToken } = await import("../lib/github-accounts");
+        const resolved = await resolveUserGithubToken(databases, user.$id, projectId);
+        if (!resolved) {
+          return c.json({ error: "Not authenticated with GitHub", code: "github_auth_required" }, 400);
         }
 
-        const repository = repositories.documents[0];
-        let decryptedToken = repository.accessToken;
-        if (!decryptedToken) {
-          return c.json({ error: "Not authenticated with GitHub" }, 400);
-        }
-        if (decryptedToken.includes(":")) {
-          const { decryptToken } = await import("../lib/encryption");
-          decryptedToken = decryptToken(decryptedToken);
-        }
-
-        const api = new GitHubAPI(decryptedToken);
+        const api = new GitHubAPI(resolved.token);
         const branches = await api.listBranches(owner, repo);
 
         return c.json({ data: branches });
@@ -1581,14 +1536,10 @@ const app = new Hono()
         }
 
         const repository = repositories.documents[0];
-        let decryptedToken = repository.accessToken;
+        const resolved = await resolveUserGithubToken(databases, user.$id);
+        const decryptedToken = resolved?.token;
         if (!decryptedToken) {
-          return c.json({ error: "Repository is not configured with an access token" }, 400);
-        }
-
-        if (decryptedToken.includes(":")) {
-          const { decryptToken } = await import("../lib/encryption");
-          decryptedToken = decryptToken(decryptedToken);
+          return c.json({ error: "Connect your GitHub account to your Fairlx profile first." }, 400);
         }
 
         // 3. Request the asset URL using the decrypted token and follow redirects

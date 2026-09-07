@@ -39,6 +39,11 @@ export const AGENT_SPECIALISTS: Array<{
     role: "Inspect linked repos and open real GitHub PRs. Never run git on the Fairlx host.",
   },
   {
+    id: "tester",
+    name: "Tester",
+    role: "Run tests inside the Azure coding-session sandbox. Never on the Fairlx host.",
+  },
+  {
     id: "reviewer",
     name: "Reviewer",
     role: "Check plans against work patterns, automations, and safety rules. Never grade your own output.",
@@ -65,7 +70,8 @@ const SPECIALIST_HINTS: Array<{ id: AgentSpecialistId; pattern: RegExp }> = [
   { id: "ops", pattern: /\b(invite|add .{0,80}(project|workspace|team|org)|workspace member|project team|organiz(ation|e)|org name|company name|send .{0,30}(mail|email)|connect .{0,20}(outlook|gmail))\b/i },
   { id: "workflow", pattern: /\b(workflow statuses|custom workflow|transition)\b/i },
   { id: "git", pattern: /\b(git|commit|stage|unstag|branch|pr\b|pull request|repo|repository|diff)\b/i },
-  { id: "builder", pattern: /\b(create project|new project|scaffold|implement|ship|build|edit the code)\b/i },
+  { id: "tester", pattern: /\b(run tests?|test suite|vitest|pytest|npm test)\b/i },
+  { id: "builder", pattern: /\b(create project|new project|scaffold|implement|ship|build|edit the code|coding session)\b/i },
   { id: "researcher", pattern: /\b(search|find|look up|what is|who is|docs?|investigate)\b/i },
   { id: "planner", pattern: /\b(plan|roadmap|breakdown|steps|how should we)\b/i },
   { id: "reviewer", pattern: /\b(review|audit|risk|check this|is this safe)\b/i },

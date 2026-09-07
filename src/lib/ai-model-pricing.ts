@@ -50,6 +50,7 @@ type AIModelPricingDoc = Models.Document & AIModelPricing & {
  * Grok 4.6 Global Standard (Microsoft Foundry, Aug 2026):
  * $2.00 input / $6.00 output / $0.50 cached per 1M tokens.
  * DeepSeek V4 Flash (Microsoft Foundry): $0.19 / $0.51 / $0.028 cached.
+ * DeepSeek V4 Pro (Microsoft Foundry): $1.74 / $3.48 / $0.145 cached.
  * GPT-5.6 Luna (Microsoft Foundry, Aug 2026 OpenAI parity):
  * $0.20 input / $1.20 output / $0.02 cached per 1M tokens.
  */
@@ -105,6 +106,26 @@ const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
         tier: "standard",
         pricingSource: "azure_foundry",
     },
+    "DeepSeek-V4-Pro": {
+        modelId: "DeepSeek-V4-Pro",
+        displayName: "DeepSeek V4 Pro",
+        inputPricePerMillionTokens: 1.74,
+        outputPricePerMillionTokens: 3.48,
+        cachedInputPricePerMillionTokens: 0.145,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
+    },
+    "deepseek-pro": {
+        modelId: "deepseek-pro",
+        displayName: "DeepSeek V4 Pro",
+        inputPricePerMillionTokens: 1.74,
+        outputPricePerMillionTokens: 3.48,
+        cachedInputPricePerMillionTokens: 0.145,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
+    },
     "gpt-5.6-luna": {
         modelId: "gpt-5.6-luna",
         displayName: "GPT-5.6 Luna",
@@ -117,6 +138,51 @@ const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
         lastSyncedAt: "2026-09-05T00:00:00.000Z",
         inputTokenLimit: 1050000,
         outputTokenLimit: 128000,
+    },
+    "gpt-5.4": {
+        modelId: "gpt-5.4",
+        displayName: "GPT-5.4",
+        inputPricePerMillionTokens: 1.25,
+        outputPricePerMillionTokens: 10.00,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
+    },
+    "gpt-5.5": {
+        modelId: "gpt-5.5",
+        displayName: "GPT-5.5",
+        inputPricePerMillionTokens: 1.25,
+        outputPricePerMillionTokens: 10.00,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
+    },
+    "gpt-5.6-sol": {
+        modelId: "gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        inputPricePerMillionTokens: 1.25,
+        outputPricePerMillionTokens: 10.00,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
+    },
+    "claude-sonnet": {
+        modelId: "claude-sonnet",
+        displayName: "Claude Sonnet",
+        inputPricePerMillionTokens: 3.00,
+        outputPricePerMillionTokens: 15.00,
+        isActive: true,
+        tier: "standard",
+        pricingSource: "azure_foundry",
+    },
+    "claude-opus": {
+        modelId: "claude-opus",
+        displayName: "Claude Opus",
+        inputPricePerMillionTokens: 15.00,
+        outputPricePerMillionTokens: 75.00,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
     },
     "gemini-2.5-flash": {
         modelId: "gemini-2.5-flash",

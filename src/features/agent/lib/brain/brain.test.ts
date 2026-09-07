@@ -97,6 +97,19 @@ describe("selectToolsForTurn", () => {
     expect(names.has("github_write_file")).toBe(true);
   });
 
+  it("keeps create-repo tools when asked to create a GitHub repository", () => {
+    const names = wantedToolNames("create a github repository and add a detailed README");
+    expect(names.has("github_create_repo")).toBe(true);
+    expect(names.has("github_list_owners")).toBe(true);
+    expect(names.has("github_account_status")).toBe(true);
+  });
+
+  it("selects coding session tools for sandbox prompts", () => {
+    const names = wantedToolNames("start a coding session and merge the pr");
+    expect(names.has("coding_session_start")).toBe(true);
+    expect(names.has("github_merge_pr")).toBe(true);
+  });
+
   it("selects organization tools when asked for the org name", () => {
     const names = wantedToolNames("what is the organization name?");
     expect(names.has("fairlx_organization_get")).toBe(true);
@@ -127,6 +140,22 @@ describe("selectToolsForTurn", () => {
     expect(names).toContain("fairlx_doc_create");
     expect(names).not.toContain("github_list_files");
     expect(names).not.toContain("github_read_file");
+  });
+
+  it("keeps github read tools when a repo is linked, including bug hunts", () => {
+    const tools = [
+      "delegate_agent",
+      "request_capability",
+      "github_list_files",
+      "github_read_file",
+      "security_review",
+      "fairlx_work_item_list",
+    ].map((name) => tool(name));
+    const selected = selectToolsForTurn(tools, "Find all bugs in this project", { hasGithubRepo: true });
+    const names = selected.map((item) => item.function.name);
+    expect(names).toContain("github_list_files");
+    expect(names).toContain("github_read_file");
+    expect(names).toContain("security_review");
   });
 
   it("keeps project create even when the catalog is huge and there is no project yet", () => {
@@ -253,6 +282,17 @@ describe("isolate", () => {
     expect(names).toContain("fairlx_project_create");
     expect(names).not.toContain("mail_send");
     expect(names).not.toContain("delegate_agent");
+  });
+
+  it("gives testers sandbox exec and not mail", () => {
+    const filtered = filterToolsForSpecialist(
+      [tool("delegate_agent"), tool("coding_session_exec"), tool("mail_send"), tool("terminal")],
+      "tester",
+    );
+    const names = filtered.map((item) => item.function.name);
+    expect(names).toContain("coding_session_exec");
+    expect(names).toContain("terminal");
+    expect(names).not.toContain("mail_send");
   });
 
   it("lets researchers read Fairlx records but not create documents", () => {
