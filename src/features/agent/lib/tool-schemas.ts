@@ -301,6 +301,26 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
       },
     },
   },
+  ask_user: {
+    description:
+      "Ask the user one question in chat and pause until they answer. Invent 3 or 4 short option labels. The UI always shows a Type your own text box as the last option. Call this whenever you need a decision during training or Personal mode. Do not mention the tool name.",
+    parameters: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "The single question to ask." },
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "3 or 4 invented short labels the user can tap. Never a hardcoded set.",
+        },
+        allowCustom: {
+          type: "boolean",
+          description: "Always true. The UI shows an inline custom text box.",
+        },
+      },
+      required: ["question", "options"],
+    },
+  },
   save_personal_agent: {
     description:
       "Save the trained Personal Agent standing prompt from this interview. Call only after covering the agenda. Include every question and answer plus a detailed compiledPrompt.",
@@ -509,14 +529,22 @@ export function openaiToolsForTurn(params: {
   return [...harness, ...mcp];
 }
 
-export function trainingSaveTool(): OpenAiTool {
-  const spec = TOOL_PARAMETERS.save_personal_agent;
+function toolFromSpec(name: string): OpenAiTool {
+  const spec = TOOL_PARAMETERS[name];
   return {
     type: "function",
     function: {
-      name: "save_personal_agent",
-      description: spec?.description ?? "Save the trained Personal Agent standing prompt.",
+      name,
+      description: spec?.description ?? name,
       parameters: spec?.parameters ?? { type: "object", properties: {} },
     },
   };
+}
+
+export function askUserTool(): OpenAiTool {
+  return toolFromSpec("ask_user");
+}
+
+export function trainingSaveTool(): OpenAiTool {
+  return toolFromSpec("save_personal_agent");
 }

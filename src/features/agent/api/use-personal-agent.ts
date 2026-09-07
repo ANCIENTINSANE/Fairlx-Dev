@@ -161,6 +161,36 @@ export function useSelfTrainPersonalAgent() {
   });
 }
 
+export function useResolvePersonalStandin() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    { ok: boolean; message: string; taskUrl?: string },
+    Error,
+    { jobId: string; action: "approve" | "self" }
+  >({
+    mutationFn: async ({ jobId, action }) => {
+      const response = await fetch(`/api/agent/personal/standin/${jobId}/${action}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) await readError(response, "Failed to resolve the stand-in draft.");
+      const body = (await response.json()) as { data?: { ok?: boolean; message?: string; taskUrl?: string } };
+      return {
+        ok: Boolean(body.data?.ok),
+        message: body.data?.message || "Updated.",
+        taskUrl: body.data?.taskUrl,
+      };
+    },
+    onSuccess: (result) => {
+      toast.success(result.message);
+      queryClient.invalidateQueries({ queryKey: PERSONAL_AGENT_QUERY_KEY });
+    },
+    onError: (error) => {
+      toast.error(error.message || "Failed to resolve the stand-in draft.");
+    },
+  });
+}
+
 type ResetResponse = InferResponseType<(typeof client.api)["agent"]["personal"]["reset"]["$post"], 200>;
 
 export function useResetPersonalAgent() {

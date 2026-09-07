@@ -480,6 +480,36 @@ const app = new Hono()
     })
 
     /**
+     * POST /cron/agent/standin-tick
+     *
+     * Process due Personal Agent stand-in jobs (mention/assignment debounce).
+     * Schedule: every minute.
+     */
+    .post("/agent/standin-tick", async (c) => {
+        const authHeader = c.req.header("Authorization");
+        if (!verifyCronSecret(authHeader)) {
+            return c.json({ error: "Unauthorized" }, 401);
+        }
+        const startTime = Date.now();
+        try {
+            const { createAdminClient } = await import("@/lib/appwrite");
+            const { processDueStandinJobs } = await import("@/features/agent/lib/personal-standin");
+            const { databases } = await createAdminClient();
+            const result = await processDueStandinJobs(databases);
+            return c.json({
+                success: true,
+                ...result,
+                durationMs: Date.now() - startTime,
+            });
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            }, 500);
+        }
+    })
+
+    /**
      * GET /cron/health
      *
      * Health check endpoint for monitoring.
@@ -496,7 +526,8 @@ const app = new Hono()
                 "POST /cron/storage/snapshot",
                 "POST /cron/usage/aggregate-daily",
                 "POST /cron/usage/aggregate-all",
-                "POST /cron/ai/sync-pricing",        // NEW: 30-min AI pricing sync
+                "POST /cron/ai/sync-pricing",
+                "POST /cron/agent/standin-tick",
             ],
         });
     });

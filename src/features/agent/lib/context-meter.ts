@@ -428,6 +428,7 @@ function systemPromptForPreview(params: {
       : "No project selected.",
   ];
   if (personal) lines.push(SESSION_MODE_INSTRUCTIONS.personal);
+  else lines.push(SESSION_MODE_INSTRUCTIONS[sessionMode] || SESSION_MODE_INSTRUCTIONS.agent);
   if (personal && params.personalPrompt?.trim()) {
     lines.push(
       "",

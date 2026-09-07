@@ -168,6 +168,10 @@ export async function executeAgentJob(params: AgentJobRunParams): Promise<AgentJ
   if (job.kind === "coding_session") {
     return runCodingSessionJob({ ...params, job });
   }
+  if (job.kind === "personal_standin") {
+    const { processStandinJob } = await import("./personal-standin");
+    return processStandinJob(params.databases, job);
+  }
   return updateAgentJob(params.databases, job.id, {
     status: "failed",
     error: `Unknown job kind: ${job.kind}`,

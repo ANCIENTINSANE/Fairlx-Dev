@@ -163,14 +163,24 @@ export function normalizeWorkspaceRole(role?: string | null): WorkspaceRole {
   return "MEMBER";
 }
 
-export function compilePersonaPrompt(role: PersonaRole, workspaceName?: string, projectName?: string): string {
+export function compilePersonaPrompt(
+  role: PersonaRole,
+  workspaceName?: string,
+  projectName?: string,
+  options?: { personal?: boolean },
+): string {
   const persona = PERSONAS[role];
   const scope = [workspaceName, projectName].filter(Boolean).join(" / ");
+  const personal = options?.personal !== false;
   return [
-    `You are the Fairlx Personal Agent acting as Chief of Staff for a ${persona.name}.`,
+    personal
+      ? `You are the Fairlx Personal Agent acting as Chief of Staff for a ${persona.name}.`
+      : `You are the Fairlx Agent helping a ${persona.name}. You are not their trained Personal Agent or Chief of Staff. Never introduce yourself as the Personal Agent.`,
     `Focus: ${persona.focus}`,
     scope ? `Scope: ${scope}.` : "",
-    "Adapt morning briefings and task decomposition to this role.",
+    personal
+      ? "Adapt morning briefings and task decomposition to this role."
+      : "Inspect Fairlx data, then plan, code, review, and act with tools. You may delegate to planner, builder, QA, and reviewer specialists. Do not speak in the user's trained voice or stand in for them.",
     "Never invent work items, members, or metrics. Ground every claim in tool results or injected @ context.",
     "Call native fairlx_* tools directly. Do not wrap Fairlx platform tools in mcp_call.",
     "Stay inside this user's workspace role. Admin/Owner actions are forbidden for Members.",

@@ -4,10 +4,69 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `packages/fairlx-multi-agent/src/roles.test.ts`
+- `packages/fairlx-multi-agent/src/roles.ts`
+- `scripts/database-initialization/collections/agent-jobs.ts`
+- `src/features/agent/api/use-personal-agent.ts`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-face.tsx`
+- `src/features/agent/components/agent-floating-chat.tsx`
+- `src/features/agent/components/agent-home.tsx`
+- `src/features/agent/components/agent-scope-bar.tsx`
+- `src/features/agent/components/daily-cockpit.tsx`
+- `src/features/agent/components/personal-agent-setup.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/agent/face/animations.css`
+- `src/features/agent/face/engine.ts`
+- `src/features/agent/face/face.css`
+- `src/features/agent/face/fairlx-agent-face.tsx`
+- `src/features/agent/face/index.ts`
+- `src/features/agent/face/mouth-paths.ts`
+- `src/features/agent/face/present.test.ts`
+- `src/features/agent/face/present.ts`
+- `src/features/agent/face/types.ts`
+- `src/features/agent/lib/agent-core.test.ts`
+- `src/features/agent/lib/agent-face-mood.test.ts`
+- `src/features/agent/lib/agent-face-mood.ts`
+- `src/features/agent/lib/ask-user.test.ts`
+- `src/features/agent/lib/ask-user.ts`
+- `src/features/agent/lib/context-meter.ts`
+- `src/features/agent/lib/job-runner.ts`
+- `src/features/agent/lib/jobs.ts`
+- `src/features/agent/lib/personal-standin.test.ts`
+- `src/features/agent/lib/personal-standin.ts`
+- `src/features/agent/lib/personal-training.test.ts`
+- `src/features/agent/lib/personal-training.ts`
+- `src/features/agent/lib/prompt.ts`
+- `src/features/agent/lib/run-turn.test.ts`
+- `src/features/agent/lib/run-turn.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/session-context.ts`
+- `src/features/agent/lib/tool-schemas.ts`
+- `src/features/agent/lib/tools-scope.test.ts`
+- `src/features/agent/lib/tools.ts`
+- `src/features/agent/lib/transcript.ts`
+- `src/features/agent/server/route.ts`
+- `src/features/agent/types.ts`
+- `src/features/billing/server/cron.ts`
+- `src/features/comments/server/route.ts`
+- `src/features/github-integration/components/github-optional-prompt.tsx`
+- `src/features/sprints/server/work-items-route.ts`
+- `src/features/tasks/server/route.ts`
+- `src/lib/email-templates/index.ts`
+- `src/lib/email-templates/standin-approval.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-07 | `0c1ae00` | chore: bump version to 0.2.108 [skip ci] | github-actions[bot] |
+| 2026-09-08 | `3a80594` | Merge pull request #310 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-08 | `7c00a2b` | feat: run GitHub code actions as the user and isolate coding sessions | ANCIENTINSANE |
 | 2026-09-06 | `b5cda5c` | chore: bump version to 0.2.107 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `c0f8f8a` | Merge pull request #309 from Happyesss/main | Shashank Kumar Rathour |
@@ -95,8 +154,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-31 | `fd1ef9c` | Changes — harness staging (paths, status, branch) | ANCIENTINSANE |
 | 2026-08-31 | `a095820` | feat: expand agent harness with specialists, MCP, and chat ops | ANCIENTINSANE |
 | 2026-08-31 | `a83ccf3` | fix: keep agent workflow live while model turns run in the background | ANCIENTINSANE |
-| 2026-08-31 | `c54459b` | chore: bump version to 0.2.74 [skip ci] | github-actions[bot] |
-| 2026-08-31 | `45ab287` | Merge pull request #291 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-31 | `8050192` | feat: replace static agent dashboard with live harness screens and run loop | ANCIENTINSANE |
 
-Last generated: 2026-09-07T18:56:35.181Z
+Last generated: 2026-09-07T23:22:26.652Z

@@ -129,7 +129,9 @@ describe("graph and prompt", () => {
       mcp: { mcpServers: { "fairlx-personal": { url: "in-process://personal" } } },
     });
     expect(prompt).toContain("Fairlx Agent");
-    expect(prompt).toContain("Personal Agent");
+    expect(prompt).toContain("not their trained Personal Agent");
+    expect(prompt).not.toContain("You are the Fairlx Personal Agent, the user's Chief of Staff");
+    expect(prompt).toMatch(/delegate to planner, builder, QA/);
     expect(prompt).toContain("Triage bugs");
     expect(prompt).toContain("Release checklist");
     expect(prompt).not.toContain("(w1)");
@@ -326,6 +328,7 @@ describe("graph and prompt", () => {
     expect(prompt).toContain("You are the Fairlx Personal Agent, the user's Chief of Staff");
     expect(prompt).toMatch(/delegate to planner, builder, QA\/tester/i);
     expect(prompt).not.toMatch(/Stay in the Planner role/);
+    expect(prompt).toContain("acting as Chief of Staff for a");
   });
 
   it("injects the trained standing prompt into Personal Agent turns", () => {
@@ -350,7 +353,8 @@ describe("graph and prompt", () => {
     });
     expect(prompt).toMatch(/Hi Ada/i);
     expect(prompt).toMatch(/one agenda question per turn/i);
-    expect(prompt).toContain("[[choices]]");
+    expect(prompt).toContain("ask_user");
+    expect(prompt).not.toContain("[[choices]]");
     expect(prompt).toContain("Acme");
     expect(prompt).toContain("save_personal_agent");
     expect(prompt).not.toContain("Trained Personal Agent operating system");

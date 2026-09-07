@@ -58,7 +58,7 @@ function SetupOption({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "group w-full rounded-xl border border-border/80 bg-background/70 text-left p-3.5 transition-all",
+        "group w-full rounded-xl border border-border/80 bg-background/70 text-left p-3 transition-all",
         "hover:border-foreground/20 hover:bg-muted/50 hover:shadow-sm",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         "disabled:opacity-60 disabled:pointer-events-none",
@@ -79,7 +79,13 @@ function SetupOption({
   );
 }
 
-export function PersonalAgentSetup({ compact = false }: { compact?: boolean }) {
+export function PersonalAgentSetup({
+  compact = false,
+  hideIntro = false,
+}: {
+  compact?: boolean;
+  hideIntro?: boolean;
+}) {
   const router = useRouter();
   const { data: personal } = useGetPersonalAgent();
   const start = useStartPersonalTraining();
@@ -122,20 +128,22 @@ export function PersonalAgentSetup({ compact = false }: { compact?: boolean }) {
   };
 
   return (
-    <div className={cn("space-y-4", compact && "space-y-3.5")}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className={cn("font-semibold tracking-tight text-foreground", compact ? "text-[15px]" : "text-base")}>
-            I&apos;m here to help you.
-          </p>
-          <p className="text-xs text-muted-foreground leading-relaxed mt-1.5">
-            {compact
-              ? "I am not trained yet. Train me on how you work, or let me learn from this workspace."
-              : "Your private Chief of Staff. I brief you, prioritize assigned work, and act the way you would — after you train me."}
-          </p>
+    <div className={cn("space-y-4", compact && "space-y-3")}>
+      {hideIntro ? null : (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className={cn("font-semibold tracking-tight text-foreground", compact ? "text-[15px]" : "text-base")}>
+              I&apos;m here to help you.
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed mt-1.5">
+              {compact
+                ? "I am not trained yet. Train me on how you work, or let me learn from this workspace."
+                : "Your private Chief of Staff. I brief you, prioritize assigned work, and act the way you would — after you train me."}
+            </p>
+          </div>
+          <WhatIsPersonalAgent />
         </div>
-        <WhatIsPersonalAgent />
-      </div>
+      )}
 
       {pending || inProgress ? (
         <div className="rounded-xl border border-border/70 bg-muted/30 px-3.5 py-3 space-y-2">

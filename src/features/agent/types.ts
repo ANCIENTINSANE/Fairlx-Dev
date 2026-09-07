@@ -113,7 +113,8 @@ export type AgentRunStatus =
   | "failed"
   | "stopped"
   | "awaiting_confirmation"
-  | "awaiting_plugin";
+  | "awaiting_plugin"
+  | "awaiting_question";
 export type AgentRunMode = "agent" | "manual";
 export type AgentSessionMode = "agent" | "personal" | "plan" | "debug" | "multitask" | "ask";
 export type AgentChatRole = "user" | "assistant" | "tool";
@@ -194,8 +195,8 @@ export type AgentPluginPublic = {
   createdAt: string;
 };
 
-export type AgentJobKind = "security_review" | "github_pr" | "coding_session";
-export type AgentJobStatus = "queued" | "running" | "completed" | "failed";
+export type AgentJobKind = "security_review" | "github_pr" | "coding_session" | "personal_standin";
+export type AgentJobStatus = "queued" | "scheduled" | "running" | "completed" | "failed" | "cancelled";
 
 export type AgentJob = {
   id: string;
@@ -342,6 +343,8 @@ export type AgentToolEventType =
   | "run_automation"
   | "personal_read"
   | "save_personal_agent"
+  | "ask_user"
+  | "ask_user_resolved"
   | "mail_send"
   | "github_read_file"
   | "github_list_files"

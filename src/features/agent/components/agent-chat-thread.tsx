@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { useGetAgentContext } from "../api/use-agent-context";
 import { useGetAgentHarness } from "../api/use-agent-harness";
 import { splitAssistantChoices } from "../lib/assistant-choices";
+import { parseAskUserFromMessage } from "../lib/ask-user";
 import { splitMarkdownMemberTable, type AgentMember } from "../lib/member-table";
 import {
   extractBoardProject,
@@ -441,8 +442,15 @@ function AgentBubble({
   onPickChoice?: (choice: string) => void;
 }) {
   const visible = sanitizeAssistantVisible(message.content);
-  if (!visible) return null;
-  const { text, choices } = splitAssistantChoices(visible);
+  const asked = parseAskUserFromMessage(message);
+  const parsed = splitAssistantChoices(visible || "");
+  const choices = asked?.options.length ? asked.options : parsed.choices;
+  const text = (asked ? parsed.text || asked.question || visible : parsed.text) || "";
+  const showCustom = Boolean(choices.length || asked?.allowCustom);
+  const [custom, setCustom] = useState("");
+
+  if (!text && !choices.length && !asked) return null;
+
   return (
     <div className="flex-1 min-w-0 max-w-[46rem]">
       {text ? (
@@ -473,6 +481,43 @@ function AgentBubble({
             </button>
           ))}
         </div>
+      ) : null}
+      {showCustom && choicesEnabled ? (
+        <form
+          className="mt-3 flex items-center gap-2 max-w-md"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = custom.trim();
+            if (!value || !choicesEnabled) return;
+            onPickChoice?.(value);
+            setCustom("");
+          }}
+        >
+          <input
+            value={custom}
+            onChange={(event) => setCustom(event.target.value)}
+            disabled={!choicesEnabled}
+            placeholder="Type your own…"
+            className={cn(
+              "flex-1 min-w-0 rounded-lg border bg-background px-3 py-1.5 text-xs outline-none",
+              choicesEnabled
+                ? "border-border text-foreground focus:border-primary/50"
+                : "border-border/60 text-muted-foreground cursor-default",
+            )}
+          />
+          <button
+            type="submit"
+            disabled={!choicesEnabled || !custom.trim()}
+            className={cn(
+              "shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium",
+              choicesEnabled && custom.trim()
+                ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+                : "border-border bg-muted/20 text-muted-foreground cursor-default",
+            )}
+          >
+            Send
+          </button>
+        </form>
       ) : null}
       <TruncationNote content={message.content} />
     </div>
@@ -1088,7 +1133,11 @@ export function AgentChatThread({
   );
   const githubAccountConnected = Boolean(context?.githubAccount?.connected);
   const currentAction = [...events].reverse().find(
-    (event) => event.type !== "context_meter" && event.type !== "confirmation_resolved",
+    (event) =>
+      event.type !== "context_meter" &&
+      event.type !== "confirmation_resolved" &&
+      event.type !== "ask_user" &&
+      event.type !== "ask_user_resolved",
   );
 
   let blockIndex = -1;

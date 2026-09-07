@@ -43,6 +43,7 @@ import {
 import { audioFilenameForMime } from "../lib/voice-input";
 import { cancelAgentTurn } from "../lib/runtime";
 import { isAgentTurnInFlight, scheduleAgentTurn } from "../lib/schedule-turn";
+import { applyUserAnswerToPendingQuestion } from "../lib/ask-user";
 import { runNeedsAgentTurn } from "../lib/run-turn";
 import { findPendingConfirmation } from "../lib/write-guard";
 import { ensurePersonalMcp } from "../lib/mcp-bridge";
@@ -261,6 +262,18 @@ const harnessSchema = z.object({
 function sessionUser(c: Context) {
   const user = c.get("user");
   return { $id: user.$id, name: user.name, email: user.email };
+}
+
+function standinDecisionHtml(result: { ok: boolean; message: string; taskUrl?: string }): string {
+  const dest = result.taskUrl || "/";
+  const title = result.ok ? "Done" : "Could not complete";
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2;url=${dest}"><title>${title}</title></head>
+<body style="font-family:system-ui,sans-serif;padding:48px;max-width:40rem;line-height:1.5">
+  <h1>${title}</h1>
+  <p>${result.message}</p>
+  <p><a href="${dest}">Open the work item</a></p>
+</body></html>`;
 }
 
 function pluginContinueTitle(events: AgentRun["events"]): string {
@@ -514,14 +527,18 @@ const app = new Hono()
         existing.status === "awaiting_plugin"
           ? withPluginConnected(existing, pluginContinueTitle(existing.events))
           : existing.events;
+      const answered =
+        existing.status === "awaiting_question"
+          ? applyUserAnswerToPendingQuestion({ messages: existing.messages, events }, content)
+          : {
+              messages: [...existing.messages, { id: crypto.randomUUID(), role: "user" as const, content, createdAt }],
+              events,
+            };
       const run = await updateRun(databases, runId, {
         status: "running",
         error: "",
-        events,
-        messages: [
-          ...existing.messages,
-          { id: crypto.randomUUID(), role: "user", content, createdAt },
-        ],
+        events: answered.events,
+        messages: answered.messages,
       });
       scheduleAgentTurn({ databases, user, run });
       return c.json({ data: run });
@@ -548,7 +565,9 @@ const app = new Hono()
           }
         }
       }
-      if (existing.status === "awaiting_confirmation") return c.json({ data: existing });
+      if (existing.status === "awaiting_confirmation" || existing.status === "awaiting_question") {
+        return c.json({ data: existing });
+      }
       if (existing.status === "completed") return c.json({ data: existing });
       if (isAgentTurnInFlight(runId)) return c.json({ data: existing });
       if (findPendingConfirmation(existing.events ?? [], existing.messages ?? [])) return c.json({ data: existing });
@@ -574,7 +593,7 @@ const app = new Hono()
       const existing = await getRun(databases, user.$id, runId);
       if (!existing) return c.json({ error: "Run not found." }, 404);
       cancelAgentTurn(runId);
-      if (existing.status !== "running" && existing.status !== "awaiting_confirmation") {
+      if (existing.status !== "running" && existing.status !== "awaiting_confirmation" && existing.status !== "awaiting_question") {
         return c.json({ data: existing });
       }
       const data = await updateRun(databases, runId, { status: "stopped" });
@@ -650,7 +669,7 @@ const app = new Hono()
     try {
       const existing = await getRun(databases, user.$id, runId);
       if (!existing) return c.json({ error: "Run not found." }, 404);
-      if (existing.status === "running" || existing.status === "awaiting_confirmation") {
+      if (existing.status === "running" || existing.status === "awaiting_confirmation" || existing.status === "awaiting_question") {
         cancelAgentTurn(runId);
       }
       await deleteRun(databases, user.$id, runId);
@@ -1086,6 +1105,22 @@ const app = new Hono()
       }
     },
   )
+  .get("/personal/standin/:jobId/approve", async (c) => {
+    const jobId = c.req.param("jobId");
+    const token = c.req.query("token") || "";
+    const { databases } = await createAdminClient();
+    const { resolveStandinDecision } = await import("../lib/personal-standin");
+    const result = await resolveStandinDecision({ databases, jobId, action: "approve", token });
+    return c.html(standinDecisionHtml(result), (result.status as 200 | 403 | 404 | 409 | 410) || 200);
+  })
+  .get("/personal/standin/:jobId/self", async (c) => {
+    const jobId = c.req.param("jobId");
+    const token = c.req.query("token") || "";
+    const { databases } = await createAdminClient();
+    const { resolveStandinDecision } = await import("../lib/personal-standin");
+    const result = await resolveStandinDecision({ databases, jobId, action: "self", token });
+    return c.html(standinDecisionHtml(result), (result.status as 200 | 403 | 404 | 409 | 410) || 200);
+  })
   .get("/personal", sessionMiddleware, async (c) => {
     const user = sessionUser(c);
     const { databases } = await createAdminClient();
@@ -1109,11 +1144,27 @@ const app = new Hono()
       const role = profile?.personaRole ?? suggestedRole;
       const progress = trainingProgress(profile?.answers, role);
       const active = findActiveTrainingRun(runs);
+      let pendingStandin: Array<{
+        id: string;
+        taskId: string;
+        workspaceId: string;
+        draft: string;
+        reason: string;
+        trigger: string;
+      }> = [];
+      try {
+        const { listStandinJobs, pendingStandinFromJobs } = await import("../lib/personal-standin");
+        const standinJobs = await listStandinJobs(databases, { userId: user.$id, status: "completed", limit: 20 });
+        pendingStandin = pendingStandinFromJobs(standinJobs);
+      } catch (error) {
+        console.error("[agent] failed to load stand-in drafts", error);
+      }
       return c.json({
         data: {
           profile,
           progress,
           activeTrainingRunId: active?.id ?? null,
+          pendingStandin,
           suggestedRole,
           suggestedRoleLabel: personaLabel(suggestedRole),
           suggestedRoleFocus: personaFocus(suggestedRole),
@@ -1128,6 +1179,22 @@ const app = new Hono()
       console.error("[agent] failed to load personal agent", error);
       return c.json({ error: "Failed to load personal agent." }, 500);
     }
+  })
+  .post("/personal/standin/:jobId/approve", sessionMiddleware, async (c) => {
+    const user = sessionUser(c);
+    const jobId = c.req.param("jobId");
+    const { databases } = await createAdminClient();
+    const { resolveStandinDecision } = await import("../lib/personal-standin");
+    const result = await resolveStandinDecision({ databases, jobId, action: "approve", userId: user.$id });
+    return c.json({ data: result }, result.ok ? 200 : (result.status as 400) || 400);
+  })
+  .post("/personal/standin/:jobId/self", sessionMiddleware, async (c) => {
+    const user = sessionUser(c);
+    const jobId = c.req.param("jobId");
+    const { databases } = await createAdminClient();
+    const { resolveStandinDecision } = await import("../lib/personal-standin");
+    const result = await resolveStandinDecision({ databases, jobId, action: "self", userId: user.$id });
+    return c.json({ data: result }, result.ok ? 200 : (result.status as 400) || 400);
   })
   .get(
     "/personal/questions",

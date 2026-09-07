@@ -41,6 +41,7 @@ export async function createAgentJob(
     runId?: string;
     kind: AgentJobKind;
     payload: Record<string, unknown>;
+    status?: AgentJobStatus;
   },
 ): Promise<AgentJob | null> {
   try {
@@ -48,8 +49,8 @@ export async function createAgentJob(
       userId: input.userId,
       runId: input.runId || "",
       kind: input.kind,
-      status: "queued",
-      progressJson: stringifyBounded({ step: "queued", percent: 0 }, 2048),
+      status: input.status || "queued",
+      progressJson: stringifyBounded({ step: input.status === "scheduled" ? "scheduled" : "queued", percent: 0 }, 2048),
       payloadJson: stringifyBounded(input.payload),
       resultJson: stringifyBounded({}),
       error: "",
@@ -91,6 +92,7 @@ export async function updateAgentJob(
     status: AgentJobStatus;
     progress: { step: string; percent: number };
     result: Record<string, unknown>;
+    payload: Record<string, unknown>;
     error: string;
   }>,
 ): Promise<AgentJob | null> {
@@ -99,6 +101,7 @@ export async function updateAgentJob(
     if (patch.status) payload.status = patch.status;
     if (patch.progress) payload.progressJson = stringifyBounded(patch.progress, 2048);
     if (patch.result) payload.resultJson = stringifyBounded(patch.result);
+    if (patch.payload) payload.payloadJson = stringifyBounded(patch.payload);
     if (patch.error !== undefined) payload.error = patch.error.slice(0, 2000);
     const doc = await databases.updateDocument(DATABASE_ID, AGENT_JOBS_ID, jobId, payload);
     return parseJob(doc as unknown as JobDocument);
@@ -115,8 +118,52 @@ export async function claimQueuedJobs(databases: Databases, userId: string): Pro
       Query.equal("status", "queued"),
       Query.limit(5),
     ]);
-    return result.documents.map((doc) => parseJob(doc as unknown as JobDocument));
+    return result.documents
+      .map((doc) => parseJob(doc as unknown as JobDocument))
+      .filter((job) => job.kind !== "personal_standin");
   } catch {
     return [];
+  }
+}
+
+export async function getAgentJobById(databases: Databases, jobId: string): Promise<AgentJob | null> {
+  try {
+    const doc = await databases.getDocument(DATABASE_ID, AGENT_JOBS_ID, jobId);
+    return parseJob(doc as unknown as JobDocument);
+  } catch {
+    return null;
+  }
+}
+
+export async function listStandinJobs(
+  databases: Databases,
+  filters: { userId?: string; status?: AgentJobStatus | AgentJobStatus[]; limit?: number },
+): Promise<AgentJob[]> {
+  const limit = Math.min(filters.limit ?? 40, 80);
+  const parseDocs = (docs: unknown[]) => docs.map((doc) => parseJob(doc as unknown as JobDocument));
+  try {
+    const queries = [Query.equal("kind", "personal_standin"), Query.limit(limit)];
+    if (filters.userId) queries.push(Query.equal("userId", filters.userId));
+    if (typeof filters.status === "string") queries.push(Query.equal("status", filters.status));
+    else if (Array.isArray(filters.status) && filters.status.length === 1) {
+      queries.push(Query.equal("status", filters.status[0]!));
+    }
+    const result = await databases.listDocuments(DATABASE_ID, AGENT_JOBS_ID, queries);
+    let jobs = parseDocs(result.documents);
+    if (Array.isArray(filters.status) && filters.status.length > 1) {
+      const wanted = new Set(filters.status);
+      jobs = jobs.filter((job) => wanted.has(job.status));
+    }
+    return jobs;
+  } catch {
+    try {
+      const queries = [Query.limit(limit)];
+      if (filters.userId) queries.push(Query.equal("userId", filters.userId));
+      if (typeof filters.status === "string") queries.push(Query.equal("status", filters.status));
+      const result = await databases.listDocuments(DATABASE_ID, AGENT_JOBS_ID, queries);
+      return parseDocs(result.documents).filter((job) => job.kind === "personal_standin");
+    } catch {
+      return [];
+    }
   }
 }
