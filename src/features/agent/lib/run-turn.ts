@@ -5,7 +5,8 @@ export function runNeedsAgentTurn(run: Pick<AgentRun, "status" | "messages">): b
     run.status === "completed" ||
     run.status === "failed" ||
     run.status === "stopped" ||
-    run.status === "awaiting_confirmation"
+    run.status === "awaiting_confirmation" ||
+    run.status === "awaiting_question"
   ) {
     return false;
   }

@@ -87,6 +87,7 @@ export function AgentCommandInput({
   const [chips, setChips] = useState<AgentContextChip[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(workspaceId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectId ?? null);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
@@ -108,7 +109,7 @@ export function AgentCommandInput({
 
   const isRunning = run?.status === "running";
   const stopping = isStopping || stopRunMutation.isPending;
-  const showStop = isRunning || run?.status === "awaiting_confirmation" || stopping;
+  const showStop = isRunning || run?.status === "awaiting_confirmation" || run?.status === "awaiting_question" || stopping;
   const busy = submitting || createRun.isPending;
   const voiceBusy = busy || isTranscribing;
   const canSend = Boolean(prompt.trim()) && !busy && !disabled;
@@ -314,6 +315,8 @@ export function AgentCommandInput({
     <div className={cn(showQuickActions && variant === "create" ? "space-y-4" : "w-full")}>
       <AgentScopeBar
         run={run}
+        composerTyping={composerFocused || prompt.length > 0}
+        composerListening={isListening}
         defaultWorkspaceId={workspaceId}
         defaultProjectId={projectId}
         onScopeChange={(wsId, projId) => {
@@ -350,6 +353,8 @@ export function AgentCommandInput({
                 setPrompt(event.target.value);
                 autosize(event.currentTarget, minHeight);
               }}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setComposerFocused(false)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();

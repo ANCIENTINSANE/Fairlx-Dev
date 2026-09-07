@@ -45,10 +45,9 @@ import {
   useStopAgentRun,
 } from "../api/use-agent-runs";
 import { useAgentMutationSync } from "../hooks/use-agent-mutation-sync";
-import { crewModelHints, selectedModelLabel } from "../lib/client-defaults";
 import { clockTime, relativeTime } from "../lib/agent-ui";
 import { extractBoardProject, withWorkspaceFallback } from "../lib/project-launch";
-import { aggregateLlmUsage, formatCompactUsageLine, looksLikeLlmUsageEvent } from "../lib/run-usage";
+import { looksLikeLlmUsageEvent } from "../lib/run-usage";
 import type { AgentRun, AgentToolEvent } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
 import { AgentCommandInput } from "./agent-command-input";
@@ -230,8 +229,6 @@ function WorkflowSidebar({
   useEffect(() => {
     setActivityOpen(activityLive);
   }, [activityLive]);
-  const usage = aggregateLlmUsage(events);
-  const models = crewModelHints(ai, run);
   const repo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
   const terminals = events.filter((event) => event.type === "terminal" || event.type === "coding_session_exec");
   const githubUrl = repo?.githubUrl || (repo?.owner && repo.repositoryName ? `https://github.com/${repo.owner}/${repo.repositoryName}` : "");
@@ -374,45 +371,6 @@ function WorkflowSidebar({
               )}
             </div>
 
-            <hr className="border-sidebar-border" />
-
-            <div>
-              <h3 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3 px-1">Run Settings</h3>
-              <div className="flex flex-col gap-2.5 text-xs bg-sidebar-accent/40 border border-sidebar-border rounded-lg p-3">
-                <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">Model</span>
-                  <span className="text-foreground font-medium truncate">{selectedModelLabel(ai)}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">Mode</span>
-                  <span className="text-foreground font-medium capitalize">{run.mode}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">Orchestrator</span>
-                  <span className="text-foreground font-medium truncate">{models.orchestratorModelName}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">Workers</span>
-                  <span className="text-foreground font-medium truncate">{models.workerModelName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Steps</span>
-                  <span className="text-foreground font-medium">{events.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Started</span>
-                  <span className="text-foreground font-medium">{relativeTime(run.createdAt)}</span>
-                </div>
-                {usage ? (
-                  <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground shrink-0">Usage</span>
-                    <span className="text-foreground font-medium text-right leading-snug">
-                      {formatCompactUsageLine(usage)}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            </div>
           </>
         ) : null}
 
@@ -568,7 +526,6 @@ function WorkflowViewInner() {
   const deleteRun = useDeleteAgentRun();
   const patchRun = usePatchAgentRun();
   const { data: harness } = useGetAgentHarness();
-  const { data: ai } = useGetAgentAiConfig();
   const updateHarness = useUpdateAgentHarness();
   const queryClient = useQueryClient();
   const stickToBottomRef = useRef(true);
@@ -688,6 +645,8 @@ function WorkflowViewInner() {
   const running = run.status === "running";
   const awaiting = run.status === "awaiting_confirmation";
   const awaitingPlugin = run.status === "awaiting_plugin";
+  const awaitingQuestion = run.status === "awaiting_question";
+  const statusLive = running || awaiting || awaitingPlugin || awaitingQuestion;
   const pinned = (harness?.chatMeta?.pinnedRunIds ?? []).includes(run.id);
 
   const saveTitle = () => {
@@ -733,7 +692,7 @@ function WorkflowViewInner() {
               <span
                 className={cn(
                   "inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium text-[11px]",
-                  running || awaiting || awaitingPlugin
+                  statusLive
                     ? "bg-blue-500/10 text-blue-500"
                     : run.status === "completed"
                       ? "bg-green-500/10 text-green-500"
@@ -743,10 +702,10 @@ function WorkflowViewInner() {
                 <span
                   className={cn(
                     "size-1.5 rounded-full",
-                    running || awaiting || awaitingPlugin ? "bg-blue-500 animate-pulse" : run.status === "completed" ? "bg-green-500" : "bg-destructive"
+                    statusLive ? "bg-blue-500 animate-pulse" : run.status === "completed" ? "bg-green-500" : "bg-destructive"
                   )}
                 />
-                <span className="capitalize">{running ? "Running" : awaiting ? "Needs approval" : awaitingPlugin ? "Needs plugin" : run.status}</span>
+    <span className="capitalize">{running ? "Running" : awaiting ? "Needs approval" : awaitingPlugin ? "Needs plugin" : run.status === "awaiting_question" ? "Waiting for answer" : run.status}</span>
               </span>
               <span className="text-muted-foreground">• Started {relativeTime(run.createdAt)}</span>
             </div>

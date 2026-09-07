@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 
 import { useCurrent } from "@/features/auth/api/use-current";
 import { ProjectAvatar } from "@/features/projects/components/project-avatar";
@@ -30,101 +29,88 @@ export function AgentHome() {
 
   return (
     <AgentPageFrame>
-      <div className="max-w-[1300px] mx-auto grid lg:grid-cols-3 gap-8 min-h-[calc(100vh-7.5rem)]">
-        <div className="lg:col-span-2 flex flex-col">
+      <div className="max-w-[1280px] mx-auto grid lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px] gap-8 xl:gap-10 min-h-[calc(100vh-7.5rem)]">
+        <div className="flex flex-col min-w-0">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">
+            <h1 className="text-3xl font-bold text-foreground tracking-tight">
               {greetingForNow()}, {firstName(user?.name, user?.email)}
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              Start an agent run, inspect work across your workspace, or search code and documentation.
+              {personalUntrained
+                ? "Train your Personal Agent, then put it on the work that matters."
+                : "Start a run, inspect work, or search code and docs."}
             </p>
           </div>
 
-          <div className="my-auto pb-16 pt-6 space-y-6">
-            <div className="text-center">
-              <p className="text-base sm:text-lg font-medium text-muted-foreground/80 tracking-tight">
-                {personalUntrained
-                  ? "I'm here to help you — train me first, then tell me what to ship."
-                  : "What would you like to build, investigate, or ship today?"}
-              </p>
-            </div>
-
+          <div className="my-auto pb-16 pt-8">
             <AgentCommandInput />
           </div>
         </div>
 
-        <div className="space-y-6">
+        <aside className="space-y-4 lg:pt-1">
           <DailyCockpit />
 
-          {/* Projects section — moved from left column */}
-          <section className="bg-card border border-border rounded-xl p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-foreground text-sm uppercase tracking-wider">Projects</h3>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                  {projects.length}
-                </span>
-              </div>
-              <Link href="/agent/projects" className="text-xs text-primary hover:underline font-medium">
-                View all
+          <section className="rounded-2xl border border-border/70 bg-card p-4">
+            <div className="flex items-baseline justify-between gap-2 mb-2">
+              <h3 className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                Projects
+              </h3>
+              <Link href="/agent/projects" className="text-[11px] text-muted-foreground hover:text-foreground">
+                All
               </Link>
             </div>
             {projects.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No projects in your workspaces yet.</p>
+              <p className="text-[12px] text-muted-foreground py-1">No projects yet.</p>
             ) : (
-              <div className="space-y-1">
-                {projects.slice(0, 6).map((project) => (
-                  <Link
-                    key={project.id}
-                    href={`/workspaces/${project.workspaceId}/projects/${project.id}`}
-                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 hover:bg-muted/50 transition-colors group"
-                  >
-                    <ProjectAvatar name={project.name} image={project.imageUrl} className="size-7 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-foreground group-hover:text-primary transition-colors truncate">
-                        {project.name}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {[project.key, project.status].filter(Boolean).join(" · ") || "Project"}
-                      </div>
-                    </div>
-                    <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
-                  </Link>
+              <ul>
+                {projects.slice(0, 5).map((project) => (
+                  <li key={project.id}>
+                    <Link
+                      href={`/workspaces/${project.workspaceId}/projects/${project.id}`}
+                      className="flex items-center gap-2.5 rounded-md py-1.5 hover:bg-muted/50 -mx-1 px-1 transition-colors"
+                    >
+                      <ProjectAvatar name={project.name} image={project.imageUrl} className="size-5 shrink-0" />
+                      <span className="min-w-0 flex-1 text-[12px] text-foreground truncate">{project.name}</span>
+                    </Link>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </section>
 
           {trained ? null : (
-            <section className="bg-card border border-border rounded-xl p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-foreground text-sm uppercase tracking-wider">Assigned Work</h3>
-              <button type="button" onClick={openRecentWork} className="text-xs text-primary hover:underline font-medium">
-                View all
-              </button>
-            </div>
-            {workItems.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No work items assigned to you.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {workItems.slice(0, 6).map((item) => (
-                  <Link
-                    key={item.id}
-                    href={item.workspaceId ? `/workspaces/${item.workspaceId}/tasks/${item.id}` : "/agent/projects"}
-                    className="block rounded-lg px-2.5 py-2 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="text-xs font-medium text-foreground truncate">{item.title}</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                      {[item.key, item.status, item.priority].filter(Boolean).join(" · ")}
-                    </div>
-                  </Link>
-                ))}
+            <section className="rounded-2xl border border-border/70 bg-card p-4">
+              <div className="flex items-baseline justify-between gap-2 mb-2">
+                <h3 className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                  Assigned
+                </h3>
+                <button
+                  type="button"
+                  onClick={openRecentWork}
+                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  All
+                </button>
               </div>
-            )}
+              {workItems.length === 0 ? (
+                <p className="text-[12px] text-muted-foreground py-1">Nothing assigned.</p>
+              ) : (
+                <ul>
+                  {workItems.slice(0, 5).map((item) => (
+                    <li key={item.id}>
+                      <Link
+                        href={item.workspaceId ? `/workspaces/${item.workspaceId}/tasks/${item.id}` : "/agent/projects"}
+                        className="block rounded-md py-1.5 hover:bg-muted/50 -mx-1 px-1 transition-colors"
+                      >
+                        <span className="block text-[12px] text-foreground truncate">{item.title}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           )}
-        </div>
+        </aside>
       </div>
     </AgentPageFrame>
   );

@@ -32,6 +32,10 @@ describe("runNeedsAgentTurn", () => {
     ).toBe(false);
   });
 
+  it("does not continue while waiting for an ask_user answer", () => {
+    expect(runNeedsAgentTurn(run([], "awaiting_question"))).toBe(false);
+  });
+
   it("does not continue completed chats", () => {
     expect(
       runNeedsAgentTurn(

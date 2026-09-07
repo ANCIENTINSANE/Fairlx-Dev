@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bot, RotateCcw, Sparkles, Zap, Clock } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 
 import {
   AlertDialog,
@@ -14,199 +14,218 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 import { useGetAgentBriefing } from "../api/use-agent-briefing";
-import { useGetPersonalAgent, useResetPersonalAgent } from "../api/use-personal-agent";
+import { useGetPersonalAgent, useResetPersonalAgent, useResolvePersonalStandin } from "../api/use-personal-agent";
 import { profileIsTrained } from "../lib/personal-agent-status";
+import { AgentFace, useAgentFaceMood } from "./agent-face";
 import { PersonalAgentSetup } from "./personal-agent-setup";
+
+const ROLE_TITLE: Record<string, string> = {
+  tech_lead: "Tech Lead",
+  frontend: "Frontend Engineer",
+  qa: "QA Engineer",
+  pm: "Product Manager",
+};
 
 const PRIORITY_TONE: Record<string, string> = {
   URGENT: "bg-red-500",
   HIGH: "bg-orange-500",
   MEDIUM: "bg-amber-400",
-  LOW: "bg-muted-foreground/40",
-};
-
-const PRIORITY_GLOW: Record<string, string> = {
-  URGENT: "shadow-[0_0_6px_rgba(239,68,68,0.4)]",
-  HIGH: "shadow-[0_0_6px_rgba(249,115,22,0.3)]",
-  MEDIUM: "",
-  LOW: "",
+  LOW: "bg-muted-foreground/35",
 };
 
 export function DailyCockpit() {
   const { data: personal, isLoading: personalLoading } = useGetPersonalAgent();
   const { data: briefing, isLoading: briefingLoading } = useGetAgentBriefing();
   const reset = useResetPersonalAgent();
+  const resolveStandin = useResolvePersonalStandin();
   const [confirmReset, setConfirmReset] = useState(false);
+  const pendingStandin = personal?.pendingStandin ?? [];
 
   const trained = profileIsTrained(personal?.profile);
+  const faceMood = useAgentFaceMood(undefined, {
+    awaitingYou: pendingStandin.length > 0,
+    typing: false,
+  });
+  const mood = briefingLoading && trained ? "thinking" : faceMood;
+  const identity =
+    personal?.profile?.jobTitle?.trim() ||
+    ROLE_TITLE[personal?.profile?.personaRole ?? ""] ||
+    "Personal Agent";
+  const statusLine = pendingStandin.length
+    ? `${pendingStandin.length} draft${pendingStandin.length === 1 ? "" : "s"} waiting`
+    : briefingLoading
+      ? "Briefing…"
+      : "Standing by";
 
   return (
-    <section className="relative overflow-hidden bg-card border border-border rounded-2xl shadow-md">
-      {/* Premium gradient header band */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-br from-primary/[0.06] via-primary/[0.03] to-transparent" />
-      <div className="pointer-events-none absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-primary/[0.04] to-transparent rounded-bl-full" />
-
-      <div className="relative p-5">
+    <section className="rounded-2xl border border-border/70 bg-card overflow-hidden">
+      <div className="p-4">
         {personalLoading ? (
-          <div className="space-y-3.5 py-3">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-xl bg-muted animate-pulse" />
-              <div className="space-y-2 flex-1">
-                <div className="h-3 w-24 rounded-full bg-muted animate-pulse" />
-                <div className="h-2.5 w-40 rounded-full bg-muted/70 animate-pulse" />
-              </div>
+          <div className="flex items-center gap-3 py-0.5">
+            <div className="size-9 rounded-full bg-muted animate-pulse shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-28 rounded-full bg-muted animate-pulse" />
+              <div className="h-2.5 w-36 rounded-full bg-muted/70 animate-pulse" />
             </div>
-            <div className="h-3 w-full rounded-full bg-muted/60 animate-pulse" />
-            <div className="h-3 w-3/4 rounded-full bg-muted/50 animate-pulse" />
           </div>
         ) : trained ? (
           <>
-            {/* Header with bot identity */}
-            <div className="flex items-start justify-between mb-5 gap-3">
-              <div className="flex items-start gap-3 min-w-0">
-                <span className="size-10 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/20 text-primary flex items-center justify-center shrink-0 shadow-sm">
-                  <Bot className="size-[18px]" />
-                </span>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-foreground text-xs uppercase tracking-[0.14em]">
-                      Daily cockpit
-                    </h3>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                      <span className="relative flex size-1.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-                        <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
-                      </span>
-                      Active
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">Trained on how you work</p>
-                </div>
+            <header className="flex items-center gap-3">
+              <AgentFace mood={mood} size={36} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium tracking-tight text-foreground leading-none truncate">
+                  {identity}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1 truncate">{statusLine}</p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {briefing ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground bg-muted/50 rounded-full px-2 py-0.5 border border-border/50">
-                    <Zap className="size-2.5 text-primary/60" />
-                    {Math.round(briefing.generatedInMs)}ms
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setConfirmReset(true)}
-                  disabled={reset.isPending}
-                  className="inline-flex items-center gap-1 rounded-full border border-border/80 bg-background px-2.5 py-1 text-[11px] text-muted-foreground hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 transition-all duration-200 disabled:opacity-50"
-                >
-                  <RotateCcw className="size-3" />
-                  Reset
-                </button>
-              </div>
-            </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="size-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/80 flex items-center justify-center shrink-0"
+                    aria-label="Cockpit menu"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setConfirmReset(true)}
+                  >
+                    Reset training
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </header>
 
-            {/* Briefing content */}
+            {pendingStandin.length ? (
+              <div className="mt-4 space-y-2">
+                {pendingStandin.map((item) => (
+                  <div key={item.id} className="rounded-xl bg-muted/40 px-3 py-2.5">
+                    <p className="text-[11px] text-muted-foreground">Needs you</p>
+                    <p className="text-[12px] text-foreground mt-1 leading-relaxed line-clamp-3">{item.draft}</p>
+                    <div className="flex flex-wrap gap-3 mt-2.5">
+                      <button
+                        type="button"
+                        disabled={resolveStandin.isPending}
+                        onClick={() => resolveStandin.mutate({ jobId: item.id, action: "approve" })}
+                        className="text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={resolveStandin.isPending}
+                        onClick={() => resolveStandin.mutate({ jobId: item.id, action: "self" })}
+                        className="text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      >
+                        I&apos;ll answer
+                      </button>
+                      {item.workspaceId && item.taskId ? (
+                        <Link
+                          href={`/workspaces/${item.workspaceId}/tasks/${item.taskId}`}
+                          className="text-[11px] text-muted-foreground hover:text-foreground"
+                        >
+                          Open
+                        </Link>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             {briefingLoading ? (
-              <div className="space-y-3 py-1">
-                <div className="h-4 w-56 rounded-full bg-muted/60 animate-pulse" />
-                <div className="h-3 w-full rounded-full bg-muted/40 animate-pulse" />
-                <div className="h-3 w-4/5 rounded-full bg-muted/30 animate-pulse" />
+              <div className="mt-4 space-y-2">
+                <div className="h-2.5 w-full rounded-full bg-muted/50 animate-pulse" />
+                <div className="h-2.5 w-4/5 rounded-full bg-muted/40 animate-pulse" />
               </div>
-            ) : !briefing ? (
-              <p className="text-xs text-muted-foreground">Sign in to load your role-aware briefing.</p>
-            ) : (
-              <div className="space-y-5">
-                {/* Greeting */}
-                <div className="bg-muted/30 rounded-xl px-4 py-3 border border-border/40">
-                  <p className="text-[15px] font-semibold tracking-tight text-foreground">{briefing.greeting}</p>
-                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{briefing.headline}</p>
-                </div>
-
-                {/* Today's priorities */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="size-3 text-primary/70" />
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      Today&apos;s Focus
-                    </p>
-                  </div>
-                  <ul className="space-y-2">
-                    {briefing.priorities.map((line) => (
-                      <li key={line} className="text-xs text-foreground leading-relaxed pl-4 relative">
-                        <span className="absolute left-0 top-[7px] size-1.5 rounded-full bg-primary/50" />
-                        {line}
+            ) : briefing ? (
+              <div className="mt-4 space-y-4">
+                {briefing.priorities.length ? (
+                  <ol className="space-y-2">
+                    {briefing.priorities.slice(0, 3).map((line, index) => (
+                      <li key={line} className="flex gap-2.5 text-[12px] text-foreground/90 leading-snug">
+                        <span className="w-3 shrink-0 text-[10px] tabular-nums text-muted-foreground pt-px">
+                          {index + 1}
+                        </span>
+                        <span>{line}</span>
                       </li>
                     ))}
-                  </ul>
-                </div>
-
-                {/* Blockers */}
-                {briefing.blockers.length ? (
-                  <div className="bg-destructive/5 border border-destructive/15 rounded-lg px-3.5 py-2.5">
-                    <p className="text-[11px] font-semibold text-destructive/80 uppercase tracking-wider mb-1">Blockers</p>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      {briefing.blockers.join(" · ")}
-                    </p>
-                  </div>
+                  </ol>
                 ) : null}
 
-                {/* Suggested action */}
-                {briefing.suggestedActions[0] ? (
-                  <p className="text-[11px] text-primary font-medium leading-relaxed flex items-start gap-1.5">
-                    <Zap className="size-3 shrink-0 mt-0.5" />
-                    {briefing.suggestedActions[0]}
+                {briefing.blockers.length ? (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Blocked · {briefing.blockers.join(" · ")}
                   </p>
                 ) : null}
 
-                {/* Top tasks */}
-                <div className="pt-1.5 border-t border-border/60">
-                  <div className="flex items-center gap-2 mb-3 mt-3">
-                    <Clock className="size-3 text-muted-foreground/60" />
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      Top tasks
+                <div>
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                      Assigned
                     </p>
+                    {briefing.topTasks?.length ? (
+                      <span className="text-[10px] tabular-nums text-muted-foreground/70">
+                        {briefing.topTasks.length}
+                      </span>
+                    ) : null}
                   </div>
                   {briefing.topTasks?.length ? (
-                    <div className="space-y-0.5">
-                      {briefing.topTasks.map((task) => {
+                    <ul>
+                      {briefing.topTasks.slice(0, 4).map((task) => {
                         const priorityKey = String(task.priority || "").toUpperCase();
                         return (
-                          <Link
-                            key={task.id}
-                            href={
-                              task.workspaceId
-                                ? `/workspaces/${task.workspaceId}/tasks/${task.id}`
-                                : "/agent/projects"
-                            }
-                            className="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted/50 transition-colors group"
-                          >
-                            <span
-                              className={`mt-1.5 size-2 rounded-full shrink-0 ${PRIORITY_TONE[priorityKey] ?? PRIORITY_TONE.LOW} ${PRIORITY_GLOW[priorityKey] ?? ""}`}
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-xs font-medium text-foreground truncate group-hover:text-primary transition-colors">
-                                {[task.key, task.title].filter(Boolean).join(" · ")}
+                          <li key={task.id}>
+                            <Link
+                              href={
+                                task.workspaceId
+                                  ? `/workspaces/${task.workspaceId}/tasks/${task.id}`
+                                  : "/agent/projects"
+                              }
+                              className="flex items-center gap-2 rounded-md py-1.5 hover:bg-muted/50 -mx-1 px-1 transition-colors"
+                            >
+                              <span
+                                className={cn(
+                                  "size-1.5 rounded-full shrink-0",
+                                  PRIORITY_TONE[priorityKey] ?? PRIORITY_TONE.LOW,
+                                )}
+                              />
+                              <span className="min-w-0 flex-1 text-[12px] text-foreground truncate">
+                                {[task.key, task.title].filter(Boolean).join("  ")}
                               </span>
-                              <span className="block text-[11px] text-muted-foreground mt-0.5">
-                                {[task.status, task.priority].filter(Boolean).join(" · ")}
-                              </span>
-                            </span>
-                          </Link>
+                            </Link>
+                          </li>
                         );
                       })}
-                    </div>
+                    </ul>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground">No open tasks assigned to you.</p>
+                    <p className="text-[12px] text-muted-foreground py-1">Nothing assigned.</p>
                   )}
                 </div>
               </div>
+            ) : (
+              <p className="mt-4 text-[12px] text-muted-foreground">Sign in to load your briefing.</p>
             )}
+
             <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure you want to reset?</AlertDialogTitle>
+                  <AlertDialogTitle>Reset Personal Agent?</AlertDialogTitle>
                   <AlertDialogDescription>
                     This permanently deletes the trained profile, interview answers, inferred workspace data, and
-                    training chats from the database. You will need to train or self-train again.
+                    training chats. You will need to train or self-train again.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -228,7 +247,16 @@ export function DailyCockpit() {
             </AlertDialog>
           </>
         ) : (
-          <PersonalAgentSetup />
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <AgentFace mood="idle" size={36} />
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-foreground leading-none">Personal Agent</p>
+                <p className="text-[11px] text-muted-foreground mt-1">Train it on how you work</p>
+              </div>
+            </div>
+            <PersonalAgentSetup compact hideIntro />
+          </div>
         )}
       </div>
     </section>

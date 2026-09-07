@@ -728,6 +728,17 @@ const app = new Hono()
         dispatchWorkitemEvent(event).catch(() => {
           console.debug("[WorkItemsRoute] Notification dispatch failed (non-blocking)");
         });
+        void import("@/features/agent/lib/personal-standin")
+          .then(({ maybeEnqueueStandinFromAssignment }) =>
+            maybeEnqueueStandinFromAssignment({
+              databases,
+              actorUserId: user.$id,
+              actorName: userName,
+              workItem,
+              assigneeIds: data.assigneeIds || [],
+            }),
+          )
+          .catch(() => {});
       }
 
       void import("@/features/agent/lib/coding-session-hooks")
@@ -902,6 +913,17 @@ const app = new Hono()
                 workItem: updatedWorkItem,
                 assigneeIds: addedAssignees,
                 user,
+              }),
+            )
+            .catch(() => {});
+          void import("@/features/agent/lib/personal-standin")
+            .then(({ maybeEnqueueStandinFromAssignment }) =>
+              maybeEnqueueStandinFromAssignment({
+                databases,
+                actorUserId: user.$id,
+                actorName: userName,
+                workItem: updatedWorkItem,
+                assigneeIds: addedAssignees,
               }),
             )
             .catch(() => {});

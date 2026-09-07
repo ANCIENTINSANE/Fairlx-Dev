@@ -53,7 +53,8 @@ import {
   unwrapListCall,
   toolsWhenContextIsTight,
 } from "./tool-loop";
-import { executeTool, failedToolResult, openaiToolsForTurn, trainingSaveTool, type OpenAiTool } from "./tools";
+import { parseAskUserArgs } from "./ask-user";
+import { askUserTool, executeTool, failedToolResult, openaiToolsForTurn, trainingSaveTool, type OpenAiTool } from "./tools";
 import { compactJsonString } from "./truncate";
 import { getRun, listRuns, updateRun } from "./runs";
 import { getPersonalAgent } from "./personal-agent-store";
@@ -702,8 +703,8 @@ export async function runAgentTurn(params: {
       : [lastUserText]
   ).filter(Boolean);
   const conversationAllowsDelete = conversationDeleteIntent(userTexts).allowed;
-  const tools = training
-    ? trainingSaveReady(run.messages) ? [trainingSaveTool()] : []
+  const selectedTools = training
+    ? [askUserTool(), ...(trainingSaveReady(run.messages) ? [trainingSaveTool()] : [])]
     : selectToolsForTurn(
         openaiToolsForTurn({
           mode: run.mode,
@@ -720,6 +721,12 @@ export async function runAgentTurn(params: {
           ),
         },
       );
+  const tools =
+    !training && isPersonalSessionMode(harness.settings.sessionMode)
+      ? selectedTools.some((tool) => tool.function.name === "ask_user")
+        ? selectedTools
+        : [askUserTool(), ...selectedTools]
+      : selectedTools;
   const personalPrompt =
     personalProfile && profileIsTrained(personalProfile) ? personalProfile.compiledPrompt : undefined;
   const system = buildSystemPrompt({
@@ -940,6 +947,33 @@ export async function runAgentTurn(params: {
       messages: nextMessages,
       events: nextEvents,
       status: "awaiting_confirmation",
+      error: "",
+    });
+  };
+
+  const pauseForQuestion = async (
+    nextMessages: AgentChatMessage[],
+    nextEvents: AgentToolEvent[],
+    call: AgentToolCall,
+  ) => {
+    const asked = parseAskUserArgs(call.arguments);
+    nextEvents.push({
+      id: crypto.randomUUID(),
+      type: "ask_user",
+      title: asked.question || "Waiting for your answer",
+      payload: {
+        question: asked.question,
+        options: asked.options,
+        allowCustom: asked.allowCustom,
+        toolCallId: call.id,
+      },
+      createdAt: new Date().toISOString(),
+      runId: run.id,
+    });
+    return persistUnlessStopped({
+      messages: nextMessages,
+      events: nextEvents,
+      status: "awaiting_question",
       error: "",
     });
   };
@@ -1214,7 +1248,7 @@ export async function runAgentTurn(params: {
   };
 
   try {
-    if (!resume) {
+    if (!resume && !training && !unmatchedToolCalls(run).some((call) => call.name === "ask_user")) {
       const missing = missingCapabilities(lastUserText, harness.plugins, context);
       if (missing[0]) {
         return pauseForPlugin(missing[0], run.messages, run.events);
@@ -1270,6 +1304,34 @@ export async function runAgentTurn(params: {
         error: "",
       });
       if (run.status === "stopped") return run;
+    }
+
+    if (!resume) {
+      const unmatchedAsk = unmatchedToolCalls(run).find((call) => call.name === "ask_user");
+      if (unmatchedAsk) {
+        const last = run.messages[run.messages.length - 1];
+        if (last?.role === "user") {
+          const nextMessages = [
+            ...run.messages,
+            {
+              id: crypto.randomUUID(),
+              role: "tool" as const,
+              content: JSON.stringify({ answer: displayUserContent(last.content), source: "user" }),
+              toolCallId: unmatchedAsk.id,
+              toolName: "ask_user",
+              createdAt: new Date().toISOString(),
+            },
+          ];
+          run = await persistUnlessStopped({
+            messages: nextMessages,
+            status: "running",
+            error: "",
+          });
+          if (run.status === "stopped") return run;
+        } else {
+          return pauseForQuestion(run.messages, run.events, unmatchedAsk);
+        }
+      }
     }
 
     if (!resume && run.mode === "agent" && !training) {
@@ -1453,7 +1515,7 @@ export async function runAgentTurn(params: {
       });
       const content = sanitizeAssistantVisible(collected.content);
       const toolCalls = training
-        ? collected.toolCalls.filter((call) => call.name === "save_personal_agent")
+        ? collected.toolCalls.filter((call) => call.name === "save_personal_agent" || call.name === "ask_user")
         : collected.toolCalls;
 
       if (toolCalls.length && !forceAnswer) {
@@ -1474,6 +1536,22 @@ export async function runAgentTurn(params: {
           } else {
             allowedCalls.push(call);
           }
+        }
+        const saveCall = allowedCalls.find((call) => call.name === "save_personal_agent");
+        const askCall = allowedCalls.find((call) => call.name === "ask_user");
+        if (askCall && !saveCall) {
+          assistantMessage.toolCalls = [askCall];
+          const askedEvents = withContextMeter({
+            events: run.events,
+            runId: run.id,
+            system,
+            tools: iterationTools,
+            messages: nextMessages,
+            harness,
+            mcp,
+            maxInputTokens: target.maxInputTokens ?? 0,
+          });
+          return pauseForQuestion(nextMessages, askedEvents, askCall);
         }
         const gated = allowedCalls.filter((call) => needsConfirmation(call, permissionType()));
         const autoCalls = allowedCalls.filter((call) => !needsConfirmation(call, permissionType()));

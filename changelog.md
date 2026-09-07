@@ -8,6 +8,10 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-07 | `2131661` | chore: bump version to 0.2.109 [skip ci] | github-actions[bot] |
+| 2026-09-08 | `6281509` | feat: implement agent personal stand-in system with voice training, approval workflows, and visual face animations | Happyesss |
+| 2026-09-07 | `0c1ae00` | chore: bump version to 0.2.108 [skip ci] | github-actions[bot] |
+| 2026-09-08 | `3a80594` | Merge pull request #310 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-08 | `7c00a2b` | feat: run GitHub code actions as the user and isolate coding sessions | ANCIENTINSANE |
 | 2026-09-06 | `b5cda5c` | chore: bump version to 0.2.107 [skip ci] | github-actions[bot] |
 | 2026-09-06 | `c0f8f8a` | Merge pull request #309 from Happyesss/main | Shashank Kumar Rathour |
@@ -92,11 +96,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-01 | `263ce1f` | refactor: improve performance with useMemo hooks, strengthen agent runtime type safety, and update deployment environment variables. | Happyesss |
 | 2026-08-31 | `b359c75` | chore: bump version to 0.2.75 [skip ci] | github-actions[bot] |
 | 2026-08-31 | `bdab4c8` | Merge pull request #292 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-31 | `fd1ef9c` | Changes — harness staging (paths, status, branch) | ANCIENTINSANE |
-| 2026-08-31 | `a095820` | feat: expand agent harness with specialists, MCP, and chat ops | ANCIENTINSANE |
-| 2026-08-31 | `a83ccf3` | fix: keep agent workflow live while model turns run in the background | ANCIENTINSANE |
-| 2026-08-31 | `c54459b` | chore: bump version to 0.2.74 [skip ci] | github-actions[bot] |
-| 2026-08-31 | `45ab287` | Merge pull request #291 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-31 | `8050192` | feat: replace static agent dashboard with live harness screens and run loop | ANCIENTINSANE |
 
-Last generated: 2026-09-07T18:56:35.181Z
+Last generated: 2026-09-07T23:23:16.528Z

@@ -1,0 +1,456 @@
+/**
+ * Fairlx Agent Face - Animations & Keyframes
+ * Pure, Minimal Circular Robot Face: Two Eyes + Smile
+ */
+
+/* ==========================================================================
+   Base Levitation & Ambient Breathing
+   ========================================================================== */
+
+@keyframes agent-float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.floating-agent {
+  animation: agent-float 4.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* ==========================================================================
+   Blinking Animation
+   ========================================================================== */
+
+@keyframes eye-blink-anim {
+  0% {
+    transform: scaleY(1) scaleX(1);
+  }
+  24% {
+    transform: scaleY(0.42) scaleX(1.04);
+  }
+  48% {
+    transform: scaleY(0.06) scaleX(1.08);
+  }
+  72% {
+    transform: scaleY(0.85) scaleX(1.02);
+  }
+  88% {
+    transform: scaleY(1.05) scaleX(0.98);
+  }
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+}
+
+.is-blinking .agent-eye {
+  animation: eye-blink-anim 0.34s cubic-bezier(0.25, 1, 0.4, 1) forwards !important;
+}
+
+/* Gentle smile breathing */
+@keyframes smile-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+.state-idle .mouth-neon-svg {
+  animation: smile-breathe 3.5s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   State 1: IDLE / AWAKE
+   ========================================================================== */
+.state-idle .agent-eye {
+  width: 42px;
+  height: 64px;
+  border-radius: 21px;
+}
+
+/* ==========================================================================
+   State 2: THINKING / PROCESSING (Pondering, Looking Into Above)
+   ========================================================================== */
+@keyframes thinking-eye-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 24px var(--agent-glow),
+      0 0 46px var(--agent-glow-soft),
+      inset 0 0 16px rgba(255, 255, 255, 0.85);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow:
+      0 0 34px var(--agent-glow),
+      0 0 64px var(--agent-glow-soft),
+      inset 0 0 22px rgba(255, 255, 255, 0.95);
+    filter: brightness(1.12);
+  }
+}
+
+/* Looking above pupil and highlight wander animation */
+@keyframes thinking-pupil-wander {
+  0%, 100% {
+    transform: translate(-35%, -82%);
+  }
+  30% {
+    transform: translate(-50%, -90%);
+  }
+  65% {
+    transform: translate(-65%, -82%);
+  }
+}
+
+@keyframes thinking-glow-wander {
+  0%, 100% {
+    transform: translate(3px, -6px) scale(0.95);
+    opacity: 0.95;
+  }
+  50% {
+    transform: translate(-3px, -7px) scale(1.04);
+    opacity: 1;
+  }
+}
+
+/* Thoughtful subtle mouth breathe */
+@keyframes thinking-mouth-breathe {
+  0%, 100% {
+    transform: translateY(1px) scale(0.96);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translateY(-2px) scale(1.02);
+    opacity: 1;
+  }
+}
+
+.state-thinking .agent-eye {
+  width: 40px;
+  height: 60px;
+  border-radius: 20px;
+  animation: thinking-eye-glow 2.4s ease-in-out infinite;
+}
+
+.state-thinking .eye-pupil-center {
+  opacity: 0.38 !important;
+  animation: thinking-pupil-wander 3.6s ease-in-out infinite;
+}
+
+.state-thinking .eye-glow-inner {
+  animation: thinking-glow-wander 3.6s ease-in-out infinite;
+}
+
+.state-thinking .mouth-neon-svg {
+  animation: thinking-mouth-breathe 2.4s ease-in-out infinite;
+}
+
+.state-thinking .agent-orbit-scanner {
+  opacity: 0.85;
+  animation: orbit-rotate 3.2s linear infinite;
+}
+
+.state-thinking .particle {
+  opacity: 0.7;
+}
+
+/* ==========================================================================
+   State 3: LISTENING (Attentive & Open)
+   ========================================================================== */
+@keyframes listen-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 24px var(--agent-glow), 0 0 44px var(--agent-glow-soft);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 36px var(--agent-glow), 0 0 68px var(--agent-glow-soft);
+  }
+}
+
+.state-listening .agent-eye {
+  width: 46px;
+  height: 70px;
+  border-radius: 23px;
+  animation: listen-pulse 1.8s ease-in-out infinite;
+}
+
+.state-listening .eye-glow-inner {
+  transform: scale(1.2);
+  opacity: 0.95;
+}
+
+@keyframes listen-wave {
+  0%, 100% { transform: scaleX(0.88); opacity: 0.7; }
+  50% { transform: scaleX(1.12); opacity: 1; }
+}
+
+.state-listening .mouth-neon-svg {
+  animation: listen-wave 1.4s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   State 4: SPEAKING / RESPONDING
+   ========================================================================== */
+@keyframes speak-eye-squint {
+  0%, 100% {
+    transform: scaleY(0.95);
+  }
+  50% {
+    transform: scaleY(1.04) translateY(-1px);
+  }
+}
+
+.state-speaking .agent-eye {
+  width: 42px;
+  height: 60px;
+  border-radius: 21px;
+  animation: speak-eye-squint 0.6s ease-in-out infinite;
+}
+
+/* Talking mouth movement keyframe */
+@keyframes talking-mouth-loop {
+  0%, 100% {
+    transform: scaleY(0.85) scaleX(0.95);
+  }
+  30% {
+    transform: scaleY(1.25) scaleX(1.04);
+  }
+  60% {
+    transform: scaleY(0.75) scaleX(0.92);
+  }
+  80% {
+    transform: scaleY(1.15) scaleX(1.02);
+  }
+}
+
+.state-speaking .mouth-neon-svg {
+  animation: talking-mouth-loop 0.38s ease-in-out infinite;
+}
+
+@keyframes wave-bounce-1 {
+  0%, 100% { height: 8px; }
+  50% { height: 26px; }
+}
+
+@keyframes wave-bounce-2 {
+  0%, 100% { height: 20px; }
+  50% { height: 8px; }
+}
+
+@keyframes wave-bounce-3 {
+  0%, 100% { height: 10px; }
+  50% { height: 30px; }
+}
+
+.state-speaking .wave-bar:nth-child(1) { animation: wave-bounce-1 0.35s ease-in-out infinite; }
+.state-speaking .wave-bar:nth-child(2) { animation: wave-bounce-2 0.4s ease-in-out infinite 0.05s; }
+.state-speaking .wave-bar:nth-child(3) { animation: wave-bounce-3 0.3s ease-in-out infinite 0.1s; }
+.state-speaking .wave-bar:nth-child(4) { animation: wave-bounce-2 0.38s ease-in-out infinite 0.08s; }
+.state-speaking .wave-bar:nth-child(5) { animation: wave-bounce-3 0.42s ease-in-out infinite 0.12s; }
+.state-speaking .wave-bar:nth-child(6) { animation: wave-bounce-1 0.32s ease-in-out infinite 0.04s; }
+.state-speaking .wave-bar:nth-child(7) { animation: wave-bounce-2 0.36s ease-in-out infinite 0.09s; }
+
+/* ==========================================================================
+   State 5: HAPPY / SUCCESS
+   ========================================================================== */
+@keyframes happy-bounce {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  30% {
+    transform: translateY(-8px) scale(1.02);
+  }
+  60% {
+    transform: translateY(2px) scale(0.99);
+  }
+}
+
+.state-happy .agent-chassis {
+  animation: happy-bounce 0.8s ease-in-out;
+}
+
+/* Happy smiling crescent arc eyes (^_^) */
+.state-happy .agent-eye {
+  width: 48px;
+  height: 38px;
+  border-radius: 34px 34px 12px 12px;
+  transform: translateY(-2px);
+}
+
+.state-happy .mouth-neon-svg {
+  transform: scale(1.15) translateY(-2px);
+  filter: drop-shadow(0 0 14px var(--agent-glow));
+}
+
+/* ==========================================================================
+   State 6: FOCUSED / CODING
+   ========================================================================== */
+.state-focused .agent-eye {
+  width: 52px;
+  height: 24px;
+  border-radius: 12px;
+  box-shadow: 0 0 20px var(--agent-glow), 0 0 34px var(--agent-glow-soft);
+}
+
+.state-focused .eyes-container {
+  gap: calc(var(--eye-spacing) - 4px);
+}
+
+.state-focused .mouth-neon-svg {
+  transform: scaleX(0.85);
+}
+
+/* ==========================================================================
+   State 7: ALERT / ERROR
+   ========================================================================== */
+@keyframes error-shake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-3px, 2px); }
+  40% { transform: translate(3px, -2px); }
+  60% { transform: translate(-2px, -1px); }
+  80% { transform: translate(2px, 1px); }
+}
+
+@keyframes error-eye-flicker {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+  75% { opacity: 0.3; }
+}
+
+.state-error .fairlx-agent-face {
+  animation: error-shake 0.35s ease-in-out infinite;
+}
+
+.state-error .agent-eye {
+  width: 42px;
+  height: 38px;
+  border-radius: 14px;
+  animation: error-eye-flicker 0.2s ease-in-out infinite;
+}
+
+.state-error .agent-eye-left {
+  transform: rotate(14deg);
+}
+
+.state-error .agent-eye-right {
+  transform: rotate(-14deg);
+}
+
+.state-error .mouth-neon-svg {
+  filter: drop-shadow(0 0 14px #ef4444);
+}
+
+/* ==========================================================================
+   State 8: SLEEP / STANDBY
+   ========================================================================== */
+@keyframes sleep-breath {
+  0%, 100% {
+    opacity: 0.4;
+    box-shadow: 0 0 8px var(--agent-glow-soft);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 16px var(--agent-glow);
+  }
+}
+
+.state-sleep .agent-eye {
+  width: 40px;
+  height: 7px;
+  border-radius: 4px;
+  animation: sleep-breath 4s ease-in-out infinite;
+}
+
+.state-sleep .eye-glow-inner,
+.state-sleep .eye-pupil-center {
+  opacity: 0;
+}
+
+.state-sleep .mouth-neon-svg {
+  opacity: 0.45;
+  transform: scaleX(0.7);
+}
+
+/* ==========================================================================
+   State 9: WINK
+   ========================================================================== */
+.state-wink .agent-eye-left {
+  width: 42px;
+  height: 64px;
+  border-radius: 21px;
+}
+
+.state-wink .agent-eye-right {
+  width: 42px;
+  height: 7px;
+  border-radius: 4px;
+  transform: translateY(14px);
+}
+
+.state-wink .mouth-neon-svg {
+  transform: rotate(-4deg);
+}
+
+/* ==========================================================================
+   State 10: CURIOUS / TILT - Expressive curious kid pose (eyes and expression)
+   ========================================================================== */
+.state-curious .agent-chassis {
+  transform: scale(1.02);
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.state-curious .agent-eye-left {
+  width: 46px;
+  height: 70px;
+  border-radius: 23px;
+  transform: translateY(-6px);
+}
+
+.state-curious .agent-eye-right {
+  width: 36px;
+  height: 52px;
+  border-radius: 18px;
+  transform: translateY(2px) rotate(-6deg);
+}
+
+.state-curious .eyes-container {
+  transform: translateY(-12px) rotate(4deg);
+}
+
+/* ==========================================================================
+   Quantum Thought Particles Keyframe
+   ========================================================================== */
+@keyframes float-particle {
+  0% {
+    transform: translateY(0px) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-80px) scale(1.1);
+    opacity: 0;
+  }
+}

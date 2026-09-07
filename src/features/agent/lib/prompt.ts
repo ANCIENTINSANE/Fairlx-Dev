@@ -69,9 +69,9 @@ export function buildSystemPrompt(params: {
       : undefined) ?? context.organizations?.[0];
   const orgRole = organization?.role ? ` Role: ${organization.role}.` : "";
   const personaRole = inferPersonaRole({ workspaceRole: workspace?.role, prompt: query, title: run.title });
-  const persona = compilePersonaPrompt(personaRole, workspace?.name, project?.name);
   const sessionMode = harness.settings.sessionMode;
   const personal = isPersonalSessionMode(sessionMode);
+  const persona = compilePersonaPrompt(personaRole, workspace?.name, project?.name, { personal });
   const training = isTrainingRun(run);
 
   if (training) {
@@ -116,6 +116,7 @@ export function buildSystemPrompt(params: {
     formatProjectGithubLine(context, project?.id),
   ];
   if (personal) lines.push(SESSION_MODE_INSTRUCTIONS.personal);
+  else lines.push(SESSION_MODE_INSTRUCTIONS[sessionMode || "agent"]);
   if (personal && params.personalPrompt?.trim()) {
     lines.push(
       "",

@@ -17,17 +17,23 @@ import { extractBoardProject } from "../lib/project-launch";
 import { useAgentUi } from "./agent-ui-context";
 import { GitHubAddOneButton } from "@/features/github-integration/components";
 import { AgentWorkingDropUp } from "./agent-run-hud";
+import { AgentFace, useAgentFaceMood } from "./agent-face";
+import { isPersonalSessionMode } from "../lib/session-context";
 
 export function AgentScopeBar({
   run,
   onScopeChange,
   defaultWorkspaceId,
   defaultProjectId,
+  composerTyping = false,
+  composerListening = false,
 }: {
   run?: AgentRun;
   onScopeChange?: (workspaceId: string, projectId?: string) => void;
   defaultWorkspaceId?: string;
   defaultProjectId?: string;
+  composerTyping?: boolean;
+  composerListening?: boolean;
 } = {}) {
   const { data: context } = useGetAgentContext();
   const { data: harness } = useGetAgentHarness();
@@ -63,6 +69,8 @@ export function AgentScopeBar({
   const repo = (context?.githubRepos ?? []).find(
     (item) => item.projectId === project?.id || (!project && item.workspaceId === workspaceId),
   );
+  const personal = isPersonalSessionMode(harness?.settings.sessionMode);
+  const faceMood = useAgentFaceMood(run, { typing: composerTyping, listening: composerListening });
   const q = search.trim().toLowerCase();
   const filteredWorkspaces = useMemo(
     () => workspaces.filter((item) => !q || item.name.toLowerCase().includes(q)),
@@ -239,6 +247,7 @@ export function AgentScopeBar({
           />
         </>
       ) : null}
+      {personal ? <AgentFace mood={faceMood} size={32} className="ml-1" /> : null}
       </div>
 
       <div className="flex items-center gap-1 shrink-0 ml-auto">

@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import type { AgentContext } from "../types";
 import { defaultHarnessData } from "./harness";
-import { applyScopeDefaults, executeTool, failedToolResult, openaiToolsForTurn, trainingSaveTool } from "./tools";
+import { applyScopeDefaults, executeTool, failedToolResult, openaiToolsForTurn, askUserTool, trainingSaveTool } from "./tools";
 import { DEFAULT_ENABLED_TOOLS } from "../constants";
 
 function context(): AgentContext {
@@ -113,7 +113,9 @@ describe("openaiToolsForTurn", () => {
       mcpTools: [],
     });
     expect(tools.map((tool) => tool.function.name)).not.toContain("save_personal_agent");
+    expect(tools.map((tool) => tool.function.name)).not.toContain("ask_user");
     expect(trainingSaveTool().function.name).toBe("save_personal_agent");
+    expect(askUserTool().function.name).toBe("ask_user");
   });
 });
 

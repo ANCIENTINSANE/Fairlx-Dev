@@ -7,7 +7,9 @@ import {
 } from '../lib/db-helpers';
 import { logger } from '../lib/logger';
 
-const COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_AGENT_JOBS_ID || 'agent_jobs';
+declare const process: { env?: Record<string, string | undefined> };
+
+const COLLECTION_ID = process.env?.NEXT_PUBLIC_APPWRITE_AGENT_JOBS_ID || 'agent_jobs';
 const COLLECTION_NAME = 'Agent Jobs';
 
 export async function setupAgentJobs(databases: Databases, databaseId: string): Promise<void> {
@@ -30,4 +32,5 @@ export async function setupAgentJobs(databases: Databases, databaseId: string): 
 
     await ensureIndex(databases, databaseId, COLLECTION_ID, 'userId_idx', IndexType.Key, ['userId']);
     await ensureIndex(databases, databaseId, COLLECTION_ID, 'status_idx', IndexType.Key, ['status']);
+    await ensureIndex(databases, databaseId, COLLECTION_ID, 'kind_idx', IndexType.Key, ['kind']);
 }

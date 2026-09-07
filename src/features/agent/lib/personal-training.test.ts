@@ -46,7 +46,8 @@ describe("personal agent training", () => {
     const questions = questionsForRole("tech_lead");
     expect(questions[0]?.id).toBe("tl_team");
     expect(questions.some((item) => item.id === "never_do")).toBe(true);
-    expect(questions.length).toBeGreaterThanOrEqual(12);
+    expect(questions.some((item) => item.id === "tone_voice")).toBe(true);
+    expect(questions.length).toBeGreaterThanOrEqual(15);
   });
 
   it("compiles a detailed standing prompt from answers", () => {
@@ -63,6 +64,8 @@ describe("personal agent training", () => {
     expect(prompt).toContain("Staff frontend");
     expect(prompt).toContain("## Identity and role");
     expect(prompt).toContain("## Training interview (verbatim)");
+    expect(prompt).toContain("## Voice contract");
+    expect(prompt).toContain("## Stand-in contract");
     expect(prompt).toContain("never_do");
     expect(prompt.length).toBeGreaterThan(800);
   });
@@ -89,8 +92,9 @@ describe("personal agent training", () => {
       workspaceName: "Acme",
     });
     expect(prompt).toContain("Open with \"Hi Ada,\"");
-    expect(prompt).toContain("[[choices]]");
-    expect(prompt).toContain("custom answer");
+    expect(prompt).toContain("ask_user");
+    expect(prompt).not.toContain("[[choices]]");
+    expect(prompt).toContain("Type your own");
     expect(prompt).toContain("Fairlx snapshot");
     expect(prompt).toContain("save_personal_agent");
     expect(prompt).toContain("Describe your team");

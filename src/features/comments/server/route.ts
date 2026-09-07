@@ -47,10 +47,10 @@ export const getCommentAuthors = async (
   const userMap = await batchGetUsers(users, uniqueAuthorIds);
 
   for (const authorId of uniqueAuthorIds) {
-    if (authorId === "github-webhook" || authorId === "github-sync-history" || authorId === "system") {
+    if (authorId === "github-webhook" || authorId === "github-sync-history" || authorId === "system" || authorId === "personal-agent") {
       authorsMap.set(authorId, {
         $id: authorId,
-        name: authorId === "system" ? "System" : "GitHub Integration",
+        name: authorId === "system" ? "System" : authorId === "personal-agent" ? "Personal Agent" : "GitHub Integration",
         email: undefined,
         profileImageUrl: null,
       });
@@ -145,6 +145,37 @@ export const createComment = async (data: {
           content: data.content,
         }),
       )
+      .catch(() => {});
+
+    void import("@/features/agent/lib/personal-standin")
+      .then(async ({ PERSONAL_STANDIN_AUTHOR_ID, cancelStandinJobsForUserTask, maybeEnqueueStandinFromComment }) => {
+        if (data.authorId === PERSONAL_STANDIN_AUTHOR_ID) return;
+        await cancelStandinJobsForUserTask({
+          databases,
+          userId: data.authorId,
+          taskId: data.taskId,
+        });
+        let parentAuthorId: string | undefined;
+        if (data.parentId) {
+          try {
+            const parent = await databases.getDocument(DATABASE_ID, COMMENTS_ID, data.parentId);
+            parentAuthorId = String((parent as { authorId?: string }).authorId || "");
+          } catch {
+            parentAuthorId = undefined;
+          }
+        }
+        await maybeEnqueueStandinFromComment({
+          databases,
+          authorId: data.authorId,
+          authorName: data.authorName,
+          taskId: data.taskId,
+          workspaceId: data.workspaceId,
+          projectId: task.projectId,
+          commentId: comment.$id,
+          content: data.content,
+          parentAuthorId,
+        });
+      })
       .catch(() => {});
 
     // 2. Dispatch individual mention notifications for each mentioned user

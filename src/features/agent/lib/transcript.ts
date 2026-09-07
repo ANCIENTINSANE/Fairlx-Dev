@@ -78,12 +78,19 @@ export function groupTranscriptWithLeftovers(
       continue;
     }
     if (message.role === "assistant" && message.toolCalls?.length) {
-      const consumed = consumeTools(i, message.toolCalls);
+      const asks = message.toolCalls.filter((call) => call.name === "ask_user");
+      const rest = message.toolCalls.filter((call) => call.name !== "ask_user");
+      if (asks.length && !rest.length) {
+        blocks.push({ kind: "assistant", message });
+        continue;
+      }
+      const consumed = consumeTools(i, rest.length ? rest : message.toolCalls);
       blocks.push({ kind: "steps", lead: message, steps: consumed.steps });
       i = consumed.index;
       continue;
     }
     if (message.role === "tool") {
+      if (message.toolName === "ask_user") continue;
       const steps: TranscriptStep[] = [{ call: toolAsCall(message), result: message, event: takeEvent(message.toolName || "") }];
       while (i + 1 < messages.length && messages[i + 1]?.role === "tool") {
         i += 1;
@@ -107,6 +114,8 @@ const HIDDEN_ACTIVITY_TYPES = new Set<AgentToolEvent["type"]>([
   "context_meter",
   "confirmation",
   "confirmation_resolved",
+  "ask_user",
+  "ask_user_resolved",
   "llm_usage",
 ]);
 
@@ -115,6 +124,8 @@ const TRANSCRIPT_META_TYPES = new Set<AgentToolEvent["type"]>([
   "context_meter",
   "confirmation",
   "confirmation_resolved",
+  "ask_user",
+  "ask_user_resolved",
   "llm_usage",
   "subagent_started",
   "subagent_progress",

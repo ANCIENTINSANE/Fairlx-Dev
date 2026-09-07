@@ -93,6 +93,30 @@ const SHARED_QUESTIONS: PersonalTrainingQuestion[] = [
   },
 ];
 
+const TONE_QUESTIONS: PersonalTrainingQuestion[] = [
+  {
+    id: "tone_voice",
+    prompt: "What is your default voice — direct or warm, short or thorough — when the agent writes as you?",
+    hint: "This is the stand-in voice on comments when you are away.",
+    placeholder: "Default to … Never sound …",
+    required: true,
+  },
+  {
+    id: "tone_audience",
+    prompt: "How should that voice change for teammates versus leadership versus people who report to you?",
+    hint: "Names help. Short with peers, evidence-first with leadership, etc.",
+    placeholder: "Teammates: … Leadership: … Reports: …",
+    required: true,
+  },
+  {
+    id: "tone_never_say",
+    prompt: "Which words, phrases, or claims must the agent never use when speaking for you?",
+    hint: "Slang you hate, fake certainty, over-apologizing, promising dates.",
+    placeholder: "Never say … Never claim …",
+    required: true,
+  },
+];
+
 const ROLE_QUESTIONS: Record<PersonalPersonaRole, PersonalTrainingQuestion[]> = {
   tech_lead: [
     {
@@ -190,7 +214,7 @@ export function suggestedPersonaRole(context: AgentContext, workspaceId?: string
 }
 
 export function questionsForRole(role: PersonalPersonaRole): PersonalTrainingQuestion[] {
-  return [...ROLE_QUESTIONS[role], ...SHARED_QUESTIONS];
+  return [...ROLE_QUESTIONS[role], ...SHARED_QUESTIONS, ...TONE_QUESTIONS];
 }
 
 export function personaLabel(role: PersonalPersonaRole): string {
@@ -266,6 +290,9 @@ export function compilePersonalPrompt(input: {
 
   const communication = [
     expand(get("communication"), "Be concise. Lead with the answer. Skip process talk."),
+    expand(get("tone_voice"), "Match this user's default voice when writing as them."),
+    expand(get("tone_audience"), "Adjust formality for teammates, leadership, and reports the way this user would."),
+    expand(get("tone_never_say"), "Never use words, phrases, or claims this user forbade."),
     "Never mention tool names, MCP, document IDs, or raw JSON in the user-facing answer.",
     "Ground every claim in tool results or injected Fairlx context. If you do not know, say so.",
   ].join("\n");
@@ -293,6 +320,25 @@ export function compilePersonalPrompt(input: {
     section("Quality, decisions, and safety", quality),
     extra ? section("Training interview (verbatim)", extra) : "",
     section(
+      "Voice contract",
+      [
+        expand(get("tone_voice"), "Write the way this user writes: concise, specific, no filler."),
+        expand(get("tone_audience"), "Sound like a peer to teammates, evidence-first with leadership, and clear with reports."),
+        expand(get("tone_never_say"), "Do not use banned phrases or claim things this user would not claim."),
+      ].join("\n"),
+    ),
+    section(
+      "Stand-in contract",
+      [
+        "When this user is tagged or assigned and has not replied, you may speak on their behalf in their voice.",
+        expand(get("decision_style"), "Auto-reply only on routine, reversible questions. Pause when the user would want to decide."),
+        expand(get("never_do"), "Never auto-post commitments, estimates, assignments, production changes, or anything they forbade."),
+        "Posted stand-in comments are labeled as the Personal Agent for this user. Never impersonate their account.",
+        "Never @-mention people who were not already in the triggering thread.",
+        "If the matter needs the human, draft a reply and wait for Approve or I'll answer myself.",
+      ].join("\n"),
+    ),
+    section(
       "Standing orders",
       [
         "This prompt is the user's trained operating system. Follow it on every Personal Agent turn until they retrain.",
@@ -313,7 +359,7 @@ The user interviewed themselves. Expand their answers into a detailed operating 
 Requirements:
 - Write in second person to the agent ("You are…", "You must…", "You never…").
 - Keep every concrete name, rule, repo, tool, stakeholder, and constraint from the answers. Do not drop specifics.
-- Structure with markdown headings: Identity and role; Mandate and scope; How this user operates; Communication contract; Quality, decisions, and safety; Standing orders.
+- Structure with markdown headings: Identity and role; Mandate and scope; How this user operates; Communication contract; Voice contract; Stand-in contract; Quality, decisions, and safety; Standing orders.
 - Expand terse answers into clear standing instructions without inventing facts they did not say.
 - Include a verbatim "Training interview" section that restates each question and answer.
 - 700–1400 words. Dense, operational, not motivational.
@@ -498,26 +544,24 @@ export function buildTrainingInterviewPrompt(input: {
     covered.length
       ? `- Role is already set to ${roleName}. Skip the opening role question. Acknowledge the answers above in one sentence, then ask the next uncovered agenda question.`
       : `- First message only: greet ${input.userName} by name, then ask them to confirm or choose their role (Tech Lead, Frontend Engineer, QA Engineer, Product Manager). Offer the suggested role as a guess — do not assign it. Do not ask any agenda question yet.`,
-    covered.length ? "" : "- End that first message with 3–5 invented choices for the role question, including an infer/skip path and a beginner path. Do not use a fixed list.",
+    covered.length ? "" : "- End that first message by calling ask_user with 3 or 4 invented role choices, including an infer/skip path and a beginner path. Do not use a fixed list.",
     covered.length ? "" : "- Wait for their reply. If they correct the role, switch the agenda. If they skip or ask you to infer, pick the best-fit role from the snapshot below, say what you inferred, and continue.",
     "- After the role is set, ask exactly one agenda question per turn. Wait for their reply before the next.",
-    "- Invent 3–5 short choices for THAT question — role guesses, skip, infer from workspace/team, beginner, or a concrete snapshot-based answer. Never reuse a fixed hardcoded set.",
+    "- After behavior topics (mandate, communication, priorities, decisions, quality, never-do, tools, people, and role extras), ask the three tone topics last: default voice, audience shifts, and phrases the stand-in must never say.",
+    "- For every question, call ask_user with 3 or 4 short invented option labels for THAT question — role guesses, skip, infer from workspace/team, beginner, or a concrete snapshot-based answer. Never reuse a fixed hardcoded set.",
+    "- ask_user always shows a Type your own text box. Do not add an Other chip. Do not mention the tool name.",
     "- Always include at least one skip/infer path so they never have to type if they do not want to.",
     "- Skipping is valid. Do not push. Infer from the snapshot, tell them what you assumed in one sentence, then move on.",
     "- If they say they are a beginner or don't want to answer, simplify and fill gaps from the workspace snapshot. Never block the interview.",
-    "- End every question with this block so the UI can render tappable choices (do not mention the tags):",
-    "[[choices]]",
-    "short label they can tap",
-    "another invented label",
-    "[[/choices]]",
-    "- Labels must be self-contained replies under 40 characters. They can still type a custom answer instead.",
+    "- Labels must be self-contained replies under 40 characters.",
+    "- Never wrap options in markdown fences. The ask_user tool is what renders options.",
     "- Never treat a missing reply, a train-marker, or 'begin the interview' as an answer.",
     "- If you already asked something and they have not answered it, wait. Do not invent an answer unless they asked you to infer or skip.",
     "- Use the agenda below after the role is set. You may rephrase to sound like a conversation, but cover every topic.",
     "- If an answer is thin and they did not skip, ask a short follow-up on that same topic before moving on.",
-    "- Do not call Fairlx tools, MCP, or specialists. Do not do project work in this chat. Use the snapshot below instead of looking things up.",
-    "- After the last topic, write a detailed standing prompt (700+ words, markdown headings: Identity and role; Mandate and scope; How this user operates; Communication contract; Quality, decisions, and safety; Training interview; Standing orders).",
-    "- Then, only after the agenda is covered, call save_personal_agent with personaRole, the full Q&A (include inferred skip answers), and that compiledPrompt. Do not call any tool while you are still asking questions.",
+    "- Do not call Fairlx tools, MCP, or specialists except ask_user while interviewing and save_personal_agent after the agenda. Do not do project work in this chat. Use the snapshot below instead of looking things up.",
+    "- After the last tone topic, write a detailed standing prompt (700+ words, markdown headings: Identity and role; Mandate and scope; How this user operates; Communication contract; Voice contract; Stand-in contract; Quality, decisions, and safety; Training interview; Standing orders).",
+    "- Then, only after the agenda is covered, call save_personal_agent with personaRole, the full Q&A (include inferred skip answers), and that compiledPrompt. The only tool allowed while asking questions is ask_user.",
     `- After the tool succeeds, tell ${input.userName} their Personal Agent is live and they can keep chatting in Personal mode.`,
     "",
     "Fairlx snapshot (use this when they skip, are a beginner, or ask you to learn from workspace/team):",
@@ -608,7 +652,7 @@ export function overlayTrainingAnswers(
   });
 }
 
-const ACTIVE_TRAINING_STATUSES = new Set(["running", "stopped", "awaiting_confirmation"]);
+const ACTIVE_TRAINING_STATUSES = new Set(["running", "stopped", "awaiting_confirmation", "awaiting_question"]);
 
 export function findActiveTrainingRun(runs: AgentRun[]): AgentRun | undefined {
   return runs.find((run) => run.kind === "training" && ACTIVE_TRAINING_STATUSES.has(run.status));
@@ -653,6 +697,9 @@ export function inferTemplateAnswer(questionId: string, ctx: InferCtx): string {
     never_do: "Never delete workspaces, purge data, merge to main or production, change billing, or assign people without an explicit yes from me.",
     tools_context: `Primary: ${scope}.${ctx.workspaceRole ? ` Fairlx role ${ctx.workspaceRole}.` : ""} Ignore unrelated workspaces and noisy side projects.`,
     people: `${ctx.userName} is the principal. Treat workspace admins as stakeholders. Do not loop in people who are not on ${scope}.`,
+    tone_voice: "Default to concise and direct. Lead with the answer. Stay warm with teammates, never fluffy.",
+    tone_audience: "Short and specific with teammates. Evidence-first with leadership. Clear next steps with anyone who reports to me.",
+    tone_never_say: "Never say 'circle back', never claim a date I did not give, and never apologize for existing.",
     tl_team: `Lead the ${scope} team: watch capacity, pull unassigned work, and keep review load honest. Surface blockers before standup.${emptyNote}`,
     tl_process: "Ready means a clear owner, acceptance criteria, and no open blocker. Done means merged with the quality bar. Do not pull work that is not ready.",
     tl_briefing: "Lead with blockers, then unassigned work, then review load and sprint risk. Assigned work for me comes after the team picture.",

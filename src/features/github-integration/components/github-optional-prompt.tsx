@@ -49,7 +49,7 @@ export function GitHubAddOneButton({
         canManage
         trigger={
           <Button type="button" size="sm" className={cn("h-8 px-3 text-xs font-semibold", className)}>
-            Add one
+            Connect repo
           </Button>
         }
       />

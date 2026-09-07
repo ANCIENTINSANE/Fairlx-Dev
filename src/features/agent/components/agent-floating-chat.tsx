@@ -68,6 +68,7 @@ function persistRunId(id: string | null) {
 function statusCopy(status?: AgentRun["status"]) {
   if (status === "running") return { label: "Running", tone: "live" as const };
   if (status === "awaiting_confirmation") return { label: "Needs approval", tone: "live" as const };
+  if (status === "awaiting_question") return { label: "Waiting for answer", tone: "live" as const };
   if (status === "completed") return { label: "Completed", tone: "done" as const };
   if (status === "failed") return { label: "Failed", tone: "bad" as const };
   if (status === "stopped") return { label: "Stopped", tone: "bad" as const };

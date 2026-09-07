@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isDeleteTool, isHighRiskTool, isToolAllowed, toolsForRole } from "./roles";
+import { compilePersonaPrompt, isDeleteTool, isHighRiskTool, isToolAllowed, toolsForRole } from "./roles";
 
 describe("least-privilege tool scoping", () => {
   it("gives planner docs and items but not git writes or browser tools", () => {
@@ -37,5 +37,16 @@ describe("least-privilege tool scoping", () => {
   it("treats production merge as high risk", () => {
     expect(isHighRiskTool("git_merge", { branch: "main" })).toBe(true);
     expect(isHighRiskTool("fairlx_work_item_update", { title: "Done" })).toBe(false);
+  });
+
+  it("does not call the generic agent the Personal Agent unless personal is set", () => {
+    expect(compilePersonaPrompt("tech_lead", "Acme")).toContain("Fairlx Personal Agent acting as Chief of Staff");
+    expect(compilePersonaPrompt("tech_lead", "Acme", undefined, { personal: false })).not.toContain(
+      "Fairlx Personal Agent acting as Chief of Staff",
+    );
+    expect(compilePersonaPrompt("tech_lead", "Acme", undefined, { personal: false })).toContain("Fairlx Agent helping");
+    expect(compilePersonaPrompt("tech_lead", "Acme", undefined, { personal: false })).toMatch(
+      /delegate to planner, builder, QA/,
+    );
   });
 });

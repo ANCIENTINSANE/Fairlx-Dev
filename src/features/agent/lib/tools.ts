@@ -106,7 +106,7 @@ export type ToolExecutionResult = {
 };
 
 export type { OpenAiTool } from "./tool-schemas";
-export { openaiToolsForMode, openaiToolsForTurn, trainingSaveTool } from "./tool-schemas";
+export { askUserTool, openaiToolsForMode, openaiToolsForTurn, trainingSaveTool } from "./tool-schemas";
 
 function compactEventPayload(payload: unknown): unknown {
   if (payload == null) return payload;
@@ -1558,6 +1558,15 @@ export async function executeTool(
           event: event(runId, "error", "Request reviewers failed", payload.error, payload),
         };
       }
+    }
+    case "ask_user": {
+      const payload = {
+        error: "ask_user pauses the turn until the user answers. Do not retry this tool.",
+      };
+      return {
+        content: JSON.stringify(payload),
+        event: event(runId, "ask_user", "Waiting for an answer", undefined, payload),
+      };
     }
     default: {
       const payload = { name, args: parsed };

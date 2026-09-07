@@ -514,6 +514,17 @@ const app = new Hono()
         dispatchWorkitemEvent(event).catch(() => {
           // Silent failure for non-critical event dispatch
         });
+        void import("@/features/agent/lib/personal-standin")
+          .then(({ maybeEnqueueStandinFromAssignment }) =>
+            maybeEnqueueStandinFromAssignment({
+              databases,
+              actorUserId: user.$id,
+              actorName: userName,
+              workItem: task,
+              assigneeIds,
+            }),
+          )
+          .catch(() => {});
       }
 
       return c.json({ data: task });
@@ -773,6 +784,17 @@ const app = new Hono()
           dispatchWorkitemEvent(event).catch(() => {
             // Silent failure for non-critical event dispatch
           });
+          void import("@/features/agent/lib/personal-standin")
+            .then(({ maybeEnqueueStandinFromAssignment }) =>
+              maybeEnqueueStandinFromAssignment({
+                databases,
+                actorUserId: user.$id,
+                actorName: userName,
+                workItem: task,
+                assigneeIds: addedAssignees,
+              }),
+            )
+            .catch(() => {});
         }
 
         const removedAssignees = oldAssigneeIds.filter(
