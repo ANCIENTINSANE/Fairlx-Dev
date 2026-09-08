@@ -297,6 +297,7 @@ export async function loadAgentContext(
     githubAccount: {
       connected: githubAccount.connected,
       login: githubAccount.githubLogin,
+      hasRepoAccess: githubAccount.hasRepoAccess,
     },
     githubAttachProjectIds,
     integrations: [...integrations, ...integrationsByProject].map((item) => ({

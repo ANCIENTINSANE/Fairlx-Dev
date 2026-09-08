@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
     ? (process.env.NEXT_PUBLIC_APP_URL || origin).replace(/\/$/, "")
     : origin.replace(/\/$/, "");
 
-  const { account, users } = await createAdminClient();
+  const { account, users, databases } = await createAdminClient();
 
   // ── Duplicate email guard ──────────────────────────────────────────────────
   // Appwrite creates a brand-new user during OAuth if the email is already
@@ -84,6 +84,15 @@ export async function GET(request: NextRequest) {
     secure: process.env.NODE_ENV === "production",
     maxAge: 60 * 60 * 24 * 30, // 30 days
   });
+
+  try {
+    const { importGithubAccountFromAppwriteSession } = await import(
+      "@/features/github-integration/lib/github-accounts"
+    );
+    await importGithubAccountFromAppwriteSession(databases, userId, session);
+  } catch (error) {
+    console.warn("[OAuth] Could not import GitHub login token for repo search:", error);
+  }
 
   // Redirect to unified callback for post-auth routing
   return NextResponse.redirect(`${redirectBase}/auth/callback`);

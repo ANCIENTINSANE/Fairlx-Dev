@@ -71,6 +71,9 @@ import { inviteOrganizationMember } from "@/features/organizations/services/invi
 import { actorMayAddToOrganizationAndWorkspace } from "@/features/members/services/add-to-org-and-workspace";
 import { createAppwriteStore } from "./appwrite-store";
 import { verifyMcpJwt } from "./jwt";
+import { GitHubAPI } from "@/features/github-integration/lib/github-api";
+import { getGithubAccountPublic, resolveUserGithubToken } from "@/features/github-integration/lib/github-accounts";
+import { matchesGithubRepoQuery, toGithubAccountRepo } from "@/features/github-integration/lib/github-repo-search";
 
 const COLLECTIONS: McpCollections = {
   database: DATABASE_ID,
@@ -251,6 +254,55 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
           profileImageUrl: prefs?.profileImageUrl ?? null,
         };
       });
+    },
+    listGithubAccountRepos: async ({ userId, query }) => {
+      const resolved = await resolveUserGithubToken(databases, userId, undefined, users);
+      if (!resolved) {
+        const account = await getGithubAccountPublic(databases, userId, users);
+        return {
+          connected: account.connected,
+          githubLogin: account.githubLogin,
+          repositories: [],
+          hint: account.connected
+            ? "This user signed into Fairlx with GitHub, but that login grant cannot list repositories. Do not say GitHub is disconnected. Authorize GitHub for repo access on the Fairlx profile (Integrations) to search private repos."
+            : undefined,
+        };
+      }
+      try {
+        const api = new GitHubAPI(resolved.token);
+        const listed = await api.listUserRepositories();
+        let matched = listed.filter((repo) => matchesGithubRepoQuery(repo, query));
+        if (query?.trim() && matched.length === 0) {
+          const q = resolved.githubLogin ? `${query} user:${resolved.githubLogin}` : query;
+          matched = await api.searchRepositories(q).catch(() => []);
+        }
+        return {
+          connected: true,
+          githubLogin: resolved.githubLogin,
+          repositories: matched.slice(0, 50).map(toGithubAccountRepo),
+        };
+      } catch (error) {
+        return {
+          connected: true,
+          githubLogin: resolved.githubLogin,
+          repositories: [],
+          error: error instanceof Error ? error.message : "Failed to list GitHub repositories",
+          hint: "GitHub is connected. The current GitHub grant may not include repo scope. Do not say the account is disconnected.",
+        };
+      }
+    },
+    githubRequest: async ({ userId, method, path, body }) => {
+      const resolved = await resolveUserGithubToken(databases, userId, undefined, users);
+      if (!resolved) {
+        return {
+          ok: false,
+          status: 401,
+          error:
+            "Connect your GitHub account to your Fairlx profile. Sign in with GitHub or paste a PAT with repo and read:org.",
+        };
+      }
+      const api = new GitHubAPI(resolved.token);
+      return api.request(method, path, body);
     },
     onMembershipChanged: async ({ userId, workspaceId }) => {
       await invalidateCache(

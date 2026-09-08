@@ -6,6 +6,7 @@ import type {
   AgentToolEvent,
   AgentWriteRisk,
 } from "../types";
+import { skipCodingLoopConfirmation } from "./auto-mode";
 
 const HARNESS_WRITES = new Set([
   "create_project",
@@ -14,11 +15,19 @@ const HARNESS_WRITES = new Set([
   "github_open_pr",
   "github_merge_pr",
   "github_create_repo",
+  "github_link_repo",
+  "github_update_repo",
+  "github_delete_file",
+  "github_create_issue",
+  "github_close_issue",
+  "github_comment_issue",
   "coding_session_start",
+  "coding_session_implement",
+  "submit_implementation_plan",
 ]);
 const WRITE_NAME_RE = /_(create|update|delete|add|set|start|complete|split|sync|remove|mark_read)$/i;
 const PRIVILEGED_NAME_RE =
-  /(mail_send|github_write_file|github_open_pr|github_merge_pr|github_create_repo|coding_session_start|create_project|project_create|_delete|_remove|member_add|member_invite|workspace_member|organization_update|security_review|notify|doc_create|doc_update)/i;
+  /(mail_send|github_write_file|github_open_pr|github_merge_pr|github_create_repo|github_link_repo|github_update_repo|github_delete_file|github_create_issue|github_close_issue|github_comment_issue|coding_session_start|submit_implementation_plan|create_project|project_create|_delete|_remove|member_add|member_invite|workspace_member|organization_update|security_review|notify|doc_create|doc_update)/i;
 
 export function mcpToolNameFromCall(call: AgentToolCall): string | undefined {
   if (call.name !== "mcp_call" && call.name !== "create_project") {
@@ -201,8 +210,10 @@ export function destructiveToolBlockReason(params: {
 export function needsConfirmation(
   call: AgentToolCall,
   permissionType: AgentPermissionType | undefined,
+  options?: { autonomousCoding?: boolean },
 ): boolean {
   if (permissionType === "all_access") return false;
+  if (skipCodingLoopConfirmation(call, Boolean(options?.autonomousCoding))) return false;
   if (isDestructiveToolCall(call)) return true;
   return writeRiskLevel(call) === "privileged";
 }
@@ -210,8 +221,9 @@ export function needsConfirmation(
 export function callsNeedingConfirmation(
   calls: AgentToolCall[],
   permissionType: AgentPermissionType | undefined,
+  options?: { autonomousCoding?: boolean },
 ): AgentToolCall[] {
-  return calls.filter((call) => needsConfirmation(call, permissionType));
+  return calls.filter((call) => needsConfirmation(call, permissionType, options));
 }
 
 export function confirmationSummary(call: AgentToolCall): string {
@@ -265,23 +277,6 @@ export function confirmationSummary(call: AgentToolCall): string {
   if (/project_team_create/i.test(mcpName) && label) {
     return `Create team "${label}"?`;
   }
-  if (/workspace_member_add/i.test(mcpName) && label) {
-    return role ? `Add ${label} as ${role}?` : `Add ${label} to the workspace?`;
-  }
-  if (/workspace_member_remove/i.test(mcpName) && label) {
-    return `Remove ${label} from the workspace?`;
-  }
-  if (/workspace_member_update/i.test(mcpName) && (label || role)) {
-    if (label && role) return `Make ${label} ${role}?`;
-    if (label) return `Update ${label}'s role?`;
-    return `Change member role to ${role}?`;
-  }
-  if (/delete/i.test(mcpName)) {
-    return label ? `Delete ${label}?` : `Delete via ${action}?`;
-  }
-  if (/update|set|complete|start|sync/i.test(mcpName)) {
-    return label ? `Update ${label}?` : `Apply ${action}?`;
-  }
   if (call.name === "mail_send" || /mail_send/i.test(mcpName)) {
     const to = String(nested.to || "").trim();
     return to ? `Send mail to ${to}?` : "Send this mail?";
@@ -300,8 +295,62 @@ export function confirmationSummary(call: AgentToolCall): string {
   if (call.name === "github_create_repo") {
     const name = String(nested.name || label).trim();
     const owner = String(nested.owner || "").trim();
-    if (name && owner) return `Create GitHub repository ${owner}/${name}?`;
-    return name ? `Create GitHub repository ${name}?` : "Create a GitHub repository?";
+    const visibility = nested.private === false ? "public" : "private";
+    if (name && owner) return `Create ${visibility} GitHub repository ${owner}/${name}?`;
+    return name ? `Create ${visibility} GitHub repository ${name}?` : "Create a GitHub repository?";
+  }
+  if (call.name === "github_update_repo") {
+    const owner = String(nested.owner || "").trim();
+    const repo = String(nested.repo || nested.repoId || label).trim();
+    const makePrivate = nested.private === true || nested.visibility === "private";
+    const makePublic = nested.private === false || nested.visibility === "public";
+    const target = owner && repo && !repo.includes("/") ? `${owner}/${repo}` : repo || "this repository";
+    if (makePrivate) return `Make ${target} private?`;
+    if (makePublic) return `Make ${target} public?`;
+    return `Update GitHub repository ${target}?`;
+  }
+  if (call.name === "github_delete_file") {
+    const path = String(nested.path || label).trim();
+    return path ? `Delete ${path} on GitHub?` : "Delete this GitHub file?";
+  }
+  if (call.name === "github_create_issue") {
+    const title = String(nested.title || label).trim();
+    return title ? `Create GitHub issue “${title}”?` : "Create a GitHub issue?";
+  }
+  if (call.name === "github_close_issue") {
+    const number = nested.issueNumber || nested.number;
+    return number ? `Close GitHub issue #${number}?` : "Close this GitHub issue?";
+  }
+  if (call.name === "github_comment_issue") {
+    const number = nested.issueNumber || nested.number;
+    return number ? `Comment on GitHub issue #${number}?` : "Comment on this GitHub issue?";
+  }
+  if (/workspace_member_add/i.test(mcpName) && label) {
+    return role ? `Add ${label} as ${role}?` : `Add ${label} to the workspace?`;
+  }
+  if (/workspace_member_remove/i.test(mcpName) && label) {
+    return `Remove ${label} from the workspace?`;
+  }
+  if (/workspace_member_update/i.test(mcpName) && (label || role)) {
+    if (label && role) return `Make ${label} ${role}?`;
+    if (label) return `Update ${label}'s role?`;
+    return `Change member role to ${role}?`;
+  }
+  if (/delete/i.test(mcpName)) {
+    return label ? `Delete ${label}?` : `Delete via ${action}?`;
+  }
+  if (/update|set|complete|start|sync/i.test(mcpName)) {
+    return label ? `Update ${label}?` : `Apply ${action}?`;
+  }
+  if (call.name === "github_link_repo") {
+    const owner = String(nested.owner || "").trim();
+    const repo = String(nested.repo || nested.repoId || label).trim();
+    if (owner && repo && !repo.includes("/")) return `Attach ${owner}/${repo} to this project?`;
+    return repo ? `Attach ${repo} to this project?` : "Attach this GitHub repository to the project?";
+  }
+  if (call.name === "submit_implementation_plan") {
+    const title = String(nested.title || label).trim();
+    return title ? `Accept implementation plan: ${title}?` : "Accept this implementation plan?";
   }
   if (call.name === "coding_session_start") {
     const item = String(nested.workItemId || label).trim();

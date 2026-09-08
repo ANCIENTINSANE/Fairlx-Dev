@@ -310,7 +310,7 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
                   </span>
                 </div>
                 <p className="text-[10px] leading-4 text-muted-foreground line-clamp-2">
-                  {crew.workerModelName} · {item.role}
+                  {item.modelName || crew.workerModelName} · {item.role}
                 </p>
               </div>
             </div>

@@ -171,6 +171,19 @@ describe("graph and prompt", () => {
     expect(prompt).not.toMatch(/return findings only/);
   });
 
+  it("requires an accepted implementation plan before build specialists", () => {
+    const prompt = buildSystemPrompt({
+      harness: harness(),
+      context: context(),
+      run: run("start building the project"),
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(prompt).toMatch(/submit_implementation_plan/);
+    expect(prompt).toMatch(/active sprint only/);
+    expect(prompt).toMatch(/until the user Accepts that plan/);
+    expect(prompt).toMatch(/coding_session_status/);
+  });
+
   it("requires researched project documentation instead of stub files", () => {
     const prompt = buildSystemPrompt({
       harness: harness(),
@@ -264,9 +277,25 @@ describe("graph and prompt", () => {
       mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
     });
     expect(prompt).toMatch(/none attached/i);
-    expect(prompt).toMatch(/do not call github_list_files/i);
+    expect(prompt).toMatch(/Skip github_list_files/i);
     expect(prompt).toMatch(/Skip technical_spec, api_doc/);
     expect(prompt).not.toMatch(/then github_list_files or github_read_file/);
+  });
+
+  it("searches the connected GitHub account when no project repo is attached", () => {
+    const ctx = context();
+    ctx.githubRepos = [];
+    ctx.githubAccount = { connected: true, login: "surendra" };
+    const prompt = buildSystemPrompt({
+      harness: harness(),
+      context: ctx,
+      run: run("Search my GitHub and find Fairlx"),
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(prompt).toMatch(/github_list_repos/);
+    expect(prompt).toMatch(/github_link_repo/);
+    expect(prompt).toMatch(/does not mean GitHub is disconnected/i);
+    expect(prompt).not.toMatch(/has not connected GitHub/i);
   });
 
   it("locks specialist passes into their role", () => {

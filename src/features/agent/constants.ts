@@ -169,30 +169,112 @@ export const PLATFORM_FOUNDRY_MODEL: AgentModel = {
   ...workingContextWindow("gpt-5.6-luna"),
 };
 
-const EXTRA_FOUNDRY_SPECS: Array<{ id: string; env: string; displayName: string }> = [
-  { id: FOUNDRY_GPT54_MODEL_ID, env: "AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT", displayName: "GPT-5.4" },
-  { id: FOUNDRY_GPT55_MODEL_ID, env: "AGENT_FOUNDRY_GPT55_AZURE_DEPLOYMENT", displayName: "GPT-5.5" },
-  { id: FOUNDRY_GPT_SOL_MODEL_ID, env: "AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT", displayName: "GPT-5.6 Sol" },
-  { id: FOUNDRY_CLAUDE_SONNET_MODEL_ID, env: "AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_DEPLOYMENT", displayName: "Claude Sonnet" },
-  { id: FOUNDRY_CLAUDE_OPUS_MODEL_ID, env: "AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_DEPLOYMENT", displayName: "Claude Opus" },
+export type ExtraFoundrySpec = {
+  id: string;
+  displayName: string;
+  defaultDeployment: string;
+  deploymentEnv: string;
+  apiKeyEnv: string;
+  endpointEnv: string;
+};
+
+export const EXTRA_FOUNDRY_SPECS: ExtraFoundrySpec[] = [
+  {
+    id: FOUNDRY_GPT54_MODEL_ID,
+    displayName: "GPT-5.4",
+    defaultDeployment: "gpt-5.4",
+    deploymentEnv: "AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT",
+    apiKeyEnv: "AGENT_FOUNDRY_GPT54_AZURE_API_KEY",
+    endpointEnv: "AGENT_FOUNDRY_GPT54_AZURE_ENDPOINT",
+  },
+  {
+    id: FOUNDRY_GPT55_MODEL_ID,
+    displayName: "GPT-5.5",
+    defaultDeployment: "gpt-5.5",
+    deploymentEnv: "AGENT_FOUNDRY_GPT55_AZURE_DEPLOYMENT",
+    apiKeyEnv: "AGENT_FOUNDRY_GPT55_AZURE_API_KEY",
+    endpointEnv: "AGENT_FOUNDRY_GPT55_AZURE_ENDPOINT",
+  },
+  {
+    id: FOUNDRY_GPT_SOL_MODEL_ID,
+    displayName: "GPT-5.6 Sol",
+    defaultDeployment: "gpt-5.6-sol",
+    deploymentEnv: "AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT",
+    apiKeyEnv: "AGENT_FOUNDRY_SOL_AZURE_API_KEY",
+    endpointEnv: "AGENT_FOUNDRY_SOL_AZURE_ENDPOINT",
+  },
+  {
+    id: FOUNDRY_CLAUDE_SONNET_MODEL_ID,
+    displayName: "Claude Sonnet",
+    defaultDeployment: "claude-sonnet",
+    deploymentEnv: "AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_DEPLOYMENT",
+    apiKeyEnv: "AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_API_KEY",
+    endpointEnv: "AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_ENDPOINT",
+  },
+  {
+    id: FOUNDRY_CLAUDE_OPUS_MODEL_ID,
+    displayName: "Claude Opus",
+    defaultDeployment: "claude-opus",
+    deploymentEnv: "AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_DEPLOYMENT",
+    apiKeyEnv: "AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_API_KEY",
+    endpointEnv: "AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_ENDPOINT",
+  },
 ];
+
+/** Azure OpenAI keys are long alphanumeric; deployment names are short ids like gpt-5.6-sol. */
+export function looksLikeAzureApiKey(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length < 40) return false;
+  if (/[./:]/.test(trimmed)) return false;
+  return /^[A-Za-z0-9_-]+$/.test(trimmed);
+}
+
+export type ExtraFoundryResolved = {
+  id: string;
+  displayName: string;
+  deployment: string;
+  apiKey: string;
+  endpoint: string;
+};
+
+export function resolveExtraFoundryEnv(spec: ExtraFoundrySpec): ExtraFoundryResolved | null {
+  const rawDeployment = process.env[spec.deploymentEnv]?.trim() || "";
+  const dedicatedKey = process.env[spec.apiKeyEnv]?.trim() || "";
+  const dedicatedEndpoint = process.env[spec.endpointEnv]?.trim() || "";
+  const misplacedKey = rawDeployment && looksLikeAzureApiKey(rawDeployment) ? rawDeployment : "";
+  const namedDeployment = misplacedKey ? "" : rawDeployment;
+  if (!namedDeployment && !dedicatedKey && !misplacedKey && !dedicatedEndpoint) return null;
+  return {
+    id: spec.id,
+    displayName: spec.displayName,
+    deployment: namedDeployment || spec.defaultDeployment,
+    apiKey: dedicatedKey || misplacedKey,
+    endpoint: dedicatedEndpoint,
+  };
+}
+
+export function resolveExtraFoundrySpec(modelId: string): ExtraFoundryResolved | null {
+  const spec = EXTRA_FOUNDRY_SPECS.find((item) => item.id === modelId);
+  if (!spec) return null;
+  return resolveExtraFoundryEnv(spec);
+}
 
 export function extraFoundryModels(): AgentModel[] {
   return EXTRA_FOUNDRY_SPECS.flatMap((spec) => {
-    const deployment = process.env[spec.env]?.trim();
-    if (!deployment) return [];
+    const resolved = resolveExtraFoundryEnv(spec);
+    if (!resolved) return [];
     return [
       {
         id: spec.id,
         providerId: PLATFORM_FOUNDRY_PROVIDER_ID,
-        modelId: deployment,
+        modelId: resolved.deployment,
         displayName: spec.displayName,
         role: "custom" as const,
         isEnabled: true,
         isPlatform: true,
         toolCalling: true,
         vision: true,
-        ...workingContextWindow(deployment),
+        ...workingContextWindow(resolved.deployment),
       },
     ];
   });
@@ -359,6 +441,12 @@ export const AGENT_TOOL_CATALOG = [
     description: "List MCP resources including personal harness content.",
   },
   {
+    id: "submit_implementation_plan",
+    name: "Submit implementation plan",
+    icon: "fa-solid fa-list-check",
+    description: "Propose a phased implementation plan. Waits for Accept before coding.",
+  },
+  {
     id: "delegate_agent",
     name: "Delegate specialist",
     icon: "fa-solid fa-sitemap",
@@ -380,7 +468,7 @@ export const AGENT_TOOL_CATALOG = [
     id: "git_status",
     name: "Git status",
     icon: "fa-brands fa-git-alt",
-    description: "Show linked repositories and the Agent staging buffer.",
+    description: "Show Fairlx-attached repositories, this user's GitHub.com repos when connected, and the Agent staging buffer.",
   },
   {
     id: "git_stage",
@@ -473,6 +561,12 @@ export const AGENT_TOOL_CATALOG = [
     description: "Check whether this Fairlx user has GitHub connected.",
   },
   {
+    id: "github_list_repos",
+    name: "GitHub repos",
+    icon: "fa-solid fa-code-branch",
+    description: "Search this user's GitHub account repositories, not only Fairlx-attached project links.",
+  },
+  {
     id: "github_list_owners",
     name: "GitHub owners",
     icon: "fa-solid fa-sitemap",
@@ -485,10 +579,70 @@ export const AGENT_TOOL_CATALOG = [
     description: "Create a GitHub repository with a README and link it to this project.",
   },
   {
+    id: "github_link_repo",
+    name: "Attach GitHub repo",
+    icon: "fa-solid fa-link",
+    description: "Attach an existing GitHub.com repository to this Fairlx project.",
+  },
+  {
+    id: "github_update_repo",
+    name: "Update GitHub repo",
+    icon: "fa-solid fa-lock",
+    description: "Change GitHub repository visibility, description, or homepage.",
+  },
+  {
+    id: "github_delete_file",
+    name: "Delete repo file",
+    icon: "fa-regular fa-trash-can",
+    description: "Delete a file on a GitHub branch.",
+  },
+  {
+    id: "github_list_prs",
+    name: "List pull requests",
+    icon: "fa-solid fa-code-pull-request",
+    description: "List pull requests in a GitHub repository.",
+  },
+  {
+    id: "github_list_issues",
+    name: "List issues",
+    icon: "fa-regular fa-circle-dot",
+    description: "List GitHub issues in a repository.",
+  },
+  {
+    id: "github_create_issue",
+    name: "Create issue",
+    icon: "fa-solid fa-circle-plus",
+    description: "Create a GitHub issue.",
+  },
+  {
+    id: "github_close_issue",
+    name: "Close issue",
+    icon: "fa-solid fa-circle-check",
+    description: "Close a GitHub issue.",
+  },
+  {
+    id: "github_comment_issue",
+    name: "Comment on issue",
+    icon: "fa-regular fa-comment",
+    description: "Comment on a GitHub issue or pull request.",
+  },
+  {
+    id: "github_list_branches",
+    name: "List branches",
+    icon: "fa-solid fa-code-branch",
+    description: "List branches in a GitHub repository.",
+  },
+  {
+    id: "github_list_releases",
+    name: "List releases",
+    icon: "fa-solid fa-tag",
+    description: "List GitHub releases.",
+  },
+  {
     id: "coding_session_start",
     name: "Start coding session",
     icon: "fa-solid fa-cloud",
-    description: "Clone the linked repo in an Azure sandbox and branch fairlx/{workItemKey}.",
+    description: "Clone the linked repo in an Azure sandbox, install, start the app, and wait for a live preview URL.",
   },
   {
     id: "coding_session_exec",
@@ -500,7 +654,19 @@ export const AGENT_TOOL_CATALOG = [
     id: "coding_session_status",
     name: "Session status",
     icon: "fa-solid fa-heart-pulse",
-    description: "Get coding session status, preview URL, and PR.",
+    description: "Get coding session status, live vs stub preview, coding agent, and PR.",
+  },
+  {
+    id: "coding_session_implement",
+    name: "Sandbox coding agent",
+    icon: "fa-solid fa-robot",
+    description: "Run Claude Code or Codex in the Azure sandbox. Fallback is Fairlx specialists in /workspace, not GitHub file dumps.",
+  },
+  {
+    id: "coding_session_browser",
+    name: "Sandbox browser",
+    icon: "fa-solid fa-camera",
+    description: "Capture a screenshot of the running sandbox app.",
   },
   {
     id: "security_review",
@@ -522,6 +688,7 @@ export const NEW_AGENT_TOOL_IDS = [
   "mcp_call",
   "mcp_resources",
   "delegate_agent",
+  "submit_implementation_plan",
   "search_harness",
   "create_project",
   "git_status",
@@ -540,11 +707,24 @@ export const NEW_AGENT_TOOL_IDS = [
   "github_merge_pr",
   "github_request_reviewers",
   "github_account_status",
+  "github_list_repos",
   "github_list_owners",
   "github_create_repo",
+  "github_link_repo",
+  "github_update_repo",
+  "github_delete_file",
+  "github_list_prs",
+  "github_list_issues",
+  "github_create_issue",
+  "github_close_issue",
+  "github_comment_issue",
+  "github_list_branches",
+  "github_list_releases",
   "coding_session_start",
   "coding_session_exec",
   "coding_session_status",
+  "coding_session_implement",
+  "coding_session_browser",
   "security_review",
   "agent_job_status",
   "web_fetch",

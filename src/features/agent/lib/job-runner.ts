@@ -8,6 +8,7 @@ import { scanSourceFiles, verifyFindings } from "../plugins/security";
 import { publishSecurityFindings } from "./fairlx-side-effects";
 import { getAgentJob, updateAgentJob } from "./jobs";
 import { startOrResumeCodingSession } from "./coding-session-start";
+import { agentDebugLog } from "./sandbox/debug-log";
 
 export type AgentJobRunParams = {
   databases: Databases;
@@ -137,8 +138,20 @@ async function runCodingSessionJob(params: AgentJobRunParams & { job: AgentJob }
       baseBranch: typeof job.payload.baseBranch === "string" ? job.payload.baseBranch : undefined,
       exposePort: typeof job.payload.exposePort === "number" ? job.payload.exposePort : undefined,
       investigateOnly: job.payload.investigateOnly === true,
+      autoMode: job.payload.autoMode === true,
     });
     if ("error" in result) {
+      // #region agent log
+      agentDebugLog({
+        hypothesisId: "A",
+        location: "job-runner.ts:runCodingSessionJob",
+        message: "coding session returned error",
+        data: {
+          aadsts: String(result.error).match(/AADSTS\d+/)?.[0] || null,
+          is700016: /AADSTS700016/.test(String(result.error)),
+        },
+      });
+      // #endregion
       return updateAgentJob(databases, job.id, { status: "failed", error: String(result.error) });
     }
     return updateAgentJob(databases, job.id, {
@@ -147,9 +160,21 @@ async function runCodingSessionJob(params: AgentJobRunParams & { job: AgentJob }
       result,
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Coding session job failed";
+    // #region agent log
+    agentDebugLog({
+      hypothesisId: "A",
+      location: "job-runner.ts:runCodingSessionJob",
+      message: "coding session job threw",
+      data: {
+        aadsts: message.match(/AADSTS\d+/)?.[0] || null,
+        is700016: /AADSTS700016/.test(message),
+      },
+    });
+    // #endregion
     return updateAgentJob(databases, job.id, {
       status: "failed",
-      error: error instanceof Error ? error.message : "Coding session job failed",
+      error: message,
     });
   }
 }

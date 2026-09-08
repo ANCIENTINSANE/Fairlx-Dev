@@ -112,5 +112,9 @@ export function formatAgentTurnError(error: unknown, timeoutMs = AGENT_CHAT_TIME
     return "The model provider connection dropped. Retry the same message.";
   }
 
+  if (/api deployment for this resource does not exist/i.test(message)) {
+    return `${message} Fairlx sent that name as the Azure deployment. AGENT_FOUNDRY_*_AZURE_DEPLOYMENT must be the deployment name (for example gpt-5.6-sol), not an API key. Put keys in AGENT_FOUNDRY_*_AZURE_API_KEY.`;
+  }
+
   return message || "Agent turn failed.";
 }

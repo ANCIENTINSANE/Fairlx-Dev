@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Databases } from "node-appwrite";
-import { createRun, updateRun } from "./runs";
+import { createRun, stringifyRunExtra, updateRun } from "./runs";
 
 describe("createRun attribute fallback", () => {
   it("retries without unknown attributes when Appwrite throws an unknown attribute error", async () => {
@@ -95,5 +95,35 @@ describe("updateRun attribute fallback", () => {
     expect(mockUpdateDocument.mock.calls[0][3]).toHaveProperty("error");
     expect(mockUpdateDocument.mock.calls[1][3]).not.toHaveProperty("error");
     expect(run.status).toBe("failed");
+  });
+});
+
+describe("stringifyRunExtra", () => {
+  it("keeps accepted plan status when extraJson is over budget", () => {
+    const json = stringifyRunExtra(
+      {
+        kind: "chat",
+        sessionId: "s1",
+        contextPeak: { conversation: 99_999, summarized_conversation: 12_345 },
+        implementationPlan: {
+          title: "Ship agent-harness",
+          summary: "x".repeat(400),
+          status: "accepted",
+          phases: Array.from({ length: 12 }, (_, i) => ({
+            id: `phase-${i}`,
+            title: `Phase ${i} ${"y".repeat(80)}`,
+            tasks: Array.from({ length: 20 }, (_, j) => ({
+              id: `task-${i}-${j}`,
+              title: `Task ${i}-${j} ${"z".repeat(80)}`,
+              status: "pending" as const,
+            })),
+          })),
+        },
+      },
+      500,
+    );
+    expect(json.length).toBeLessThanOrEqual(500);
+    const extra = JSON.parse(json) as { implementationPlan?: { status?: string } };
+    expect(extra.implementationPlan?.status).toBe("accepted");
   });
 });

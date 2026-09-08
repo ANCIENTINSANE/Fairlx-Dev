@@ -1,4 +1,4 @@
-import { DEEPSEEK_FLASH_MODEL_ID, DEEPSEEK_PRO_MODEL_ID, DEFAULT_FAIRLX_MCP_SERVER_NAME, PERSONAL_MCP_SERVER_NAME, PERSONAL_MCP_URL, isPlatformGrokEnabled } from "../constants";
+import { DEEPSEEK_FLASH_MODEL_ID, DEEPSEEK_PRO_MODEL_ID, DEFAULT_FAIRLX_MCP_SERVER_NAME, FOUNDRY_GPT_LUNA_MODEL_ID, FOUNDRY_GPT_SOL_MODEL_ID, PERSONAL_MCP_SERVER_NAME, PERSONAL_MCP_URL, isPlatformGrokEnabled } from "../constants";
 import type { AgentAiConfigPublic, AgentModel, AgentRun, McpConfig } from "../types";
 import type { AgentCrewHints } from "./subagent-tree";
 
@@ -59,6 +59,9 @@ export function workerModelFromConfig(config: AgentAiConfigPublic | undefined, p
 
 export function crewModelHints(config: AgentAiConfigPublic | undefined, run?: AgentRun): AgentCrewHints {
   const worker = workerModelFromConfig(config, run?.kind === "coding_session");
+  const builder = workerModelFromConfig(config, true);
+  const sol = config?.models.find((model) => model.id === FOUNDRY_GPT_SOL_MODEL_ID && model.isEnabled);
+  const luna = config?.models.find((model) => model.id === FOUNDRY_GPT_LUNA_MODEL_ID && model.isEnabled);
   const orchestratorId =
     run?.modelId || (config?.mode === "auto" ? config.resolvedModelId : config?.selectedModelId);
   const fallbackOrchestrator = isPlatformGrokEnabled() ? "Grok 4.6" : "DeepSeek V4 Flash";
@@ -68,5 +71,9 @@ export function crewModelHints(config: AgentAiConfigPublic | undefined, run?: Ag
     orchestratorModelId: orchestratorId,
     workerModelName: worker.name,
     workerModelId: worker.id,
+    builderModelName: sol?.displayName || builder.name,
+    builderModelId: sol?.id || builder.id,
+    reviewerModelName: luna?.displayName || worker.name,
+    reviewerModelId: luna?.id || worker.id,
   };
 }

@@ -14,6 +14,8 @@ import {
   triageStatus,
   updateCodingSession,
 } from "./coding-sessions";
+import { mentionsFairlxAuto } from "./mentions";
+import { autonomousCodingEnabled } from "./auto-mode";
 
 type WorkItemLike = {
   $id?: string;
@@ -35,12 +37,16 @@ export async function maybeStartSessionFromAssignees(params: {
   workItem: WorkItemLike;
   assigneeIds: string[];
   user?: { $id: string; name?: string; email?: string };
+  autoMode?: boolean;
 }): Promise<void> {
-  if (!isFairlxAgentAssignee(params.assigneeIds)) return;
+  if (!params.autoMode && !isFairlxAgentAssignee(params.assigneeIds)) return;
   const itemId = workItemId(params.workItem);
   if (!itemId || !params.workItem.projectId || !params.workItem.workspaceId) return;
   const existing = await findActiveCodingSessionForWorkItem(params.databases, itemId);
-  const prompt = `Start a coding session for ${params.workItem.key || itemId}: ${params.workItem.title || "work item"}. Call coding_session_start, then implement in the Azure sandbox.`;
+  const auto = Boolean(params.autoMode);
+  const prompt = auto
+    ? `Autonomous coding session for ${params.workItem.key || itemId}: ${params.workItem.title || "work item"}. Call coding_session_start then coding_session_implement in the Azure sandbox.`
+    : `Start a coding session for ${params.workItem.key || itemId}: ${params.workItem.title || "work item"}. Call coding_session_start, then implement in the Azure sandbox with coding_session_implement (Claude Code or Codex).`;
   const run = await createRun(params.databases, {
     userId: params.userId,
     prompt,
@@ -48,8 +54,10 @@ export async function maybeStartSessionFromAssignees(params: {
     workspaceId: String(params.workItem.workspaceId),
     projectId: String(params.workItem.projectId),
     title: `Session ${params.workItem.key || itemId}`,
+    kind: "coding_session",
+    autonomousCoding: auto,
   });
-  await updateRun(params.databases, run.id, { extra: { kind: "coding_session", sessionId: existing?.id } });
+  await updateRun(params.databases, run.id, { extra: { kind: "coding_session", sessionId: existing?.id, autonomousCoding: auto } });
   if (existing) {
     await updateCodingSession(params.databases, existing.id, {
       runId: run.id,
@@ -70,6 +78,7 @@ export async function maybeStartSessionFromAssignees(params: {
     payload: {
       workItemId: itemId,
       projectId: params.workItem.projectId,
+      autoMode: auto,
     },
   });
   if (job) {
@@ -103,7 +112,11 @@ export async function maybeTriageCodingSession(params: {
   if (!itemId) return;
   const existing = await findActiveCodingSessionForWorkItem(params.databases, itemId);
   if (existing) return;
-  const prompt = `Triage first pass for ${params.workItem.key || itemId}: ${params.workItem.title || "work item"}. Investigate with read-only GitHub and work-item tools. If you are confident a coding session should start, call coding_session_start (Accept-gated).`;
+  const harness = await getOrCreateHarness(params.databases, params.userId);
+  const auto = autonomousCodingEnabled({ settings: harness.settings });
+  const prompt = auto
+    ? `Triage auto-pass for ${params.workItem.key || itemId}: ${params.workItem.title || "work item"}. Investigate, then start a coding session and implement in the Azure sandbox.`
+    : `Triage first pass for ${params.workItem.key || itemId}: ${params.workItem.title || "work item"}. Investigate with read-only GitHub and work-item tools. If you are confident a coding session should start, call coding_session_start (Accept-gated unless autonomous coding is on).`;
   const run = await createRun(params.databases, {
     userId: params.userId,
     prompt,
@@ -111,8 +124,10 @@ export async function maybeTriageCodingSession(params: {
     workspaceId: String(params.workItem.workspaceId || ""),
     projectId: String(params.workItem.projectId || ""),
     title: `Triage ${params.workItem.key || itemId}`,
+    kind: "coding_session",
+    autonomousCoding: auto,
   });
-  await updateRun(params.databases, run.id, { extra: { kind: "coding_session" } });
+  await updateRun(params.databases, run.id, { extra: { kind: "coding_session", autonomousCoding: auto } });
   const user = params.user ?? { $id: params.userId };
   scheduleAgentTurn({ databases: params.databases, user: user as never, run });
 }
@@ -124,24 +139,27 @@ export async function maybeAttachFairlxMention(params: {
   content: string;
 }): Promise<void> {
   if (!mentionsFairlxAgent(params.content)) return;
+  const auto = mentionsFairlxAuto(params.content);
   const session = await findActiveCodingSessionForWorkItem(params.databases, params.workItemId);
   if (!session?.runId) return;
   await updateCodingSession(params.databases, session.id, {
     status: session.status === "awaiting_review" ? "iterating" : session.status,
-    events: appendSessionEvent(session.events, "mention", params.content.slice(0, 500)),
+    events: appendSessionEvent(session.events, "mention", params.content.slice(0, 500), { auto }),
   });
   const { getRun } = await import("./runs");
   const run = await getRun(params.databases, params.userId, session.runId);
   if (!run) return;
-  const { updateRun } = await import("./runs");
   await updateRun(params.databases, run.id, {
     status: run.status === "completed" || run.status === "stopped" ? "running" : run.status,
+    extra: { kind: "coding_session", sessionId: session.id, autonomousCoding: auto || run.autonomousCoding },
     messages: [
       ...run.messages,
       {
         id: crypto.randomUUID(),
         role: "user",
-        content: `@Fairlx comment on ${params.workItemId}: ${params.content}`,
+        content: auto
+          ? `@Fairlx-auto comment on ${params.workItemId}: ${params.content}`
+          : `@Fairlx comment on ${params.workItemId}: ${params.content}`,
         createdAt: new Date().toISOString(),
       },
     ],
@@ -150,6 +168,6 @@ export async function maybeAttachFairlxMention(params: {
   scheduleAgentTurn({
     databases: params.databases,
     user: { $id: params.userId, name: "Fairlx", email: "" } as never,
-    run: { ...run, status: "running" },
+    run: { ...run, status: "running", autonomousCoding: auto || run.autonomousCoding },
   });
 }

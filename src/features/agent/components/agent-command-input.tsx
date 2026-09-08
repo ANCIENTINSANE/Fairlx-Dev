@@ -119,7 +119,7 @@ export function AgentCommandInput({
     !profileIsTrained(personal?.profile) &&
     run?.kind !== "training";
   const inputPlaceholder = run?.kind === "training"
-    ? "Type your own answer, or tap a choice above"
+    ? "Or write your own answer"
     : isPersonalSessionMode(sessionMode)
       ? "Command your Personal Agent — plan, build, test, review"
       : placeholder;

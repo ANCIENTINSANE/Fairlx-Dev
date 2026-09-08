@@ -530,6 +530,30 @@ export const useConnectGithubAccountToken = () => {
   });
 };
 
+export const useDisconnectGithubAccount = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const response = await client.api.github.account.$delete();
+      if (!response.ok) {
+        const errorData = await response.json() as { error?: string };
+        throw new Error(errorData.error || "Failed to disconnect GitHub");
+      }
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast.success("GitHub account disconnected");
+      queryClient.invalidateQueries({ queryKey: ["github-account"] });
+      queryClient.invalidateQueries({ queryKey: ["github-user-repos"] });
+      queryClient.invalidateQueries({ queryKey: ["github-account-owners"] });
+      queryClient.invalidateQueries({ queryKey: ["agent-context"] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to disconnect GitHub");
+    },
+  });
+};
+
 export const useGetGithubOwners = (enabled: boolean = true) => {
   return useQuery({
     queryKey: ["github-account-owners"],

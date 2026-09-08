@@ -41,6 +41,10 @@ describe("repeatedToolMessage", () => {
     expect(JSON.parse(content).repeated).toBe(true);
   });
 
+  it("does not treat build-gate blocked results as retryable failures", () => {
+    expect(isFailedToolContent(JSON.stringify({ error: "Build loop", blocked: true, tool: "mcp_call" }))).toBe(false);
+  });
+
   it("tells the model to bulk-update after a repeated work item list", () => {
     const items = Array.from({ length: 22 }, (_, i) => ({ key: `SCHO-${i + 1}` }));
     const content = repeatedToolMessage(

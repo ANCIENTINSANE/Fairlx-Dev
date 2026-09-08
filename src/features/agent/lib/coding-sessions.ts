@@ -1,8 +1,9 @@
 import { Databases, ID, Query } from "node-appwrite";
 
 import { AGENT_CODING_SESSIONS_ID, DATABASE_ID } from "@/config";
-import type { CodingSession, CodingSessionEvent, CodingSessionStatus } from "../types";
+import type { CodingSession, CodingSessionEvent, CodingSessionMeta, CodingSessionStatus } from "../types";
 import { parseJson, stringifyBounded } from "./truncate";
+import { mentionsFairlxAgent as mentionDetect } from "./mentions";
 
 type SessionDocument = {
   $id: string;
@@ -24,10 +25,28 @@ type SessionDocument = {
   orchestratorModelId?: string;
   workerModelId?: string;
   eventsJson: string;
+  metaJson?: string;
 };
+
+function metaFromEvents(events: CodingSessionEvent[]): CodingSessionMeta {
+  const event = [...events].reverse().find((item) => item.type === "session_meta");
+  const payload = event?.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
+    ? (event.payload as CodingSessionMeta)
+    : {};
+  return payload;
+}
+
+export function withSessionMeta(events: CodingSessionEvent[], meta: CodingSessionMeta): CodingSessionEvent[] {
+  return appendSessionEvent(events, "session_meta", "Session preview state", meta);
+}
 
 function parseSession(doc: SessionDocument): CodingSession {
   const prNumberRaw = doc.prNumber ? Number(doc.prNumber) : undefined;
+  const events = parseJson<CodingSessionEvent[]>(doc.eventsJson, []);
+  const meta = {
+    ...metaFromEvents(events),
+    ...parseJson<CodingSessionMeta>(doc.metaJson || "", {}),
+  };
   return {
     id: doc.$id,
     userId: doc.userId,
@@ -45,13 +64,19 @@ function parseSession(doc: SessionDocument): CodingSession {
     prUrl: doc.prUrl || undefined,
     orchestratorModelId: doc.orchestratorModelId || undefined,
     workerModelId: doc.workerModelId || undefined,
-    events: parseJson<CodingSessionEvent[]>(doc.eventsJson, []),
+    events,
+    driver: meta.driver,
+    previewLive: meta.previewLive,
+    codingAgent: meta.codingAgent,
+    codingAgentReason: meta.codingAgentReason,
+    artifacts: meta.artifacts,
+    meta,
     createdAt: doc.$createdAt,
     updatedAt: doc.$updatedAt || doc.$createdAt,
   };
 }
 
-function toPayload(input: Partial<CodingSession> & { userId?: string }): Record<string, unknown> {
+function toPayload(input: Partial<CodingSession> & { userId?: string; meta?: CodingSessionMeta }): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   if (input.userId !== undefined) payload.userId = input.userId;
   if (input.workItemId !== undefined) payload.workItemId = input.workItemId;
@@ -69,6 +94,7 @@ function toPayload(input: Partial<CodingSession> & { userId?: string }): Record<
   if (input.orchestratorModelId !== undefined) payload.orchestratorModelId = input.orchestratorModelId || "";
   if (input.workerModelId !== undefined) payload.workerModelId = input.workerModelId || "";
   if (input.events !== undefined) payload.eventsJson = stringifyBounded(input.events, 1_048_576);
+  if (input.meta !== undefined) payload.metaJson = stringifyBounded(input.meta, 16_384);
   return payload;
 }
 
@@ -147,13 +173,24 @@ export async function getCodingSession(
 export async function updateCodingSession(
   databases: Databases,
   sessionId: string,
-  patch: Partial<CodingSession>,
+  patch: Partial<CodingSession> & { meta?: CodingSessionMeta },
 ): Promise<CodingSession | null> {
   try {
     const payload = toPayload(patch);
     const doc = await databases.updateDocument(DATABASE_ID, AGENT_CODING_SESSIONS_ID, sessionId, payload);
     return parseSession(doc as unknown as SessionDocument);
   } catch (error) {
+    if (patch.meta !== undefined) {
+      try {
+        const payload = toPayload({ ...patch, meta: undefined });
+        delete payload.metaJson;
+        const doc = await databases.updateDocument(DATABASE_ID, AGENT_CODING_SESSIONS_ID, sessionId, payload);
+        return parseSession(doc as unknown as SessionDocument);
+      } catch (retryError) {
+        console.error("[agent] failed to update coding session", retryError);
+        return null;
+      }
+    }
     console.error("[agent] failed to update coding session", error);
     return null;
   }
@@ -223,7 +260,7 @@ export function isFairlxAgentAssignee(ids: string[]): boolean {
 }
 
 export function mentionsFairlxAgent(text: string): boolean {
-  return /@fairlx\b/i.test(text.replace(/<[^>]+>/g, " "));
+  return mentionDetect(text);
 }
 
 export function triageStatus(): string {

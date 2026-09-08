@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DottedSeparator } from "@/components/dotted-separator";
+import { GithubAccountMenu } from "@/features/github-integration/components/github-account-menu";
 
 import { useLogout } from "../api/use-logout";
 import { useCurrent } from "../api/use-current";
@@ -52,7 +53,7 @@ export const UserButton = () => {
       <DropdownMenuContent
         align="end"
         side="bottom"
-        className="w-60"
+        className="w-72"
         sideOffset={10}
       >
         <div className="flex flex-col items-center justify-center gap-2 px-2.5 py-4">
@@ -71,6 +72,8 @@ export const UserButton = () => {
             <p className="text-xs text-muted-foreground">{email}</p>
           </div>
         </div>
+        <DottedSeparator className="mb-1" />
+        <GithubAccountMenu />
         <DottedSeparator className="mb-1" />
         <DropdownMenuItem asChild className="h-10 cursor-pointer">
           <Link href="/profile" className="flex items-center justify-center font-medium">

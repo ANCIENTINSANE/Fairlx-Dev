@@ -71,6 +71,9 @@ export function McpServersCard() {
         {!isLoading && servers.length === 0 && (
           <div className="py-3 px-3 rounded-lg border border-dashed border-border text-center bg-muted/20">
             <p className="text-xs text-muted-foreground">No external MCP servers added.</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Add an HTTP server so mcp_list / mcp_call can reach Sentry, Datadog, or other tools inside Fairlx.
+            </p>
             <button
               type="button"
               onClick={openMcp}

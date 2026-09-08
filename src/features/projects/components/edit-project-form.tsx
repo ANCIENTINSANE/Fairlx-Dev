@@ -35,6 +35,7 @@ import { PrioritySettings } from "./priority-settings";
 import { LabelSettings } from "./label-settings";
 import { CopySettingsDialog } from "./copy-settings-dialog";
 import { WebhookSettings } from "@/features/webhooks/components/webhook-settings";
+import { CodingEnvironmentCard } from "@/features/agent/components/coding-environment-card";
 
 interface EditProjectFormProps {
   onCancel?: () => void;
@@ -175,6 +176,7 @@ export const EditProjectForm = ({
                   <TabsTrigger value="priorities" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground px-6 py-3">Priorities</TabsTrigger>
                   <TabsTrigger value="labels" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground px-6 py-3">Labels</TabsTrigger>
                   <TabsTrigger value="webhooks" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground px-6 py-3">Webhooks</TabsTrigger>
+                  <TabsTrigger value="coding" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground px-6 py-3">Coding</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="general" className="space-y-6">
@@ -315,6 +317,14 @@ export const EditProjectForm = ({
                 </TabsContent>
                 <TabsContent value="webhooks">
                   <WebhookSettings projectId={initialValues.$id} />
+                </TabsContent>
+                <TabsContent
+                  value="coding"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.preventDefault();
+                  }}
+                >
+                  <CodingEnvironmentCard projectId={initialValues.$id} workspaceId={initialValues.workspaceId} />
                 </TabsContent>
               </Tabs>
 

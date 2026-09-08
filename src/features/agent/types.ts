@@ -149,6 +149,30 @@ export type AgentSpecialistId =
   | "workflow"
   | "tester";
 
+export type ImplementationPlanTaskStatus = "pending" | "in_progress" | "done" | "blocked";
+
+export type ImplementationPlanTask = {
+  id: string;
+  title: string;
+  status: ImplementationPlanTaskStatus;
+  specialist?: AgentSpecialistId;
+};
+
+export type ImplementationPlanPhase = {
+  id: string;
+  title: string;
+  tasks: ImplementationPlanTask[];
+};
+
+export type ImplementationPlan = {
+  title: string;
+  summary: string;
+  status: "draft" | "accepted" | "rejected";
+  phases: ImplementationPlanPhase[];
+  repo?: { owner?: string; name?: string; exists?: boolean };
+  execution?: { codingSession?: boolean; exposePort?: number; workItemId?: string };
+};
+
 export type AgentCapability =
   | "email.send"
   | "code.read"
@@ -249,8 +273,40 @@ export type CodingSession = {
   orchestratorModelId?: string;
   workerModelId?: string;
   events: CodingSessionEvent[];
+  driver?: "azure" | "sessions" | "stub";
+  previewLive?: boolean;
+  codingAgent?: "claude_code" | "codex" | "specialists";
+  codingAgentReason?: string;
+  artifacts?: Array<{
+    id: string;
+    kind: "screenshot" | "recording";
+    path: string;
+    mime: string;
+    createdAt: string;
+    note?: string;
+  }>;
+  meta?: CodingSessionMeta;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CodingSessionMeta = {
+  driver?: "azure" | "sessions" | "stub";
+  previewLive?: boolean;
+  codingAgent?: "claude_code" | "codex" | "specialists";
+  codingAgentReason?: string;
+  exposePort?: number;
+  startCommand?: string;
+  packageManager?: string;
+  autoMode?: boolean;
+  artifacts?: Array<{
+    id: string;
+    kind: "screenshot" | "recording";
+    path: string;
+    mime: string;
+    createdAt: string;
+    note?: string;
+  }>;
 };
 
 export type AgentGitStageStatus = "unstaged" | "staged" | "committed";
@@ -353,11 +409,25 @@ export type AgentToolEventType =
   | "github_merge_pr"
   | "github_request_reviewers"
   | "github_account_status"
+  | "github_list_repos"
   | "github_list_owners"
   | "github_create_repo"
+  | "github_link_repo"
+  | "github_update_repo"
+  | "github_delete_file"
+  | "github_list_prs"
+  | "github_list_issues"
+  | "github_create_issue"
+  | "github_close_issue"
+  | "github_comment_issue"
+  | "github_list_branches"
+  | "github_list_releases"
   | "coding_session_start"
   | "coding_session_exec"
   | "coding_session_status"
+  | "coding_session_implement"
+  | "coding_session_browser"
+  | "submit_implementation_plan"
   | "security_review"
   | "request_capability"
   | "persist_memory"
@@ -425,6 +495,8 @@ export type AgentRun = {
   error?: string;
   kind?: "chat" | "training" | "coding_session";
   sessionId?: string;
+  autonomousCoding?: boolean;
+  implementationPlan?: ImplementationPlan;
   contextPeak?: {
     conversation: number;
     summarized_conversation: number;
@@ -478,6 +550,8 @@ export type AgentHarnessSettings = {
   defaultProjectId?: string;
   sessionMode?: AgentSessionMode;
   permissionType?: AgentPermissionType;
+  /** When true, skip extra Accepts on the coding loop (plan/start/PR/merge). Default stays staged. */
+  autonomousCoding?: boolean;
 };
 
 export type AgentContextChipKind =
@@ -608,6 +682,7 @@ export type AgentContext = {
   githubAccount?: {
     connected: boolean;
     login?: string;
+    hasRepoAccess?: boolean;
   };
   githubAttachProjectIds?: string[];
   integrations: AgentContextIntegration[];

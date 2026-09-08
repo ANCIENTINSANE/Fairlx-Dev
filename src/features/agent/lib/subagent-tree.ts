@@ -47,6 +47,7 @@ export type AgentCrewRosterItem = {
   role: string;
   live: number;
   total: number;
+  modelName?: string;
 };
 
 export type AgentCrewHints = {
@@ -54,6 +55,10 @@ export type AgentCrewHints = {
   orchestratorModelId?: string;
   workerModelName?: string;
   workerModelId?: string;
+  builderModelName?: string;
+  builderModelId?: string;
+  reviewerModelName?: string;
+  reviewerModelId?: string;
 };
 
 export type AgentCrew = {
@@ -99,6 +104,34 @@ function asPayload(raw: unknown): Record<string, unknown> {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function defaultModelForSpecialist(
+  specialist: string,
+  hints: AgentCrewHints | undefined,
+  workerName: string,
+): string {
+  if (specialist === "builder" || specialist === "git") {
+    return hints?.builderModelName?.trim() || workerName;
+  }
+  if (specialist === "reviewer") {
+    return hints?.reviewerModelName?.trim() || workerName;
+  }
+  return workerName;
+}
+
+function defaultModelIdForSpecialist(
+  specialist: string,
+  hints: AgentCrewHints | undefined,
+  workerId?: string,
+): string | undefined {
+  if (specialist === "builder" || specialist === "git") {
+    return hints?.builderModelId || workerId;
+  }
+  if (specialist === "reviewer") {
+    return hints?.reviewerModelId || workerId;
+  }
+  return workerId;
 }
 
 function instanceLabel(params: { subject?: string; task: string; title: string }): string {
@@ -235,8 +268,8 @@ export function buildAgentCrew(
       task,
       status: done ? "done" : "working",
       lastAction: lastAction.get(id),
-      modelName: workerName,
-      modelId: workerId,
+      modelName: asString(payload.modelName) || defaultModelForSpecialist(specialist, hints, workerName),
+      modelId: asString(payload.modelId) || defaultModelIdForSpecialist(specialist, hints, workerId),
       calls: 0,
       tokens: 0,
       costUSD: 0,
@@ -360,6 +393,7 @@ export function buildAgentCrew(
         role: item.role,
         live: type?.live ?? 0,
         total: type?.total ?? 0,
+        modelName: defaultModelForSpecialist(item.id, hints, workerName),
       };
     }),
     children: roots,

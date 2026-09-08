@@ -219,6 +219,10 @@ export const AGENT_JOBS_ID =
   process.env.NEXT_PUBLIC_APPWRITE_AGENT_JOBS_ID || "agent_jobs";
 export const AGENT_CODING_SESSIONS_ID =
   process.env.NEXT_PUBLIC_APPWRITE_AGENT_CODING_SESSIONS_ID || "agent_coding_sessions";
+export const AGENT_PROJECT_SECRETS_ID =
+  process.env.NEXT_PUBLIC_APPWRITE_AGENT_PROJECT_SECRETS_ID || "agent_project_secrets";
+export const AGENT_CODING_ENVIRONMENTS_ID =
+  process.env.NEXT_PUBLIC_APPWRITE_AGENT_CODING_ENVIRONMENTS_ID || "agent_coding_environments";
 
 // ===============================
 // Landing Page Supabase (GitHub Star Rewards)

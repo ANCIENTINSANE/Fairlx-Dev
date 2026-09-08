@@ -223,7 +223,9 @@ export function ManageMcpDialog({ open, onOpenChange }: ManageMcpDialogProps) {
         <DialogHeader>
           <DialogTitle>Manage MCP Servers</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Connect external MCP servers (GitHub, PostgreSQL, Linear, etc.) to extend your Agent&apos;s tool capabilities.
+            Add HTTP MCP servers (Sentry, Datadog, Linear, and so on). The agent lists their tools with mcp_list and
+            calls them with mcp_call. Fairlx native tools stay fairlx_*. Personal MCP is in-process and is not replaced
+            by this list.
           </DialogDescription>
         </DialogHeader>
 

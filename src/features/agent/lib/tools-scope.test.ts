@@ -187,6 +187,23 @@ describe("request_capability", () => {
     expect(result.event.title).toBe("Already have code.read");
   });
 
+  it("does not pause for GitHub when the account is connected even without a project repo", async () => {
+    const result = await executeTool(
+      "request_capability",
+      { capability: "code.write", reason: "Connect Fairlx-Dev from ancientinsane" },
+      ctx({
+        context: {
+          ...context(),
+          githubRepos: [],
+          githubAccount: { connected: true, login: "ANCIENTINSANE", hasRepoAccess: false },
+        },
+      }),
+    );
+    expect(result.missingCapability).toBeUndefined();
+    expect(result.content).toContain("github_link_repo");
+    expect(result.content).not.toContain('"granted":false');
+  });
+
   it("still pauses for GitHub when no account or repo is connected", async () => {
     const result = await executeTool(
       "request_capability",

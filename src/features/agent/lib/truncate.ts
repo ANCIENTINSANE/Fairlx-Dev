@@ -135,9 +135,60 @@ function assignmentMetaFromItems(rows: unknown[]) {
   };
 }
 
+function slimKeyList(keys: unknown, cap: number): { keys: string[]; omitted: number } {
+  const list = Array.isArray(keys) ? keys.map(String) : [];
+  return { keys: list.slice(0, cap), omitted: Math.max(0, list.length - cap) };
+}
+
+function slimAssignment(assignment: unknown): unknown {
+  if (!isRecord(assignment)) return assignment;
+  const unassigned = slimKeyList(assignment.unassignedKeys, 12);
+  const byAssignee: Record<string, string[]> = {};
+  const source = isRecord(assignment.byAssignee) ? assignment.byAssignee : {};
+  for (const [name, keys] of Object.entries(source).slice(0, 8)) {
+    byAssignee[name] = Array.isArray(keys) ? keys.map(String).slice(0, 8) : [];
+  }
+  return {
+    total: assignment.total,
+    unassignedCount: assignment.unassignedCount,
+    unassignedKeys: unassigned.keys,
+    unassignedKeysOmitted: unassigned.omitted,
+    byAssignee,
+  };
+}
+
+function slimLocation(location: unknown): unknown {
+  if (!isRecord(location)) return location;
+  const sprint = slimKeyList(location.sprintKeys, 16);
+  const backlog = slimKeyList(location.backlogKeys, 16);
+  return {
+    backlogCount: location.backlogCount,
+    sprintCount: location.sprintCount,
+    sprintKeys: sprint.keys,
+    backlogKeys: backlog.keys,
+    sprintKeysOmitted: sprint.omitted,
+    backlogKeysOmitted: backlog.omitted,
+  };
+}
+
+function slimWorkItem(row: unknown): unknown {
+  if (!isRecord(row)) return row;
+  const title = typeof row.title === "string" ? row.title.slice(0, 120) : row.title;
+  return {
+    id: row.id,
+    key: row.key,
+    title,
+    status: row.status,
+    type: row.type,
+    priority: row.priority,
+    sprintId: row.sprintId,
+    sprintName: row.sprintName,
+  };
+}
+
 export function compactWorkItemListPayload(payload: Record<string, unknown>, max: number): string {
   const original = Array.isArray(payload.workItems) ? (payload.workItems as unknown[]) : [];
-  const items = [...original];
+  const items = original.map(slimWorkItem);
   const meta: Record<string, unknown> = {};
   for (const key of LIST_META_KEYS) {
     if (payload[key] !== undefined) meta[key] = payload[key];
@@ -145,6 +196,8 @@ export function compactWorkItemListPayload(payload: Record<string, unknown>, max
   if (meta.assignment === undefined) {
     meta.assignment = assignmentMetaFromItems(original);
   }
+  meta.assignment = slimAssignment(meta.assignment);
+  if (meta.location !== undefined) meta.location = slimLocation(meta.location);
   const build = (rows: unknown[], omitted: number) => {
     const next: Record<string, unknown> = {
       ...meta,
@@ -157,14 +210,17 @@ export function compactWorkItemListPayload(payload: Record<string, unknown>, max
     }
     return JSON.stringify(next);
   };
-  let json = build(items, 0);
+  let working = [...items];
+  let json = build(working, original.length - working.length);
   if (json.length <= max) return json;
-  while (items.length > 0) {
-    items.pop();
-    json = build(items, original.length - items.length);
+  while (working.length > 1) {
+    working.pop();
+    json = build(working, original.length - working.length);
     if (json.length <= max) return json;
   }
-  return build([], original.length);
+  json = build(working, original.length - working.length);
+  if (json.length <= max) return json;
+  return build(working.slice(0, 1), Math.max(0, original.length - 1));
 }
 
 export function compactJsonString(raw: string, max: number): string {
@@ -317,7 +373,16 @@ function isEventItem(item: unknown): boolean {
 
 function isPinnedEvent(item: unknown): boolean {
   if (!isRecord(item)) return false;
-  return item.type === "confirmation" || item.type === "confirmation_resolved" || item.type === "error" || item.type === "context_meter" || item.type === "llm_usage";
+  return (
+    item.type === "confirmation" ||
+    item.type === "confirmation_resolved" ||
+    item.type === "error" ||
+    item.type === "context_meter" ||
+    item.type === "llm_usage" ||
+    item.type === "submit_implementation_plan" ||
+    item.type === "coding_session_start" ||
+    item.type === "coding_session_status"
+  );
 }
 
 /** Drop bulky payloads from the activity trail so thought titles survive the Appwrite cap. */

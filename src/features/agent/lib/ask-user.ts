@@ -8,21 +8,50 @@ export type PendingAskUser = {
   toolCallId: string;
 };
 
-const MAX_OPTIONS = 4;
-const MAX_LABEL = 80;
+const MAX_OPTIONS = 3;
+const MAX_LABEL = 160;
+const RESERVED_CUSTOM_RE =
+  /^(other|custom|type your own|type your own[.…]*|something else|none of (these|the above)|write my own|i('ll| will) type.+)$/i;
+
+export const ASK_USER_CUSTOM_VALUE = "__fairlx_custom__";
+
+export function isReservedCustomChoice(label: string): boolean {
+  return RESERVED_CUSTOM_RE.test(label.trim());
+}
+
+export function splitChoiceLabel(label: string): { title: string; description?: string } {
+  const trimmed = label.trim();
+  const parts = trimmed.split(/\s+(?:—|–|-)\s+/);
+  if (parts.length >= 2) {
+    const title = parts[0]!.trim();
+    const description = parts.slice(1).join(" — ").trim();
+    if (title && description) return { title, description };
+  }
+  return { title: trimmed };
+}
+
+function labelFromRawOption(item: unknown): string {
+  if (typeof item === "string") return item.trim();
+  if (!item || typeof item !== "object") return "";
+  const rec = item as { label?: unknown; title?: unknown; description?: unknown };
+  const title =
+    typeof rec.label === "string"
+      ? rec.label.trim()
+      : typeof rec.title === "string"
+        ? rec.title.trim()
+        : "";
+  if (!title) return "";
+  const description = typeof rec.description === "string" ? rec.description.trim() : "";
+  return description ? `${title} — ${description}` : title;
+}
 
 export function normalizeAskUserOptions(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
   const options: string[] = [];
   for (const item of raw) {
-    const label =
-      typeof item === "string"
-        ? item.trim()
-        : item && typeof item === "object" && typeof (item as { label?: unknown }).label === "string"
-          ? String((item as { label: string }).label).trim()
-          : "";
-    if (!label || label.length > MAX_LABEL) continue;
+    const label = labelFromRawOption(item);
+    if (!label || label.length > MAX_LABEL || isReservedCustomChoice(label)) continue;
     const key = label.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

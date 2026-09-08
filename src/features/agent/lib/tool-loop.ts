@@ -560,6 +560,7 @@ export function isFailedToolContent(content: string): boolean {
     const parsed = JSON.parse(content) as Record<string, unknown>;
     if (parsed && typeof parsed === "object") {
       if (parsed.repeated === true) return false;
+      if (parsed.blocked === true) return false;
       if (typeof parsed.error === "string" && parsed.error.trim()) {
         if (Array.isArray(parsed.workItems) && parsed.workItems.length >= 0) return false;
         return true;

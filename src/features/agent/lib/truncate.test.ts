@@ -339,4 +339,34 @@ describe("compactJsonString work item lists", () => {
     expect(parsed.nextCursor).toBe("next");
     expect(Array.isArray(parsed.workItems)).toBe(true);
   });
+
+  it("keeps work item rows when assignment key lists are huge", () => {
+    const payload = {
+      hasMore: false,
+      assignment: {
+        total: 250,
+        unassignedCount: 250,
+        unassignedKeys: Array.from({ length: 250 }, (_, i) => `PROJ-${i}`),
+        byAssignee: {},
+      },
+      workItems: Array.from({ length: 40 }, (_, i) => ({
+        id: `id-${i}`,
+        key: `PROJ-${i}`,
+        title: "Implement feature",
+        status: "TODO",
+        sprintName: "Sprint 1",
+      })),
+    };
+    const json = compactJsonString(JSON.stringify(payload), 800);
+    const parsed = JSON.parse(json) as {
+      workItems: Array<{ key?: string; title?: string }>;
+      assignment?: { unassignedKeys?: string[]; unassignedKeysOmitted?: number };
+    };
+    expect(parsed.workItems.length).toBeGreaterThan(0);
+    expect(parsed.workItems[0]?.key).toMatch(/^PROJ-/);
+    expect(parsed.workItems[0]?.title).toBeTruthy();
+    expect((parsed.assignment?.unassignedKeys?.length ?? 0) + (parsed.assignment?.unassignedKeysOmitted ?? 0)).toBe(
+      250,
+    );
+  });
 });

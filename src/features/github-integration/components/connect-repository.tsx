@@ -102,7 +102,7 @@ export const ConnectRepository = ({
   const { mutate: createGithubRepo, isPending: isCreatingRepo } = useCreateGithubRepository();
   const { data: githubAccountPayload } = useGetGithubAccount();
   const githubAccount = githubAccountPayload?.data;
-  const isAccountConnected = Boolean(githubAccount?.connected);
+  const isAccountConnected = Boolean(githubAccount?.hasRepoAccess ?? githubAccount?.connected);
 
   const isPendingOAuthSetup = repository?.status === "authenticating" || repository?.githubUrl === "pending";
 

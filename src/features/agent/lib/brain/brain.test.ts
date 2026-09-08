@@ -97,17 +97,65 @@ describe("selectToolsForTurn", () => {
     expect(names.has("github_write_file")).toBe(true);
   });
 
-  it("keeps create-repo tools when asked to create a GitHub repository", () => {
-    const names = wantedToolNames("create a github repository and add a detailed README");
+  it("keeps create-repo tools on a GitHub-connected account even when the reply is only an owner login", () => {
+    const tools = [
+      tool("github_create_repo"),
+      tool("github_list_owners"),
+      tool("github_write_file"),
+      tool("github_list_repos"),
+      tool("mail_send"),
+    ];
+    const selected = selectToolsForTurn(tools, "ANCIENTINSANE", { hasGithubAccount: true });
+    const names = selected.map((item) => item.function.name);
+    expect(names).toContain("github_create_repo");
+    expect(names).toContain("github_list_owners");
+    expect(names).toContain("github_write_file");
+  });
+
+  it("keeps create-repo tools when the conversation asked to create a GitHub repository", () => {
+    const names = wantedToolNames("create a github repository and add a detailed README\nANCIENTINSANE");
     expect(names.has("github_create_repo")).toBe(true);
     expect(names.has("github_list_owners")).toBe(true);
     expect(names.has("github_account_status")).toBe(true);
+    expect(names.has("github_list_repos")).toBe(true);
+    expect(names.has("github_write_file")).toBe(true);
+  });
+
+  it("keeps update-repo tools when asked to make a repository private", () => {
+    const names = wantedToolNames("make it private");
+    expect(names.has("github_update_repo")).toBe(true);
+  });
+
+  it("keeps attach-repo tools when asked to connect an existing GitHub repository", () => {
+    const names = wantedToolNames("now connect the repo Fairlx-Dev from ancientinsane");
+    expect(names.has("github_link_repo")).toBe(true);
+    expect(names.has("github_list_repos")).toBe(true);
+  });
+
+  it("lists GitHub account repos when asked to search GitHub", () => {
+    const names = wantedToolNames("Search my GitHub and find the Fairlx codebase");
+    expect(names.has("github_list_repos")).toBe(true);
+    expect(names.has("git_status")).toBe(true);
   });
 
   it("selects coding session tools for sandbox prompts", () => {
     const names = wantedToolNames("start a coding session and merge the pr");
     expect(names.has("coding_session_start")).toBe(true);
     expect(names.has("github_merge_pr")).toBe(true);
+  });
+
+  it("selects the implementation plan tool for start-building prompts", () => {
+    const names = wantedToolNames("start building the project");
+    expect(names.has("submit_implementation_plan")).toBe(true);
+    expect(names.has("github_list_files")).toBe(true);
+    expect(names.has("fairlx_sprint_list")).toBe(true);
+  });
+
+  it("does not select coding_session_start for a pasted build error", () => {
+    const dump = "## Error Type\nBuild Error\n## Error Message\nUnexpected token";
+    const names = wantedToolNames(dump);
+    expect(names.has("github_read_file")).toBe(true);
+    expect(names.has("coding_session_start")).toBe(false);
   });
 
   it("selects organization tools when asked for the org name", () => {

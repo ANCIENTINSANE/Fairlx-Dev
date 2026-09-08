@@ -62,6 +62,31 @@ export async function createAgentJob(
   }
 }
 
+export async function waitForAgentJob(
+  databases: Databases,
+  userId: string,
+  jobId: string,
+  timeoutMs = 90_000,
+): Promise<AgentJob | null> {
+  const deadline = Date.now() + timeoutMs;
+  let job = await getAgentJob(databases, userId, jobId);
+  while (job && (job.status === "queued" || job.status === "scheduled" || job.status === "running") && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    job = await getAgentJob(databases, userId, jobId);
+  }
+  return job;
+}
+
+export async function findLatestJobForRun(
+  databases: Databases,
+  userId: string,
+  runId: string,
+  kind?: AgentJob["kind"],
+): Promise<AgentJob | null> {
+  const jobs = await listAgentJobs(databases, userId, 50);
+  return jobs.find((job) => job.runId === runId && (!kind || job.kind === kind)) ?? null;
+}
+
 export async function getAgentJob(databases: Databases, userId: string, jobId: string): Promise<AgentJob | null> {
   try {
     const doc = await databases.getDocument(DATABASE_ID, AGENT_JOBS_ID, jobId);

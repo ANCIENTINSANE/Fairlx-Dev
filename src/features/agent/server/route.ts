@@ -73,7 +73,7 @@ import {
   trainingKickoffPrompt,
   trainingProgress,
 } from "../lib/personal-training";
-import { PLUGIN_CATALOG, findPendingPlugin, hasCapability, isGithubCapability, toPublicPlugin } from "../plugins/catalog";
+import { PLUGIN_CATALOG, findPendingPlugin, isGithubCapability, toPublicPlugin } from "../plugins/catalog";
 import { buildPluginConnection, upsertPluginList } from "../plugins/connect";
 import {
   applyOauthTokensToSecrets,
@@ -99,6 +99,16 @@ import {
   guidedWalkthrough,
 } from "../lib/coding-sessions";
 import { startOrResumeCodingSession } from "../lib/coding-session-start";
+import { getCodingEnvironment, upsertCodingEnvironment } from "../lib/coding-environment";
+import {
+  deleteProjectSecret,
+  getProjectSecret,
+  isProjectSecretName,
+  listProjectSecrets,
+  upsertProjectSecret,
+} from "../lib/project-secrets";
+import { getSandboxDriver } from "../lib/sandbox";
+import { readSandboxArtifactBase64 } from "../lib/sandbox-browser";
 import { githubMergePullRequest, githubSessionDiff } from "../plugins/github";
 import { resolveUserProjectAccess } from "@/lib/permissions/resolveUserProjectAccess";
 
@@ -255,6 +265,7 @@ const harnessSchema = z.object({
       defaultProjectId: z.string().optional(),
       sessionMode: z.enum(["agent", "personal", "plan", "debug", "multitask", "ask"]).optional(),
       permissionType: z.enum(["staged", "all_access"]).optional(),
+      autonomousCoding: z.boolean().optional(),
     })
     .optional(),
 });
@@ -460,24 +471,6 @@ const app = new Hono()
     try {
       const run = await getRun(databases, user.$id, runId);
       if (!run) return c.json({ error: "Run not found." }, 404);
-      if (run.status === "awaiting_plugin" && !isAgentTurnInFlight(runId)) {
-        const pending = findPendingPlugin(run.events ?? []);
-        if (pending && isGithubCapability(pending.capability)) {
-          const [context, harness] = await Promise.all([
-            loadAgentContext(databases, user),
-            getOrCreateHarness(databases, user.$id),
-          ]);
-          if (hasCapability(harness.plugins, context, pending.capability)) {
-            const resumed = await updateRun(databases, runId, {
-              status: "running",
-              error: "",
-              events: withPluginConnected(run, "Using your GitHub account"),
-            });
-            scheduleAgentTurn({ databases, user, run: resumed });
-            return c.json({ data: resumed });
-          }
-        }
-      }
       return c.json({ data: run });
     } catch (error) {
       console.error("[agent] failed to get run", error);
@@ -1470,10 +1463,10 @@ const app = new Hono()
       try {
         let session = query.sessionId ? await getCodingSession(databases, query.sessionId) : null;
         if (!session && query.runId) session = await findCodingSessionByRun(databases, query.runId);
-        if (!session && query.workItemId) {
+        if (!session && !query.runId && query.workItemId) {
           session = await findActiveCodingSessionForWorkItem(databases, query.workItemId);
         }
-        if (!session && query.projectId) {
+        if (!session && !query.runId && query.projectId) {
           const listed = await listCodingSessionsForProject(databases, query.projectId, 1);
           session = listed[0] ?? null;
         }
@@ -1660,6 +1653,137 @@ const app = new Hono()
     });
     scheduleAgentTurn({ databases, user, run: updated });
     return c.json({ data: { queued: true, runId: run.id } });
+  })
+  .get(
+    "/coding-sessions/:sessionId/artifacts/:artifactId",
+    sessionMiddleware,
+    async (c) => {
+      const user = sessionUser(c);
+      const sessionId = c.req.param("sessionId");
+      const artifactId = c.req.param("artifactId");
+      const { databases } = await createAdminClient();
+      const session = await getCodingSession(databases, sessionId);
+      if (!session) return c.json({ error: "Session not found." }, 404);
+      if (session.userId !== user.$id) {
+        const access = await resolveUserProjectAccess(databases, user.$id, session.projectId);
+        if (!access.hasAccess) return c.json({ error: "Session not found." }, 404);
+      }
+      const artifact = (session.artifacts ?? session.meta?.artifacts ?? []).find((item) => item.id === artifactId);
+      if (!artifact || !session.sandboxId) return c.json({ error: "Artifact not found." }, 404);
+      try {
+        const base64 = await readSandboxArtifactBase64({
+          driver: getSandboxDriver(),
+          sandboxId: session.sandboxId,
+          path: artifact.path,
+        });
+        const bytes = Buffer.from(base64, "base64");
+        return new Response(bytes, {
+          status: 200,
+          headers: {
+            "Content-Type": artifact.mime || "image/png",
+            "Cache-Control": "private, max-age=60",
+          },
+        });
+      } catch {
+        return c.json({ error: "Artifact is not available in this sandbox." }, 404);
+      }
+    },
+  )
+  .get(
+    "/coding-environment",
+    sessionMiddleware,
+    zValidator("query", z.object({ projectId: z.string().min(1) })),
+    async (c) => {
+      const user = sessionUser(c);
+      const { projectId } = c.req.valid("query");
+      const { databases } = await createAdminClient();
+      const access = await resolveUserProjectAccess(databases, user.$id, projectId);
+      if (!access.hasAccess) return c.json({ error: "Project not found." }, 404);
+      const environment = await getCodingEnvironment(databases, projectId);
+      return c.json({ data: { environment } });
+    },
+  )
+  .post(
+    "/coding-environment",
+    sessionMiddleware,
+    zValidator(
+      "json",
+      z.object({
+        projectId: z.string().min(1),
+        workspaceId: z.string().min(1),
+        runtime: z.string().optional(),
+        prepareScript: z.string().optional(),
+        startCommand: z.string().optional(),
+        exposePort: z.number().optional(),
+        envNames: z.array(z.string()).optional(),
+      }),
+    ),
+    async (c) => {
+      const user = sessionUser(c);
+      const json = c.req.valid("json");
+      const { databases } = await createAdminClient();
+      const access = await resolveUserProjectAccess(databases, user.$id, json.projectId);
+      if (!access.hasAccess) return c.json({ error: "Project not found." }, 404);
+      const environment = await upsertCodingEnvironment(databases, json);
+      if (!environment) return c.json({ error: "Could not save coding environment. Run db:setup:agent." }, 500);
+      return c.json({ data: environment });
+    },
+  )
+  .get(
+    "/secrets",
+    sessionMiddleware,
+    zValidator("query", z.object({ projectId: z.string().min(1) })),
+    async (c) => {
+      const user = sessionUser(c);
+      const { projectId } = c.req.valid("query");
+      const { databases } = await createAdminClient();
+      const access = await resolveUserProjectAccess(databases, user.$id, projectId);
+      if (!access.hasAccess) return c.json({ error: "Project not found." }, 404);
+      const secrets = await listProjectSecrets(databases, projectId);
+      return c.json({ data: secrets });
+    },
+  )
+  .post(
+    "/secrets",
+    sessionMiddleware,
+    zValidator(
+      "json",
+      z.object({
+        projectId: z.string().min(1),
+        workspaceId: z.string().min(1),
+        name: z.string().min(1),
+        value: z.string().min(1),
+      }),
+    ),
+    async (c) => {
+      const user = sessionUser(c);
+      const json = c.req.valid("json");
+      const { databases } = await createAdminClient();
+      const access = await resolveUserProjectAccess(databases, user.$id, json.projectId);
+      if (!access.hasAccess) return c.json({ error: "Project not found." }, 404);
+      if (!isProjectSecretName(json.name)) {
+        return c.json({ error: "Secret names must look like GITHUB_TOKEN (A-Z, 0-9, underscore)." }, 400);
+      }
+      try {
+        const saved = await upsertProjectSecret(databases, { ...json, userId: user.$id });
+        if (!saved) return c.json({ error: "Could not save secret. Run db:setup:agent." }, 500);
+        return c.json({ data: saved });
+      } catch (error) {
+        const encrypted = encryptionErrorResponse(error, c);
+        if (encrypted) return encrypted;
+        return c.json({ error: "Could not save secret." }, 500);
+      }
+    },
+  )
+  .delete("/secrets/:secretId", sessionMiddleware, async (c) => {
+    const secretId = c.req.param("secretId");
+    const { databases } = await createAdminClient();
+    const secret = await getProjectSecret(databases, secretId);
+    if (!secret) return c.json({ error: "Secret not found." }, 404);
+    const access = await resolveUserProjectAccess(databases, sessionUser(c).$id, secret.projectId);
+    if (!access.hasAccess) return c.json({ error: "Secret not found." }, 404);
+    await deleteProjectSecret(databases, secretId);
+    return c.json({ data: { ok: true } });
   });
 
 export default app;

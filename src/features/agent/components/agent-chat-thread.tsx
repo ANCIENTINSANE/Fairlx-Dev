@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  FileCode,
   FolderKanban,
   Loader2,
   Pencil,
@@ -26,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { useGetAgentContext } from "../api/use-agent-context";
 import { useGetAgentHarness } from "../api/use-agent-harness";
 import { splitAssistantChoices } from "../lib/assistant-choices";
-import { parseAskUserFromMessage } from "../lib/ask-user";
+import { parseAskUserFromMessage, normalizeAskUserOptions } from "../lib/ask-user";
 import { splitMarkdownMemberTable, type AgentMember } from "../lib/member-table";
 import {
   extractBoardProject,
@@ -35,6 +36,8 @@ import {
   withWorkspaceFallback,
 } from "../lib/project-launch";
 import { displayUserContent } from "../lib/session-context";
+import { ImplementationPlanCard } from "./implementation-plan-card";
+import { resolveRunImplementationPlan } from "../lib/implementation-plan";
 import {
   collectMemberLookup,
   collectWorkItemLookup,
@@ -58,12 +61,15 @@ import { isPersistedTruncatedAssistant, sanitizeAssistantVisible } from "../lib/
 import { splitMarkdownWorkItemTable, type AgentWorkItem } from "../lib/work-item-table";
 import { findPendingConfirmation, isWriteToolCall } from "../lib/write-guard";
 import { findPendingPlugin, isGithubCapability } from "../plugins/catalog";
-import { isLinkedGithubRepo } from "../lib/github-scope";
+import { githubArtifactsFromEvents, githubArtifactsFromSteps, type GithubArtifact } from "../lib/github-artifacts";
+import { isStubPreviewUrl } from "../lib/sandbox-preview";
+import { hasGithubAccount, isLinkedGithubRepo } from "../lib/github-scope";
 import type { AgentChatMessage, AgentRun, AgentToolEvent } from "../types";
 import { AgentMemberTable } from "./agent-member-table";
 import { AgentWorkItemTable } from "./agent-work-item-table";
 import { AgentTurnUsageCard } from "./agent-run-hud";
 import { PendingConfirmationCard } from "./pending-confirmation-card";
+import { AskUserChoices } from "./ask-user-choices";
 import { PluginConnectCard } from "./plugin-connect-card";
 import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 
@@ -113,6 +119,61 @@ function ProjectKanbanCta({
       </span>
     </a>
   );
+}
+
+function GithubArtifactCtas({ artifacts }: { artifacts: GithubArtifact[] }) {
+  if (!artifacts.length) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      {artifacts.map((artifact) => (
+        <a
+          key={artifact.id}
+          href={artifact.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group relative inline-flex w-full max-w-sm sm:max-w-md items-center gap-3 overflow-hidden rounded-xl border border-border/80 bg-card/90 p-2.5 pr-3 text-left shadow-2xs transition-all duration-200 hover:border-primary/40 hover:bg-card hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary transition-all duration-200 group-hover:border-primary/40 group-hover:bg-primary/15 group-hover:scale-105">
+            <FileCode className="size-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-xs font-semibold text-foreground tracking-tight transition-colors group-hover:text-primary">
+                {artifact.label}
+              </span>
+            </div>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {artifact.kind === "file"
+                ? "Open source file on GitHub"
+                : artifact.kind === "pr"
+                  ? "Open pull request"
+                  : artifact.kind === "issue"
+                    ? "Open issue"
+                    : artifact.kind === "preview"
+                      ? isStubPreviewUrl(artifact.href)
+                        ? "Stub preview — Azure sandbox is not configured"
+                        : "Open live preview"
+                      : "Open repository"}
+            </p>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-2xs transition-all duration-200 group-hover:border-primary/30 group-hover:bg-primary group-hover:text-primary-foreground">
+            <span>Open</span>
+            <ArrowUpRight className="size-3 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function fileLinkMap(artifacts: GithubArtifact[] = []) {
+  const map = new Map<string, string>();
+  for (const artifact of artifacts) {
+    map.set(artifact.label.toLowerCase(), artifact.href);
+    const base = artifact.label.split("/").pop();
+    if (base) map.set(base.toLowerCase(), artifact.href);
+  }
+  return map;
 }
 
 function UserBubble({
@@ -265,13 +326,30 @@ function CodeBlock({
   );
 }
 
-function MarkdownRich({ content }: { content: string }) {
+function MarkdownRich({ content, fileLinks }: { content: string; fileLinks?: Map<string, string> }) {
   return (
     <div className="prose prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed text-sm">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          code: CodeBlock,
+          code(props) {
+            const text = String(props.children).replace(/\n$/, "");
+            const href = !props.className && fileLinks?.get(text.toLowerCase());
+            if (href) {
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-mono font-medium text-primary hover:bg-primary/15"
+                >
+                  {text}
+                  <ArrowUpRight className="size-3" />
+                </a>
+              );
+            }
+            return <CodeBlock {...props} />;
+          },
           p({ children }) {
             return <p className="mb-2.5 last:mb-0 leading-relaxed text-sm text-foreground">{children}</p>;
           },
@@ -342,12 +420,14 @@ function MarkdownContent({
   members,
   workspaceId,
   projectId,
+  fileLinks,
 }: {
   content: string;
   workItems?: Map<string, AgentWorkItem>;
   members?: Map<string, AgentMember>;
   workspaceId?: string;
   projectId?: string;
+  fileLinks?: Map<string, string>;
 }) {
   const workParsed = splitMarkdownWorkItemTable(content);
   if (workParsed) {
@@ -360,6 +440,7 @@ function MarkdownContent({
             members={members}
             workspaceId={workspaceId}
             projectId={projectId}
+            fileLinks={fileLinks}
           />
         ) : null}
         <AgentWorkItemTable
@@ -375,6 +456,7 @@ function MarkdownContent({
             members={members}
             workspaceId={workspaceId}
             projectId={projectId}
+            fileLinks={fileLinks}
           />
         ) : null}
       </div>
@@ -392,6 +474,7 @@ function MarkdownContent({
             members={members}
             workspaceId={workspaceId}
             projectId={projectId}
+            fileLinks={fileLinks}
           />
         ) : null}
         <AgentMemberTable
@@ -406,13 +489,14 @@ function MarkdownContent({
             members={members}
             workspaceId={workspaceId}
             projectId={projectId}
+            fileLinks={fileLinks}
           />
         ) : null}
       </div>
     );
   }
 
-  return <MarkdownRich content={content} />;
+  return <MarkdownRich content={content} fileLinks={fileLinks} />;
 }
 
 function TruncationNote({ content }: { content?: string | null }) {
@@ -432,6 +516,8 @@ function AgentBubble({
   projectId,
   choicesEnabled = false,
   onPickChoice,
+  fileLinks,
+  compact,
 }: {
   message: AgentChatMessage;
   workItems?: Map<string, AgentWorkItem>;
@@ -440,14 +526,15 @@ function AgentBubble({
   projectId?: string;
   choicesEnabled?: boolean;
   onPickChoice?: (choice: string) => void;
+  fileLinks?: Map<string, string>;
+  compact?: boolean;
 }) {
   const visible = sanitizeAssistantVisible(message.content);
   const asked = parseAskUserFromMessage(message);
   const parsed = splitAssistantChoices(visible || "");
-  const choices = asked?.options.length ? asked.options : parsed.choices;
+  const choices = asked?.options.length ? asked.options : normalizeAskUserOptions(parsed.choices);
   const text = (asked ? parsed.text || asked.question || visible : parsed.text) || "";
-  const showCustom = Boolean(choices.length || asked?.allowCustom);
-  const [custom, setCustom] = useState("");
+  const allowCustom = asked ? asked.allowCustom : Boolean(choices.length);
 
   if (!text && !choices.length && !asked) return null;
 
@@ -460,64 +547,17 @@ function AgentBubble({
           members={members}
           workspaceId={workspaceId}
           projectId={projectId}
+          fileLinks={fileLinks}
         />
       ) : null}
-      {choices.length ? (
-        <div className="flex flex-wrap gap-2 mt-3">
-          {choices.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              disabled={!choicesEnabled}
-              onClick={() => onPickChoice?.(choice)}
-              className={cn(
-                "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                choicesEnabled
-                  ? "border-border bg-muted/40 text-foreground hover:bg-muted"
-                  : "border-border bg-muted/20 text-muted-foreground cursor-default",
-              )}
-            >
-              {choice}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {showCustom && choicesEnabled ? (
-        <form
-          className="mt-3 flex items-center gap-2 max-w-md"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = custom.trim();
-            if (!value || !choicesEnabled) return;
-            onPickChoice?.(value);
-            setCustom("");
-          }}
-        >
-          <input
-            value={custom}
-            onChange={(event) => setCustom(event.target.value)}
-            disabled={!choicesEnabled}
-            placeholder="Type your own…"
-            className={cn(
-              "flex-1 min-w-0 rounded-lg border bg-background px-3 py-1.5 text-xs outline-none",
-              choicesEnabled
-                ? "border-border text-foreground focus:border-primary/50"
-                : "border-border/60 text-muted-foreground cursor-default",
-            )}
-          />
-          <button
-            type="submit"
-            disabled={!choicesEnabled || !custom.trim()}
-            className={cn(
-              "shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium",
-              choicesEnabled && custom.trim()
-                ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-                : "border-border bg-muted/20 text-muted-foreground cursor-default",
-            )}
-          >
-            Send
-          </button>
-        </form>
+      {choices.length || (allowCustom && asked) ? (
+        <AskUserChoices
+          choices={choices}
+          allowCustom={allowCustom}
+          enabled={Boolean(choicesEnabled && onPickChoice)}
+          compact={compact}
+          onSubmit={(choice) => onPickChoice?.(choice)}
+        />
       ) : null}
       <TruncationNote content={message.content} />
     </div>
@@ -904,6 +944,8 @@ function StepsCard({
   const visibleSteps = steps.filter((step) => !isRepeatedToolResult(step.result?.content));
   const skipped = steps.length - visibleSteps.length;
   const doneCount = visibleSteps.filter((step) => step.result).length;
+  const artifacts = githubArtifactsFromSteps(visibleSteps);
+  const fileLinks = fileLinkMap(artifacts);
 
   useEffect(() => {
     if (running || awaiting) setOpen(true);
@@ -921,6 +963,7 @@ function StepsCard({
           members={members}
           workspaceId={workspaceId}
           projectId={projectId}
+          fileLinks={fileLinks}
         />
       ) : null}
       <TruncationNote content={lead?.content} />
@@ -1042,7 +1085,26 @@ function ActivityTrail({
                       <Check className="size-3.5 mt-0.5 text-muted-foreground shrink-0" />
                     )}
                     <p className={cn("leading-relaxed", failed ? "text-destructive" : "text-muted-foreground")}>
-                      <span className={failed ? "font-medium" : "text-foreground/80"}>{event.title}</span>
+                      {(() => {
+                        const href =
+                          event.payload && typeof event.payload === "object"
+                            ? String(
+                                (event.payload as { html_url?: string; htmlUrl?: string }).html_url ||
+                                  (event.payload as { htmlUrl?: string }).htmlUrl ||
+                                  "",
+                              )
+                            : "";
+                        const title = (
+                          <span className={failed ? "font-medium" : "text-foreground/80"}>{event.title}</span>
+                        );
+                        return href && !failed ? (
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                            {title}
+                          </a>
+                        ) : (
+                          title
+                        );
+                      })()}
                       {event.repeats > 1 ? <span> · {event.repeats}</span> : null}
                       {event.detail ? <span> — {event.detail}</span> : null}
                     </p>
@@ -1131,7 +1193,7 @@ export function AgentChatThread({
   const linkedRepo = (context?.githubRepos ?? []).find(
     (item) => item.projectId === project?.id && isLinkedGithubRepo(item),
   );
-  const githubAccountConnected = Boolean(context?.githubAccount?.connected);
+  const githubAccountConnected = Boolean(context && hasGithubAccount(context));
   const currentAction = [...events].reverse().find(
     (event) =>
       event.type !== "context_meter" &&
@@ -1154,6 +1216,11 @@ export function AgentChatThread({
         const thinkingLive = isLast && showLiveThinking;
         if (turn.user) blockIndex += 1;
         const userCta = turn.user ? kanbanCtas.get(blockIndex) : undefined;
+        const turnArtifacts = [
+          ...githubArtifactsFromEvents(turn.activity),
+          ...turn.blocks.flatMap((block) => (block.kind === "steps" ? githubArtifactsFromSteps(block.steps) : [])),
+        ].filter((item, index, list) => list.findIndex((other) => other.href === item.href) === index);
+        const turnFileLinks = fileLinkMap(turnArtifacts);
 
         return (
           <div key={turn.user?.id ?? `turn-${turnIndex}`} className="flex flex-col gap-3">
@@ -1172,6 +1239,8 @@ export function AgentChatThread({
                 name={userCta.name}
               />
             ) : null}
+
+            {isLast ? <ImplementationPlanCard plan={resolveRunImplementationPlan(run)} compact={compact} /> : null}
 
             {turn.thoughts.length || thinkingLive ? (
               <ThinkingBlock
@@ -1215,8 +1284,10 @@ export function AgentChatThread({
                       members={members}
                       workspaceId={run.workspaceId}
                       projectId={run.projectId}
-                      choicesEnabled={!running && !awaiting && !awaitingPlugin && block.message.id === lastAssistantMessageId}
+                      choicesEnabled={!running && !awaiting && !awaitingPlugin && !sending && block.message.id === lastAssistantMessageId}
                       onPickChoice={onPickChoice}
+                      fileLinks={turnFileLinks}
+                      compact={compact}
                     />
                     {cta}
                   </div>
@@ -1242,6 +1313,7 @@ export function AgentChatThread({
               }
               return null;
             })}
+            <GithubArtifactCtas artifacts={turnArtifacts} />
 
             {turn.usage.some((event) => event.type === "llm_usage" || event.type === "context_meter") ? (
               <AgentTurnUsageCard events={turn.usage} live={Boolean(isLast && turnRunning)} />
