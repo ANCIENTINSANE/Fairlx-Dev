@@ -4,58 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `src/app/agent/layout.tsx`
-- `src/app/globals.css`
-- `src/features/agent/api/use-agent-runs.ts`
-- `src/features/agent/api/use-personal-agent.ts`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-crew-panel.tsx`
-- `src/features/agent/components/agent-scope-bar.tsx`
-- `src/features/agent/components/coding-session-panel.tsx`
-- `src/features/agent/components/diff-viewer.tsx`
-- `src/features/agent/components/implementation-plan-card.tsx`
-- `src/features/agent/components/personal-agent-setup.tsx`
-- `src/features/agent/components/session-artifacts.tsx`
-- `src/features/agent/components/workflow-sidebar-ui.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/face/animations.css`
-- `src/features/agent/face/engine.ts`
-- `src/features/agent/face/face.css`
-- `src/features/agent/face/fairlx-agent-face.tsx`
-- `src/features/agent/face/mouth-paths.ts`
-- `src/features/agent/face/present.test.ts`
-- `src/features/agent/face/present.ts`
-- `src/features/agent/face/types.ts`
-- `src/features/agent/lib/agent-face-mood.test.ts`
-- `src/features/agent/lib/agent-face-mood.ts`
-- `src/features/agent/lib/optimistic-run.test.ts`
-- `src/features/agent/lib/optimistic-run.ts`
-- `src/features/agent/lib/personal-self-train.ts`
-- `src/features/agent/lib/run-id.test.ts`
-- `src/features/agent/lib/run-id.ts`
-- `src/features/agent/lib/runs.test.ts`
-- `src/features/agent/lib/runs.ts`
-- `src/features/agent/lib/self-train-stream.test.ts`
-- `src/features/agent/lib/self-train-stream.ts`
-- `src/features/agent/lib/sidebar-theme.ts`
-- `src/features/agent/lib/typing-gaze.test.ts`
-- `src/features/agent/lib/typing-gaze.ts`
-- `src/features/agent/server/route.ts`
-- `src/features/github-integration/components/connect-repository.tsx`
-- `src/features/github-integration/components/github-optional-prompt.tsx`
-- `src/lib/is-streaming-content-type.test.ts`
-- `src/lib/is-streaming-content-type.ts`
-- `src/lib/traffic-metering-batched.ts`
-- `tailwind.config.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-09 | `bdae09e` | feat: implement optimistic agent run creation and track typing gaze progress in command input | Happyesss |
 | 2026-09-08 | `746030f` | chore: bump version to 0.2.112 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `bae2612` | Merge pull request #312 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-09 | `cf26f12` | feat: modernize AI task UX and resolve critical runtime/schema errors | ANCIENTINSANE |
@@ -141,6 +94,5 @@ Files in this commit:
 | 2026-08-31 | `c2d53c1` | chore: bump version to 0.2.80 [skip ci] | github-actions[bot] |
 | 2026-09-01 | `c3c8fda` | feat: add workspace member management and user profile lookup to MCP runtime | Happyesss |
 | 2026-08-31 | `9b686e2` | chore: bump version to 0.2.79 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `fd92b85` | feat: add project selection to workflow view and exclude internal servers from external MCP counts | Happyesss |
 
-Last generated: 2026-09-08T22:27:49.190Z
+Last generated: 2026-09-08T22:27:53.505Z
