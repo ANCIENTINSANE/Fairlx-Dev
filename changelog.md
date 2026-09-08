@@ -4,139 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `.env.example`
-- `docs/coding-sessions.md`
-- `packages/fairlx-mcp/src/runtime/types.ts`
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/github-actions.test.ts`
-- `packages/fairlx-mcp/src/tools/github-actions.ts`
-- `packages/fairlx-mcp/src/tools/github-repo-list.test.ts`
-- `packages/fairlx-mcp/src/tools/index.ts`
-- `packages/fairlx-mcp/src/tools/read.ts`
-- `scripts/database-initialization/collections/agent-coding-environments.ts`
-- `scripts/database-initialization/collections/agent-coding-sessions.ts`
-- `scripts/database-initialization/collections/agent-project-secrets.ts`
-- `scripts/database-initialization/setup-agent-collections.ts`
-- `src/app/oauth/route.ts`
-- `src/config.ts`
-- `src/features/agent/api/use-coding-environment.ts`
-- `src/features/agent/api/use-project-secrets.ts`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-crew-panel.tsx`
-- `src/features/agent/components/agent-floating-chat.tsx`
-- `src/features/agent/components/agent-permission-picker.tsx`
-- `src/features/agent/components/ask-user-choices.tsx`
-- `src/features/agent/components/coding-environment-card.tsx`
-- `src/features/agent/components/coding-session-panel.tsx`
-- `src/features/agent/components/diff-viewer.tsx`
-- `src/features/agent/components/implementation-plan-card.tsx`
-- `src/features/agent/components/manage-mcp-dialog.tsx`
-- `src/features/agent/components/mcp-servers-card.tsx`
-- `src/features/agent/components/plugin-connect-card.tsx`
-- `src/features/agent/components/session-artifacts.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/constants.ts`
-- `src/features/agent/lib/agent-core.test.ts`
-- `src/features/agent/lib/agent-face-mood.ts`
-- `src/features/agent/lib/ask-user.test.ts`
-- `src/features/agent/lib/ask-user.ts`
-- `src/features/agent/lib/auto-mode.ts`
-- `src/features/agent/lib/brain/brain.test.ts`
-- `src/features/agent/lib/brain/definitions.ts`
-- `src/features/agent/lib/brain/select.ts`
-- `src/features/agent/lib/client-defaults.ts`
-- `src/features/agent/lib/coding-environment.ts`
-- `src/features/agent/lib/coding-session-hooks.ts`
-- `src/features/agent/lib/coding-session-start.ts`
-- `src/features/agent/lib/coding-sessions.ts`
-- `src/features/agent/lib/context.ts`
-- `src/features/agent/lib/detect-start-command.test.ts`
-- `src/features/agent/lib/detect-start-command.ts`
-- `src/features/agent/lib/diff-patch.test.ts`
-- `src/features/agent/lib/diff-patch.ts`
-- `src/features/agent/lib/github-artifacts.test.ts`
-- `src/features/agent/lib/github-artifacts.ts`
-- `src/features/agent/lib/github-scope.test.ts`
-- `src/features/agent/lib/github-scope.ts`
-- `src/features/agent/lib/harness-tools.test.ts`
-- `src/features/agent/lib/harness.ts`
-- `src/features/agent/lib/implementation-plan.test.ts`
-- `src/features/agent/lib/implementation-plan.ts`
-- `src/features/agent/lib/inbound-mentions.test.ts`
-- `src/features/agent/lib/inbound-mentions.ts`
-- `src/features/agent/lib/job-runner.ts`
-- `src/features/agent/lib/jobs.ts`
-- `src/features/agent/lib/mentions.test.ts`
-- `src/features/agent/lib/mentions.ts`
-- `src/features/agent/lib/model-router.test.ts`
-- `src/features/agent/lib/personal-training.ts`
-- `src/features/agent/lib/platform-credentials.test.ts`
-- `src/features/agent/lib/platform-credentials.ts`
-- `src/features/agent/lib/project-secrets.test.ts`
-- `src/features/agent/lib/project-secrets.ts`
-- `src/features/agent/lib/prompt-budget.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/runs.test.ts`
-- `src/features/agent/lib/runs.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/sandbox-browser.ts`
-- `src/features/agent/lib/sandbox-coding-agent.test.ts`
-- `src/features/agent/lib/sandbox-coding-agent.ts`
-- `src/features/agent/lib/sandbox-prepare.ts`
-- `src/features/agent/lib/sandbox-preview.test.ts`
-- `src/features/agent/lib/sandbox-preview.ts`
-- `src/features/agent/lib/sandbox/azure-auth.test.ts`
-- `src/features/agent/lib/sandbox/azure.ts`
-- `src/features/agent/lib/sandbox/debug-log.ts`
-- `src/features/agent/lib/sandbox/index.ts`
-- `src/features/agent/lib/sandbox/stub.ts`
-- `src/features/agent/lib/sandbox/types.ts`
-- `src/features/agent/lib/session-context.ts`
-- `src/features/agent/lib/subagent-tree.test.ts`
-- `src/features/agent/lib/subagent-tree.ts`
-- `src/features/agent/lib/tool-loop.test.ts`
-- `src/features/agent/lib/tool-loop.ts`
-- `src/features/agent/lib/tool-schemas.ts`
-- `src/features/agent/lib/tools-scope.test.ts`
-- `src/features/agent/lib/tools.ts`
-- `src/features/agent/lib/truncate.test.ts`
-- `src/features/agent/lib/truncate.ts`
-- `src/features/agent/lib/turn-errors.test.ts`
-- `src/features/agent/lib/turn-errors.ts`
-- `src/features/agent/lib/write-guard.test.ts`
-- `src/features/agent/lib/write-guard.ts`
-- `src/features/agent/plugins/catalog.test.ts`
-- `src/features/agent/plugins/catalog.ts`
-- `src/features/agent/plugins/github-helpers.ts`
-- `src/features/agent/plugins/github-link-repo.test.ts`
-- `src/features/agent/plugins/github.ts`
-- `src/features/agent/server/route.ts`
-- `src/features/agent/types.ts`
-- `src/features/auth/components/user-button.tsx`
-- `src/features/github-integration/__tests__/github-appwrite-auth.test.ts`
-- `src/features/github-integration/__tests__/github-repo-search.test.ts`
-- `src/features/github-integration/api/use-github.ts`
-- `src/features/github-integration/components/connect-repository.tsx`
-- `src/features/github-integration/components/github-account-menu.tsx`
-- `src/features/github-integration/lib/github-accounts.ts`
-- `src/features/github-integration/lib/github-api.ts`
-- `src/features/github-integration/lib/github-appwrite-auth.ts`
-- `src/features/github-integration/lib/github-repo-search.ts`
-- `src/features/integrations/schemas.ts`
-- `src/features/integrations/server/route.ts`
-- `src/features/integrations/types.ts`
-- `src/features/mcp/bind-runtime.ts`
-- `src/features/projects/components/edit-project-form.tsx`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-09 | `cf26f12` | feat: modernize AI task UX and resolve critical runtime/schema errors | ANCIENTINSANE |
 | 2026-09-07 | `d496951` | chore: bump version to 0.2.111 [skip ci] | github-actions[bot] |
 | 2026-09-08 | `29fbc0f` | Merge pull request #311 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-09-07 | `2bfcffb` | chore: bump version to 0.2.110 [skip ci] | github-actions[bot] |
@@ -223,6 +95,5 @@ Files in this commit:
 | 2026-08-31 | `ae4218a` | chore: bump version to 0.2.78 [skip ci] | github-actions[bot] |
 | 2026-09-01 | `8a1701e` | refactor: update agent dashboard UI components to use standardized design system tokens and typography | Happyesss |
 | 2026-08-31 | `a91edfc` | chore: bump version to 0.2.77 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `41bee0b` | Merge pull request #293 from Happyesss/main | Shashank Kumar Rathour |
 
-Last generated: 2026-09-08T20:46:56.758Z
+Last generated: 2026-09-08T20:47:00.441Z
