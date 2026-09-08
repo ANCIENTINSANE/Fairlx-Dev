@@ -307,7 +307,7 @@ export async function startOrResumeCodingSession(params: {
     `git clone --depth 1 --branch ${params.baseBranch || resolved.branch} ${cloneUrl} /workspace`,
   );
   const branch = await driver.exec(box.id, `git checkout -b ${headBranch}`, "/workspace");
-  let events = appendSessionEvent(
+  const events = appendSessionEvent(
     appendSessionEvent(session.events, "clone", redactSecrets(clone.stdout || clone.stderr)),
     "branch",
     branch.stdout,

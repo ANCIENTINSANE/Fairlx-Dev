@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -113,7 +113,7 @@ export const ConnectRepository = ({
   const { data: ownerPayload } = useGetGithubOwners(
     (connectionStep === "select-repo" || connectionStep === "create-repo") && isAccountConnected
   );
-  const githubOwners = ownerPayload?.owners ?? [];
+  const githubOwners = useMemo(() => ownerPayload?.owners ?? [], [ownerPayload?.owners]);
 
   const [parsedOwner, parsedRepoName] = selectedRepo ? selectedRepo.split("/") : ["", ""];
   const { data: branches, isLoading: isLoadingBranches } = useGetGitHubBranches(

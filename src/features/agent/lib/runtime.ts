@@ -1968,7 +1968,7 @@ export async function runAgentTurn(params: {
           if (planAccepted() && call.name === "coding_session_start") return false;
           return needsConfirmation(call, permissionType(), { autonomousCoding: autonomousCoding() });
         };
-        let workingCalls = applyCallGate(allowedCalls, nextMessages, nextEvents);
+        const workingCalls = applyCallGate(allowedCalls, nextMessages, nextEvents);
         const gated = workingCalls.filter((call) => confirmNeeded(call));
         const autoCalls = workingCalls.filter((call) => !confirmNeeded(call));
         const rest = autoCalls.filter((call) => call.name !== "delegate_agent");

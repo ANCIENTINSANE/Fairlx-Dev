@@ -182,12 +182,13 @@ export async function importGithubAccountFromAppwriteSession(
   userId: string,
   session: { provider?: string; providerAccessToken?: string; providerUid?: string },
 ): Promise<GithubAccountDoc | null> {
-  if (!isGithubProvider(session.provider) || !(session.providerAccessToken || "").trim()) {
+  const token = session.providerAccessToken?.trim();
+  if (!isGithubProvider(session.provider) || !token) {
     return null;
   }
   return upsertGithubAccount(databases, {
     userId,
-    token: session.providerAccessToken.trim(),
+    token,
     authMethod: "oauth",
     githubUserId: session.providerUid,
   });

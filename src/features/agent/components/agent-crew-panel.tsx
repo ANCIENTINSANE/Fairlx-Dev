@@ -3,7 +3,11 @@
 import { Bot, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { AgentAiConfigPublic, AgentRun } from "../types";
+import type { AgentAiConfigPublic, AgentRun, AgentSessionMode } from "../types";
+import { useGetAgentHarness } from "../api/use-agent-harness";
+import { isPersonalSessionMode } from "../lib/session-context";
+import { AgentFace, useAgentFaceMood } from "./agent-face";
+import { CrayonUnderline } from "./crayon-underline";
 import { crewModelHints } from "../lib/client-defaults";
 import { formatTokenCount, formatUsd } from "../lib/run-usage";
 import {
@@ -196,7 +200,18 @@ function orchestratorCopy(crew: AgentCrew): string {
   return crew.orchestratorStatus === "done" ? "Turn finished" : "Waiting for a run";
 }
 
-export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfigPublic }) {
+export function AgentCrewPanel({
+  run,
+  ai,
+  sessionMode,
+}: {
+  run?: AgentRun;
+  ai?: AgentAiConfigPublic;
+  sessionMode?: AgentSessionMode;
+}) {
+  const { data: harness } = useGetAgentHarness();
+  const isPersonal = isPersonalSessionMode(sessionMode ?? harness?.settings.sessionMode);
+  const faceMood = useAgentFaceMood(run);
   const events = run?.events ?? [];
   const crew = buildAgentCrew(events, run?.status, crewModelHints(ai, run));
   const live = crew.orchestratorStatus === "working" || crew.live > 0;
@@ -223,10 +238,14 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
       </div>
 
       <div className="overflow-hidden rounded-lg border border-sidebar-border bg-sidebar-accent/30 text-[11px] divide-y divide-sidebar-border">
-        <StatRow label="Orchestrator model" value={crew.orchestratorModelName} live={crew.orchestratorStatus === "working"} />
+        <StatRow
+          label={isPersonal ? "Personal Agent model" : "Orchestrator model"}
+          value={crew.orchestratorModelName}
+          live={crew.orchestratorStatus === "working"}
+        />
         <StatRow label="Worker model" value={crew.workerModelName} />
         <StatRow
-          label="Under orchestrator"
+          label={isPersonal ? "Under personal agent" : "Under orchestrator"}
           value={`${crew.directLive} live / ${crew.directTotal}`}
           live={crew.directLive > 0}
         />
@@ -271,12 +290,18 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
 
       <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/30 p-3 overflow-hidden">
         <div className="flex items-start gap-2.5 min-w-0">
-          <div className="size-6 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
-            <Bot className="size-3.5" />
-          </div>
+          {isPersonal ? (
+            <AgentFace mood={faceMood} size={26} className="mt-0.5 shrink-0" />
+          ) : (
+            <div className="size-6 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+              <Bot className="size-3.5" />
+            </div>
+          )}
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[12px] font-semibold text-foreground truncate">Orchestrator</span>
+              <span className="text-[12px] font-semibold text-foreground truncate">
+                {isPersonal ? "Personal Agent" : "Orchestrator"}
+              </span>
               <StatusDot status={crew.orchestratorStatus} />
               {crew.orchestratorStatus === "working" ? (
                 <Loader2 className="size-3 animate-spin text-primary shrink-0" />
@@ -301,7 +326,7 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
           </div>
         ) : (
           <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
-            Sub-agents appear here when the orchestrator delegates. Workers use {crew.workerModelName}.
+            Sub-agents appear here when the {isPersonal ? "personal agent" : "orchestrator"} delegates. Workers use {crew.workerModelName}.
           </p>
         )}
       </div>
@@ -314,9 +339,12 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
           {crew.roster.map((item) => (
             <div key={item.specialist} className="flex items-start gap-2.5 px-3 py-2 min-w-0">
               <StatusDot status={item.live > 0 ? "working" : item.total > 0 ? "done" : "idle"} className="mt-1" />
-              <div className="min-w-0 flex-1 space-y-0.5">
+              <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="text-[12px] font-medium text-foreground truncate">{item.name}</span>
+                  <span className="relative inline-block max-w-full pb-0.5">
+                    <span className="text-[12px] font-medium text-foreground truncate block">{item.name}</span>
+                    <CrayonUnderline specialist={item.specialist} />
+                  </span>
                   <span
                     className={cn(
                       "ml-auto text-[10px] tabular-nums shrink-0",

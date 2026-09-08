@@ -13,6 +13,8 @@ import {
   latestContextMeter,
   occupancyFromMeter,
 } from "../lib/context-meter";
+import { useGetAgentHarness } from "../api/use-agent-harness";
+import { isPersonalSessionMode } from "../lib/session-context";
 import {
   aggregateLlmUsage,
   formatCompactUsageLine,
@@ -23,6 +25,8 @@ import {
 
 export function AgentWorkingDropUp({ run }: { run?: AgentRun }) {
   const [open, setOpen] = useState(false);
+  const { data: harness } = useGetAgentHarness();
+  const isPersonal = isPersonalSessionMode(harness?.settings.sessionMode);
 
   if (!run) return null;
 
@@ -109,7 +113,9 @@ export function AgentWorkingDropUp({ run }: { run?: AgentRun }) {
             <span className="text-foreground font-medium">
               {subagents.length
                 ? `${subagents.length} subagent${subagents.length === 1 ? "" : "s"}`
-                : "Orchestrator"}
+                : isPersonal
+                  ? "Personal Agent"
+                  : "Orchestrator"}
             </span>
           </span>
 

@@ -5,7 +5,7 @@ type Vec2 = { x: number; y: number };
 
 export class FairlxAgentFaceEngine {
   currentEmotion: AgentEmotion = "idle";
-  gazeDirection: AgentGazeDirection = "up";
+  gazeDirection: AgentGazeDirection = "neutral";
   isTrackingEnabled = true;
   isAutoBlinkEnabled = true;
   isCuriousWanderEnabled = true;
@@ -106,7 +106,7 @@ export class FairlxAgentFaceEngine {
         this.currentEmotion !== "sleep";
 
       if (this.gazeDirection === "down") {
-        eyeY = 18;
+        eyeY = 28;
         eyeX = this.typingGazeX + this.targetEyeOffset.x * 0.15;
       } else if (!cssOwnsGaze && this.gazeDirection === "up") {
         eyeY = -12;
@@ -148,11 +148,17 @@ export class FairlxAgentFaceEngine {
   setGazeDirection(direction: AgentGazeDirection, progress = 0.5) {
     this.gazeDirection = direction;
     this.container.classList.remove("face-looking-down", "face-looking-up");
+    this.faceEl?.classList.remove("face-looking-down", "face-looking-up");
+    this.container.style.setProperty("--gaze-progress", String(progress));
+    this.faceEl?.style.setProperty("--gaze-progress", String(progress));
     if (direction === "down") {
       this.container.classList.add("face-looking-down");
+      this.faceEl?.classList.add("face-looking-down");
+      this.wanderEyeOffset = { x: 0, y: 0 };
       this.typingGazeX = (progress - 0.5) * 28;
     } else if (direction === "up") {
       this.container.classList.add("face-looking-up");
+      this.faceEl?.classList.add("face-looking-up");
       this.typingGazeX = 0;
     } else {
       this.typingGazeX = 0;
@@ -162,9 +168,13 @@ export class FairlxAgentFaceEngine {
   setEmotion(emotion: AgentEmotion, options?: { silent?: boolean }) {
     if (!isAgentEmotion(emotion)) return;
     if (this.currentEmotion === "speaking" && emotion !== "speaking") this.stopSpeechAnimation();
-    AGENT_EMOTIONS.forEach((item) => this.container.classList.remove(`state-${item}`));
+    AGENT_EMOTIONS.forEach((item) => {
+      this.container.classList.remove(`state-${item}`);
+      this.faceEl?.classList.remove(`state-${item}`);
+    });
     this.currentEmotion = emotion;
     this.container.classList.add(`state-${emotion}`);
+    this.faceEl?.classList.add(`state-${emotion}`);
     if (this.mouthPath && MOUTH_PATHS[emotion]) this.mouthPath.setAttribute("d", MOUTH_PATHS[emotion]);
     if (options?.silent) {
       if (emotion !== "thinking") this.stopParticleStream();

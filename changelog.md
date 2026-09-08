@@ -4,10 +4,39 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `packages/fairlx-mcp/src/tools/read.ts`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-crew-panel.tsx`
+- `src/features/agent/components/agent-run-hud.tsx`
+- `src/features/agent/components/coding-environment-card.tsx`
+- `src/features/agent/components/crayon-underline.test.ts`
+- `src/features/agent/components/crayon-underline.tsx`
+- `src/features/agent/face/animations.css`
+- `src/features/agent/face/engine.ts`
+- `src/features/agent/face/face.css`
+- `src/features/agent/face/fairlx-agent-face.tsx`
+- `src/features/agent/lib/agent-face-mood.test.ts`
+- `src/features/agent/lib/agent-face-mood.ts`
+- `src/features/agent/lib/coding-session-start.ts`
+- `src/features/agent/lib/implementation-plan.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/truncate.ts`
+- `src/features/agent/lib/typing-gaze.test.ts`
+- `src/features/agent/lib/typing-gaze.ts`
+- `src/features/github-integration/components/connect-repository.tsx`
+- `src/features/github-integration/lib/github-accounts.ts`
+- `src/features/github-integration/server/route.ts`
+- `src/features/integrations/server/route.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-08 | `dc0f5c1` | chore: bump version to 0.2.113 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `bdae09e` | feat: implement optimistic agent run creation and track typing gaze progress in command input | Happyesss |
 | 2026-09-08 | `746030f` | chore: bump version to 0.2.112 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `bae2612` | Merge pull request #312 from ANCIENTINSANE/main | Surendra Codes |
@@ -92,7 +121,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-31 | `bce5065` | chore: bump version to 0.2.81 [skip ci] | github-actions[bot] |
 | 2026-09-01 | `c10f872` | Merge pull request #294 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-08-31 | `c2d53c1` | chore: bump version to 0.2.80 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `c3c8fda` | feat: add workspace member management and user profile lookup to MCP runtime | Happyesss |
-| 2026-08-31 | `9b686e2` | chore: bump version to 0.2.79 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-08T22:27:53.505Z
+Last generated: 2026-09-08T23:27:43.433Z

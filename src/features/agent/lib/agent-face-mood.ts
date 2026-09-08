@@ -135,13 +135,13 @@ export function resolveAgentFaceMood(input: {
   awaitingYou?: boolean;
   listening?: boolean;
 }): AgentFaceMood {
+  if (input.listening) return "listening";
+  if (input.typing) return "lookDown";
   const status = input.status;
   if (status === "failed") return "error";
   if (status === "running") {
     return resolveRunningFaceMood(input.events, input.kind);
   }
-  if (input.listening) return "listening";
-  if (input.typing) return "lookDown";
   if (status === "awaiting_question" || status === "awaiting_confirmation" || input.awaitingYou) return "ask";
   if (input.celebrating) return "happy";
   return "idle";

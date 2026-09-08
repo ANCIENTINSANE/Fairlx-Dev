@@ -15,9 +15,11 @@ function event(type: AgentToolEvent["type"], title: string = type, extra?: Parti
 }
 
 describe("resolveAgentFaceMood", () => {
-  it("looks down while the user is typing and the run is idle", () => {
+  it("looks down while the user is typing and the run is idle or active", () => {
     expect(resolveAgentFaceMood({ typing: true })).toBe("lookDown");
     expect(resolveAgentFaceMood({ status: "idle", typing: true })).toBe("lookDown");
+    expect(resolveAgentFaceMood({ status: "running", typing: true })).toBe("lookDown");
+    expect(resolveAgentFaceMood({ status: "awaiting_question", typing: true })).toBe("lookDown");
   });
 
   it("thinks while the run is working, and codes when code tools fire", () => {

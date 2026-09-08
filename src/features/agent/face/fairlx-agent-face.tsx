@@ -34,7 +34,7 @@ function appearanceFromTheme(theme?: string): AgentFaceAppearance {
 
 export function FairlxAgentFace({
   emotion = "idle",
-  gaze = "up",
+  gaze = "neutral",
   gazeProgress = 0.5,
   theme = "theme-fairlx-blue",
   appearance,
@@ -60,6 +60,8 @@ export function FairlxAgentFace({
       floating,
       flat: flat ?? size < 64,
     });
+    engine.setEmotion(emotion, { silent: true });
+    engine.setGazeDirection(gaze, gazeProgress);
     engineRef.current = engine;
     return () => {
       engine.destroy();
@@ -97,6 +99,8 @@ export function FairlxAgentFace({
         theme,
         `mode-${mode}`,
         size < 160 && "is-compact",
+        gaze === "down" && "face-looking-down",
+        gaze === "up" && "face-looking-up",
         className,
       )}
       style={{
@@ -117,15 +121,18 @@ export function FairlxAgentFace({
             transformOrigin: "center center",
           }}
         >
-        <div className={cn("fairlx-agent-face", `state-${emotion}`, floating && size >= 180 && "floating-agent")}>
+        <div
+          className={cn(
+            "fairlx-agent-face",
+            `state-${emotion}`,
+            gaze === "down" && "face-looking-down",
+            gaze === "up" && "face-looking-up",
+            floating && size >= 180 && "floating-agent",
+          )}
+        >
           <div className="agent-sphere-shadow" />
           <div className="agent-chassis">
             <div className="agent-sphere-volume" />
-            <div className="agent-globe-rings" aria-hidden="true">
-              <span className="globe-ring globe-equator" />
-              <span className="globe-ring globe-meridian-a" />
-              <span className="globe-ring globe-meridian-b" />
-            </div>
             <div className="agent-visor">
               <div className="visor-scanlines" />
               <div className="visor-grid" />

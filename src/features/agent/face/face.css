@@ -291,12 +291,7 @@
 }
 
 .agent-globe-rings {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  pointer-events: none;
-  z-index: 7;
-  opacity: 0.22;
+  display: none !important;
 }
 
 .globe-ring {
@@ -577,14 +572,14 @@
    ========================================================================== */
 .face-looking-down .agent-face-rig {
   animation: none !important;
-  transform: rotateX(32deg) rotateY(calc((var(--gaze-progress, 0.5) - 0.5) * -56deg)) !important;
+  transform: rotateX(18deg) rotateY(calc((var(--gaze-progress, 0.5) - 0.5) * 24deg)) !important;
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .face-looking-down .eyes-container {
   animation: none !important;
   transform: translate3d(
-    calc((var(--gaze-progress, 0.5) - 0.5) * 52px),
+    calc((var(--gaze-progress, 0.5) - 0.5) * 26px),
     28px,
     8px
   ) !important;
@@ -592,7 +587,7 @@
 }
 
 .face-looking-down .agent-eye {
-  transform: translateY(4px) scaleY(0.88);
+  transform: translateY(8px) !important;
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.5),
     0 0 4px rgba(0, 0, 0, 0.25),
@@ -603,18 +598,19 @@
 
 .face-looking-down .eye-pupil-center {
   transform: translate(
-    calc(-50% + (var(--gaze-progress, 0.5) - 0.5) * 90%),
-    62%
+    calc(-50% + (var(--gaze-progress, 0.5) - 0.5) * 44%),
+    120%
   ) !important;
-  opacity: 0.42 !important;
+  opacity: 0.65 !important;
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
 }
 
 .face-looking-down .eye-glow-inner {
   transform: translate(
-    calc((var(--gaze-progress, 0.5) - 0.5) * 12px),
-    16px
-  ) scale(0.88);
+    calc((var(--gaze-progress, 0.5) - 0.5) * 14px),
+    26px
+  ) scale(0.85) !important;
+  opacity: 0.95 !important;
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 

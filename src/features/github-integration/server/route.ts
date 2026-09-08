@@ -1535,7 +1535,6 @@ const app = new Hono()
           return c.json({ error: "No repository connected for this project" }, 404);
         }
 
-        const repository = repositories.documents[0];
         const resolved = await resolveUserGithubToken(databases, user.$id);
         const decryptedToken = resolved?.token;
         if (!decryptedToken) {

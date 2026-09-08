@@ -18,19 +18,42 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-08T22:27:53.517Z
+**Last updated:** 2026-09-08T23:27:43.446Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
+**This commit**
+
+- `packages/fairlx-mcp/src/tools/read.ts`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-crew-panel.tsx`
+- `src/features/agent/components/agent-run-hud.tsx`
+- `src/features/agent/components/coding-environment-card.tsx`
+- `src/features/agent/components/crayon-underline.test.ts`
+- `src/features/agent/components/crayon-underline.tsx`
+- `src/features/agent/face/animations.css`
+- `src/features/agent/face/engine.ts`
+- `src/features/agent/face/face.css`
+- `src/features/agent/face/fairlx-agent-face.tsx`
+- `src/features/agent/lib/agent-face-mood.test.ts`
+- `src/features/agent/lib/agent-face-mood.ts`
+- `src/features/agent/lib/coding-session-start.ts`
+- `src/features/agent/lib/implementation-plan.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/truncate.ts`
+- `src/features/agent/lib/typing-gaze.test.ts`
+- `src/features/agent/lib/typing-gaze.ts`
+- `src/features/github-integration/components/connect-repository.tsx`
+- …and 3 more files
+
 **Latest commits**
 
+- `dc0f5c1` chore: bump version to 0.2.113 [skip ci] (2026-09-08)
 - `bdae09e` feat: implement optimistic agent run creation and track typing gaze progress in command input (2026-09-09)
 - `746030f` chore: bump version to 0.2.112 [skip ci] (2026-09-08)
 - `bae2612` Merge pull request #312 from ANCIENTINSANE/main (2026-09-09)
 - `cf26f12` feat: modernize AI task UX and resolve critical runtime/schema errors (2026-09-09)
 - `d496951` chore: bump version to 0.2.111 [skip ci] (2026-09-07)
-- `29fbc0f` Merge pull request #311 from Happyesss/main (2026-09-08)
-- `2bfcffb` chore: bump version to 0.2.110 [skip ci] (2026-09-07)
 <!-- docs:latest:end -->
 
 ---

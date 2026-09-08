@@ -34,7 +34,7 @@ export function CodingEnvironmentCard({
     setPrepareScript(env.prepareScript || "");
     setStartCommand(env.startCommand || "");
     setExposePort(String(env.exposePort || 3000));
-  }, [env?.id, env?.runtime, env?.prepareScript, env?.startCommand, env?.exposePort]);
+  }, [env]);
 
   return (
     <div className="space-y-4 rounded-lg border border-border p-4">

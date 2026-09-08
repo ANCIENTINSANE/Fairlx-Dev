@@ -113,11 +113,20 @@ export function AgentCommandInput({
         widthPx: el.clientWidth,
         fontSizePx: parseFloat(style.fontSize) || 16,
         paddingXPx: (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0),
+        element: el,
       }),
     );
   };
   const minHeight = compact ? 40 : 56;
   const resetHeight = compact ? "40px" : "56px";
+
+  useEffect(() => {
+    const handleResize = () => {
+      updateTypingGaze();
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     if (variant !== "create") return;
@@ -401,6 +410,7 @@ export function AgentCommandInput({
                 setPrompt(event.target.value);
                 autosize(event.currentTarget, minHeight);
                 updateTypingGaze();
+                requestAnimationFrame(updateTypingGaze);
               }}
               onFocus={() => {
                 setComposerFocused(true);
