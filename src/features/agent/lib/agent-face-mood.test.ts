@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isCodingFaceActivity, resolveAgentFaceMood } from "./agent-face-mood";
+import { isCodingFaceActivity, isReadingFaceActivity, isSearchingFaceActivity, resolveAgentFaceMood } from "./agent-face-mood";
 import type { AgentToolEvent } from "../types";
 
 function event(type: AgentToolEvent["type"], title: string = type, extra?: Partial<AgentToolEvent>): AgentToolEvent {
@@ -33,6 +33,23 @@ describe("resolveAgentFaceMood", () => {
     ).toBe("coding");
   });
 
+  it("searches and reads from the latest working event", () => {
+    expect(resolveAgentFaceMood({ status: "running", events: [event("web_search")] })).toBe("searching");
+    expect(resolveAgentFaceMood({ status: "running", events: [event("personal_read")] })).toBe("reading");
+    expect(
+      resolveAgentFaceMood({
+        status: "running",
+        events: [event("web_search"), event("github_read_file")],
+      }),
+    ).toBe("reading");
+    expect(
+      resolveAgentFaceMood({
+        status: "running",
+        events: [event("web_search"), event("git_stage")],
+      }),
+    ).toBe("coding");
+  });
+
   it("smiles only while celebrating a finished turn", () => {
     expect(resolveAgentFaceMood({ status: "completed" })).toBe("idle");
     expect(resolveAgentFaceMood({ status: "completed", celebrating: true })).toBe("happy");
@@ -45,8 +62,12 @@ describe("resolveAgentFaceMood", () => {
     expect(resolveAgentFaceMood({ status: "failed" })).toBe("error");
   });
 
-  it("detects coding activity from recent events", () => {
+  it("detects coding, search, and reading activity from recent events", () => {
     expect(isCodingFaceActivity([event("web_search")])).toBe(false);
     expect(isCodingFaceActivity([event("coding_session_exec")])).toBe(true);
+    expect(isSearchingFaceActivity([event("web_search")])).toBe(true);
+    expect(isSearchingFaceActivity([event("thought")])).toBe(false);
+    expect(isReadingFaceActivity([event("personal_read")])).toBe(true);
+    expect(isReadingFaceActivity([event("web_search")])).toBe(false);
   });
 });

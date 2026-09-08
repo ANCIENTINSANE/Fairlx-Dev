@@ -27,6 +27,7 @@ export function AgentScopeBar({
   defaultProjectId,
   composerTyping = false,
   composerListening = false,
+  composerGazeProgress = 0.5,
 }: {
   run?: AgentRun;
   onScopeChange?: (workspaceId: string, projectId?: string) => void;
@@ -34,6 +35,7 @@ export function AgentScopeBar({
   defaultProjectId?: string;
   composerTyping?: boolean;
   composerListening?: boolean;
+  composerGazeProgress?: number;
 } = {}) {
   const { data: context } = useGetAgentContext();
   const { data: harness } = useGetAgentHarness();
@@ -247,7 +249,7 @@ export function AgentScopeBar({
           />
         </>
       ) : null}
-      {personal ? <AgentFace mood={faceMood} size={32} className="ml-1" /> : null}
+      {personal ? <AgentFace mood={faceMood} size={32} gazeProgress={composerGazeProgress} className="ml-1" /> : null}
       </div>
 
       <div className="flex items-center gap-1 shrink-0 ml-auto">

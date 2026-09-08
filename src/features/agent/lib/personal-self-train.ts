@@ -35,7 +35,7 @@ async function pulseWhile<T>(params: {
   const timer = setInterval(() => {
     current = Math.min(to - 1, current + 1);
     void emit({ percent: current, stage });
-  }, 420);
+  }, 200);
   try {
     const result = await work();
     await emit({ percent: to, stage });
@@ -57,7 +57,7 @@ export async function runPersonalSelfTrain(params: {
   const context = await pulseWhile({
     emit,
     from: 4,
-    to: 18,
+    to: 36,
     stage: "Reading your workspace",
     work: () =>
       loadAgentContext(params.databases, {
@@ -79,14 +79,14 @@ export async function runPersonalSelfTrain(params: {
     context.projects.find((item) => item.workspaceId === workspace?.id) ??
     context.projects[0];
 
-  await emit({ percent: 22, stage: "Learning your role and assigned work" });
+  await emit({ percent: 40, stage: "Learning your role and assigned work" });
   const snapshot = formatTrainingSnapshot(context, workspace?.id, project?.id);
   const questions = questionsForRole(personaRole);
 
   const answers = await pulseWhile({
     emit,
-    from: 28,
-    to: 62,
+    from: 44,
+    to: 72,
     stage: "Training from your workspace",
     work: () =>
       inferMissingTrainingAnswers({
@@ -104,7 +104,7 @@ export async function runPersonalSelfTrain(params: {
   });
   const filled = trainingProgress(answers, personaRole);
   await emit({
-    percent: 68,
+    percent: 76,
     stage: `${filled.answered} of ${filled.total} topics drafted`,
     answered: filled.answered,
     total: filled.total,
@@ -112,8 +112,8 @@ export async function runPersonalSelfTrain(params: {
 
   const compiled = await pulseWhile({
     emit,
-    from: 72,
-    to: 90,
+    from: 80,
+    to: 92,
     stage: "Compiling your Personal Agent",
     work: () =>
       compileTrainedPersonalPrompt({

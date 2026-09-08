@@ -48,8 +48,19 @@ export function GitHubAddOneButton({
         projectId={projectId}
         canManage
         trigger={
-          <Button type="button" size="sm" className={cn("h-8 px-3 text-xs font-semibold", className)}>
-            Connect repo
+          <Button
+            type="button"
+            size="sm"
+            className={cn(
+              "btn-connect-repo h-8 px-3 text-xs font-semibold gap-1.5 [&_svg]:size-3.5",
+              "bg-black text-white hover:bg-neutral-800 border-transparent",
+              "dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 dark:border-transparent",
+              "pitch-dark:bg-zinc-900 pitch-dark:text-white pitch-dark:hover:bg-zinc-800 pitch-dark:border pitch-dark:border-white/15",
+              className
+            )}
+          >
+            <Github className="size-3.5 shrink-0" />
+            <span>Connect repo</span>
           </Button>
         }
       />
@@ -88,7 +99,7 @@ export function GitHubOptionalPrompt({
 
   if (compact) {
     return (
-      <div className="rounded-lg border border-border bg-sidebar-accent/40 px-3 py-2.5 space-y-2">
+      <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/40 px-3 py-2.5 space-y-2">
         <p className="text-[11px] font-semibold text-foreground">No GitHub repo</p>
         <p className="text-[11px] text-muted-foreground leading-relaxed">
           Optional. Skip code analysis if you have not created a repository yet.

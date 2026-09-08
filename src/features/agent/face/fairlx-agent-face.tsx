@@ -104,6 +104,7 @@ export function FairlxAgentFace({
         height: size,
         ["--face-box" as string]: `${size}px`,
         ["--face-scale" as string]: String(size / 240),
+        ["--gaze-progress" as string]: String(gazeProgress),
       }}
       role="img"
       aria-label={`Fairlx agent face, ${emotion}`}
@@ -117,30 +118,40 @@ export function FairlxAgentFace({
           }}
         >
         <div className={cn("fairlx-agent-face", `state-${emotion}`, floating && size >= 180 && "floating-agent")}>
+          <div className="agent-sphere-shadow" />
           <div className="agent-chassis">
+            <div className="agent-sphere-volume" />
+            <div className="agent-globe-rings" aria-hidden="true">
+              <span className="globe-ring globe-equator" />
+              <span className="globe-ring globe-meridian-a" />
+              <span className="globe-ring globe-meridian-b" />
+            </div>
             <div className="agent-visor">
               <div className="visor-scanlines" />
               <div className="visor-grid" />
               <div className="visor-glare" />
               <div className="agent-orbit-scanner" />
               <div className="agent-particles-layer" />
-              <div className="agent-screen-content">
-                <div className="eyes-container">
-                  <div className="agent-eye agent-eye-left">
-                    <div className="eye-glow-inner" />
-                    <div className="eye-pupil-center" />
-                    <div className="eye-iris-ring" />
-                    <div className="eye-lid-shadow" />
-                  </div>
-                  <div className="agent-eye agent-eye-right">
-                    <div className="eye-glow-inner" />
-                    <div className="eye-pupil-center" />
-                    <div className="eye-iris-ring" />
-                    <div className="eye-lid-shadow" />
+              <div className="agent-face-rig">
+                <div className="agent-screen-content">
+                  <div className="eyes-container">
+                    <div className="agent-eye agent-eye-left">
+                      <div className="eye-glow-inner" />
+                      <div className="eye-pupil-center" />
+                      <div className="eye-iris-ring" />
+                      <div className="eye-lid-shadow" />
+                    </div>
+                    <div className="agent-eye agent-eye-right">
+                      <div className="eye-glow-inner" />
+                      <div className="eye-pupil-center" />
+                      <div className="eye-iris-ring" />
+                      <div className="eye-lid-shadow" />
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+            <div className="agent-sphere-specular" />
           </div>
         </div>
         </div>

@@ -6,6 +6,7 @@ import { client } from "@/lib/rpc";
 import { QUERY_CONFIG } from "@/lib/query-config";
 
 import { PERSONAL_AGENT_QUERY_KEY, AGENT_RUNS_QUERY_KEY, AGENT_HARNESS_QUERY_KEY, AGENT_BRIEFING_QUERY_KEY } from "../constants";
+import { consumeSelfTrainChunk, type SelfTrainProgress } from "../lib/self-train-stream";
 
 type PersonalResponse = InferResponseType<(typeof client.api)["agent"]["personal"]["$get"], 200>;
 type QuestionsResponse = InferResponseType<(typeof client.api)["agent"]["personal"]["questions"]["$get"], 200>;
@@ -105,14 +106,14 @@ export function useStartPersonalTraining() {
   });
 }
 
-type SelfTrainProgress = { percent: number; stage?: string; answered?: number; total?: number; done?: boolean; error?: string };
-
 async function readSelfTrainStream(
   onProgress?: (event: SelfTrainProgress) => void,
 ): Promise<void> {
   const response = await fetch("/api/agent/personal/self-train", {
     method: "POST",
     credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "text/event-stream" },
   });
   if (!response.ok) await readError(response, "Failed to self-train the personal agent.");
   if (!response.body) throw new Error("Failed to self-train the personal agent.");
@@ -122,16 +123,11 @@ async function readSelfTrainStream(
   let lastError = "";
   let completed = false;
   const consume = (chunk: string) => {
-    buffer += chunk;
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line) as SelfTrainProgress;
+    buffer = consumeSelfTrainChunk(buffer, chunk, (event) => {
       onProgress?.(event);
       if (event.error) lastError = event.error;
       if (event.done) completed = true;
-    }
+    });
   };
   while (true) {
     const { done, value } = await reader.read();

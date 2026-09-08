@@ -6,6 +6,7 @@ import { client } from "@/lib/rpc";
 import { QUERY_CONFIG } from "@/lib/query-config";
 
 import { AGENT_RUNS_QUERY_KEY } from "../constants";
+import type { AgentRun } from "../types";
 
 type CreateRunResponse = InferResponseType<(typeof client.api)["agent"]["runs"]["$post"], 200>;
 type CreateRunRequest = InferRequestType<(typeof client.api)["agent"]["runs"]["$post"]>;
@@ -68,6 +69,7 @@ export const useGetAgentRuns = () => {
 };
 
 export const useGetAgentRun = (runId?: string) => {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: agentRunQueryKey(runId ?? ""),
     enabled: Boolean(runId),
@@ -82,11 +84,16 @@ export const useGetAgentRun = (runId?: string) => {
       const response = await client.api.agent.runs[":runId"].$get({
         param: { runId: runId! },
       });
-      if (!response.ok) {
-        throw new Error("Failed to fetch agent run.");
+      if (response.ok) {
+        const { data } = await response.json();
+        return data;
       }
-      const { data } = await response.json();
-      return data;
+      if (response.status === 404) {
+        const cached = queryClient.getQueryData<AgentRun>(agentRunQueryKey(runId!));
+        if (cached) return cached;
+        throw new Error("Run not found.");
+      }
+      throw new Error("Failed to fetch agent run.");
     },
   });
 };
@@ -96,19 +103,29 @@ export const useCreateAgentRun = () => {
 
   return useMutation<CreateRunResponse, Error, CreateRunRequest>({
     mutationFn: async ({ json }) => {
-      const response = await client.api.agent.runs.$post({ json });
-      if (!response.ok) {
-        await readError(response, "Failed to start agent run.");
+      try {
+        const response = await client.api.agent.runs.$post({ json });
+        if (!response.ok) {
+          await readError(response, "Failed to start agent run.");
+        }
+        const result = (await response.json()) as CreateRunResponse;
+        queryClient.setQueryData(agentRunQueryKey(result.data.id), {
+          ...result.data,
+          status: result.data.status || "running",
+        });
+        void queryClient.invalidateQueries({ queryKey: AGENT_RUNS_QUERY_KEY });
+        return result;
+      } catch (error) {
+        const id = typeof json.id === "string" ? json.id : undefined;
+        if (id) {
+          queryClient.removeQueries({ queryKey: agentRunQueryKey(id) });
+          queryClient.setQueryData(AGENT_RUNS_QUERY_KEY, (current: AgentRun[] | undefined) => {
+            if (!Array.isArray(current)) return current;
+            return current.filter((item) => item.id !== id);
+          });
+        }
+        throw error;
       }
-      return (await response.json()) as CreateRunResponse;
-    },
-    onSuccess: (result) => {
-      queryClient.setQueryData(agentRunQueryKey(result.data.id), {
-        ...result.data,
-        status: "running",
-      });
-      queryClient.invalidateQueries({ queryKey: agentRunQueryKey(result.data.id) });
-      queryClient.invalidateQueries({ queryKey: AGENT_RUNS_QUERY_KEY });
     },
     onError: (error) => {
       toast.error(error.message || "Failed to start agent run.");

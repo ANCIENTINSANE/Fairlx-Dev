@@ -4,6 +4,7 @@ import { createMiddleware } from "hono/factory";
 import { Databases } from "node-appwrite";
 import { DATABASE_ID } from "@/config";
 import { ResourceType, UsageSource } from "@/features/usage/types";
+import { isStreamingContentType } from "./is-streaming-content-type";
 import { writeUsageEvent, generateTrafficIdempotencyKey } from "./usage-ledger";
 
 /**
@@ -160,12 +161,11 @@ export const batchedTrafficMeteringMiddleware = createMiddleware<MeteringContext
         // Execute route handler
         await next();
 
-        // Calculate response size (skip for streaming)
+        // Calculate response size (skip for streaming — awaiting .text() on a
+        // clone buffers the whole producer, so progress events never reach the UI).
         let responseSize = 0;
         const contentType = c.res.headers.get("content-type") || "";
-        const isStreaming = contentType.includes("text/event-stream") ||
-            contentType.includes("text/plain") ||
-            contentType.includes("application/octet-stream");
+        const isStreaming = isStreamingContentType(contentType);
 
         if (!isStreaming) {
             try {
@@ -183,6 +183,12 @@ export const batchedTrafficMeteringMiddleware = createMiddleware<MeteringContext
         const projectId = extractProjectId(requestUrl);
         const databases = c.get('databases');
         const user = c.get('user');
+
+        // Don't do extra work after a streaming handler — Hono holds the
+        // response until this middleware returns.
+        if (isStreaming) {
+            return;
+        }
 
         if (!databases) return;
 

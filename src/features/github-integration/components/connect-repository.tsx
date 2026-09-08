@@ -878,7 +878,19 @@ export const ConnectRepository = ({
       if (!next) setConnectionStep("choose");
     }}>
       <DialogTrigger asChild>
-        {trigger ?? <Button className="w-full text-xs font-semibold">Connect Repository</Button>}
+        {trigger ?? (
+          <Button
+            className={cn(
+              "btn-connect-repo w-full text-xs font-semibold gap-1.5 [&_svg]:size-3.5",
+              "bg-black text-white hover:bg-neutral-800 border-transparent",
+              "dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 dark:border-transparent",
+              "pitch-dark:bg-zinc-900 pitch-dark:text-white pitch-dark:hover:bg-zinc-800 pitch-dark:border pitch-dark:border-white/15"
+            )}
+          >
+            <Github className="size-3.5 shrink-0" />
+            <span>Connect Repository</span>
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px] p-6">
         {connectionStep === "choose"

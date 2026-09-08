@@ -28,6 +28,11 @@ export default function AgentLayout({
                     background-color: hsl(var(--border));
                     border-radius: 20px;
                 }
+                ::view-transition-old(root),
+                ::view-transition-new(root) {
+                    animation-duration: 160ms;
+                    animation-timing-function: ease-out;
+                }
             `}} />
             <AgentShell>
                 <AgentAppShell>{children}</AgentAppShell>

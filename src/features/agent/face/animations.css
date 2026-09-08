@@ -31,6 +31,11 @@
   }
 }
 
+@keyframes orbit-rotate {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
 /* ==========================================================================
    Blinking Animation
    ========================================================================== */
@@ -77,59 +82,313 @@
 }
 
 /* ==========================================================================
-   State 1: IDLE / AWAKE
+   State 1: IDLE / AWAKE — look around, curious, ponder, 3D globe turn
+   Timelines share 32s so chassis, gaze, and inner spin stay in phase.
    ========================================================================== */
+
 .state-idle .agent-eye {
   width: 42px;
   height: 64px;
   border-radius: 21px;
 }
 
-/* ==========================================================================
-   State 2: THINKING / PROCESSING (Pondering, Looking Into Above)
-   ========================================================================== */
-@keyframes thinking-eye-glow {
-  0%, 100% {
-    box-shadow:
-      0 0 24px var(--agent-glow),
-      0 0 46px var(--agent-glow-soft),
-      inset 0 0 16px rgba(255, 255, 255, 0.85);
-    filter: brightness(1);
+.state-idle .agent-chassis {
+  transform-origin: center center;
+  animation: idle-chassis-tilt 32s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+}
+
+.state-idle .agent-face-rig {
+  animation: idle-rig-orbit 32s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+}
+
+.state-idle .eyes-container {
+  transition: gap 0.35s ease;
+  animation: idle-gaze-life 32s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+}
+
+.state-idle .agent-globe-rings {
+  opacity: 0.28;
+  animation: idle-globe-spin 32s cubic-bezier(0.4, 0.12, 0.2, 1) infinite;
+}
+
+.state-idle .agent-screen-content {
+  backface-visibility: hidden;
+  animation: idle-face-occlude 32s cubic-bezier(0.4, 0.12, 0.2, 1) infinite;
+}
+
+.state-idle .eye-glow-inner {
+  transition: opacity 0.2s ease;
+  animation: idle-highlight-life 32s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+}
+
+.state-idle .eye-pupil-center {
+  transition: opacity 0.2s ease;
+  animation: idle-pupil-life 32s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+}
+
+/* Typing / look-down wins over the idle daydream. */
+.face-looking-down .agent-chassis,
+.face-looking-down .agent-face-rig,
+.face-looking-down .eyes-container,
+.face-looking-down .agent-globe-rings,
+.face-looking-down .agent-screen-content,
+.face-looking-down .eye-glow-inner,
+.face-looking-down .eye-pupil-center {
+  animation: none !important;
+}
+
+@keyframes idle-chassis-tilt {
+  0%, 63% {
+    transform: rotateZ(0deg) scale(1);
   }
-  50% {
-    box-shadow:
-      0 0 34px var(--agent-glow),
-      0 0 64px var(--agent-glow-soft),
-      inset 0 0 22px rgba(255, 255, 255, 0.95);
-    filter: brightness(1.12);
+  66%, 71% {
+    transform: rotateZ(-8deg) scale(1.01);
+  }
+  73%, 74% {
+    transform: rotateZ(0deg) scale(1);
+  }
+  76%, 80% {
+    transform: rotateZ(10deg) scale(1.02);
+  }
+  82%, 100% {
+    transform: rotateZ(0deg) scale(1);
   }
 }
 
-/* Looking above pupil and highlight wander animation */
-@keyframes thinking-pupil-wander {
-  0%, 100% {
-    transform: translate(-35%, -82%);
+@keyframes idle-rig-orbit {
+  0%, 12% {
+    transform: rotateY(0deg) rotateX(-6deg);
   }
-  30% {
-    transform: translate(-50%, -90%);
+  16%, 22% {
+    transform: rotateY(34deg) rotateX(4deg);
   }
-  65% {
-    transform: translate(-65%, -82%);
+  26%, 30% {
+    transform: rotateY(0deg) rotateX(-6deg);
+  }
+  34%, 40% {
+    transform: rotateY(-34deg) rotateX(4deg);
+  }
+  44%, 48% {
+    transform: rotateY(0deg) rotateX(-6deg);
+  }
+  52%, 58% {
+    transform: rotateY(0deg) rotateX(-28deg);
+  }
+  61%, 63% {
+    transform: rotateY(0deg) rotateX(-6deg);
+  }
+  66%, 71% {
+    transform: rotateY(22deg) rotateX(-18deg);
+  }
+  73%, 74% {
+    transform: rotateY(0deg) rotateX(-6deg);
+  }
+  76%, 80% {
+    transform: rotateY(14deg) rotateX(-8deg);
+  }
+  82% {
+    transform: rotateY(0deg) rotateX(-4deg);
+  }
+  96% {
+    transform: rotateY(360deg) rotateX(8deg);
+  }
+  96.2%, 100% {
+    transform: rotateY(0deg) rotateX(-6deg);
   }
 }
 
-@keyframes thinking-glow-wander {
-  0%, 100% {
-    transform: translate(3px, -6px) scale(0.95);
-    opacity: 0.95;
+@keyframes idle-globe-spin {
+  0%, 81% {
+    transform: rotateY(0deg);
+    opacity: 0.2;
   }
-  50% {
-    transform: translate(-3px, -7px) scale(1.04);
+  96% {
+    transform: rotateY(360deg);
+    opacity: 0.45;
+  }
+  96.2%, 100% {
+    transform: rotateY(0deg);
+    opacity: 0.2;
+  }
+}
+
+@keyframes idle-face-occlude {
+  0%, 82% {
+    opacity: 1;
+  }
+  85.5%, 93% {
+    opacity: 0;
+  }
+  96.2%, 100% {
     opacity: 1;
   }
 }
 
-/* Thoughtful subtle mouth breathe */
+@keyframes idle-gaze-life {
+  0%, 12% {
+    transform: translate3d(0, -4px, 18px);
+  }
+  16%, 22% {
+    transform: translate3d(-16px, -2px, 18px);
+  }
+  26%, 30% {
+    transform: translate3d(0, -4px, 18px);
+  }
+  34%, 40% {
+    transform: translate3d(16px, -2px, 18px);
+  }
+  44%, 48% {
+    transform: translate3d(0, -4px, 18px);
+  }
+  52%, 58% {
+    transform: translate3d(0, -16px, 18px);
+  }
+  61%, 63% {
+    transform: translate3d(0, -4px, 18px);
+  }
+  66%, 71% {
+    transform: translate3d(-12px, -15px, 18px);
+  }
+  73%, 74% {
+    transform: translate3d(0, -4px, 18px);
+  }
+  76%, 80% {
+    transform: translate3d(-8px, -12px, 18px);
+  }
+  82%, 100% {
+    transform: translate3d(0, -4px, 18px);
+  }
+}
+
+@keyframes idle-highlight-life {
+  0%, 12% {
+    transform: translate(0, -2px);
+  }
+  16%, 22% {
+    transform: translate(-7px, 0);
+  }
+  26%, 30% {
+    transform: translate(0, -2px);
+  }
+  34%, 40% {
+    transform: translate(7px, 0);
+  }
+  44%, 48% {
+    transform: translate(0, -2px);
+  }
+  52%, 58% {
+    transform: translate(0, -8px);
+  }
+  61%, 63% {
+    transform: translate(0, -2px);
+  }
+  66%, 71% {
+    transform: translate(-8px, -7px);
+  }
+  73%, 74% {
+    transform: translate(0, -2px);
+  }
+  76%, 80% {
+    transform: translate(-6px, -6px);
+  }
+  82%, 100% {
+    transform: translate(0, -2px);
+  }
+}
+
+@keyframes idle-pupil-life {
+  0%, 12% {
+    transform: translate(-50%, -62%);
+  }
+  16%, 22% {
+    transform: translate(-88%, -50%);
+  }
+  26%, 30% {
+    transform: translate(-50%, -62%);
+  }
+  34%, 40% {
+    transform: translate(-12%, -50%);
+  }
+  44%, 48% {
+    transform: translate(-50%, -62%);
+  }
+  52%, 58% {
+    transform: translate(-50%, -92%);
+  }
+  61%, 63% {
+    transform: translate(-50%, -62%);
+  }
+  66%, 71% {
+    transform: translate(-82%, -88%);
+  }
+  73%, 74% {
+    transform: translate(-50%, -62%);
+  }
+  76%, 80% {
+    transform: translate(-78%, -88%);
+  }
+  82%, 100% {
+    transform: translate(-50%, -62%);
+  }
+}
+
+/* ==========================================================================
+   State 2: THINKING — both eyes hold top-left, like recalling something
+   ========================================================================== */
+
+@keyframes thinking-eye-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 18px var(--agent-glow),
+      0 0 36px var(--agent-glow-soft),
+      inset 0 0 14px rgba(255, 255, 255, 0.8);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow:
+      0 0 26px var(--agent-glow),
+      0 0 48px var(--agent-glow-soft),
+      inset 0 0 18px rgba(255, 255, 255, 0.92);
+    filter: brightness(1.06);
+  }
+}
+
+@keyframes thinking-hold {
+  0%, 100% {
+    transform: rotateZ(-10deg);
+  }
+  50% {
+    transform: rotateZ(-12deg);
+  }
+}
+
+@keyframes thinking-rig {
+  0%, 100% {
+    transform: rotateY(20deg) rotateX(-18deg);
+  }
+  50% {
+    transform: rotateY(24deg) rotateX(-20deg);
+  }
+}
+
+@keyframes thinking-gaze {
+  0%, 100% {
+    transform: translate3d(-12px, -15px, 18px);
+  }
+  50% {
+    transform: translate3d(-13px, -16px, 18px);
+  }
+}
+
+@keyframes thinking-highlight {
+  0%, 100% {
+    transform: translate(-8px, -7px) scale(0.96);
+  }
+  50% {
+    transform: translate(-9px, -8px) scale(1);
+  }
+}
+
 @keyframes thinking-mouth-breathe {
   0%, 100% {
     transform: translateY(1px) scale(0.96);
@@ -141,20 +400,38 @@
   }
 }
 
+.state-thinking .agent-chassis {
+  transform-origin: center center;
+  animation: thinking-hold 4.8s ease-in-out infinite;
+}
+
+.state-thinking .agent-face-rig {
+  animation: thinking-rig 4.8s ease-in-out infinite;
+}
+
+.state-thinking .agent-globe-rings {
+  opacity: 0.32;
+}
+
+.state-thinking .eyes-container {
+  transition: none;
+  animation: thinking-gaze 4.8s ease-in-out infinite;
+}
+
 .state-thinking .agent-eye {
   width: 40px;
-  height: 60px;
+  height: 58px;
   border-radius: 20px;
-  animation: thinking-eye-glow 2.4s ease-in-out infinite;
+  animation: thinking-eye-glow 2.8s ease-in-out infinite;
 }
 
 .state-thinking .eye-pupil-center {
-  opacity: 0.38 !important;
-  animation: thinking-pupil-wander 3.6s ease-in-out infinite;
+  opacity: 0.42 !important;
+  transform: translate(-82%, -88%) !important;
 }
 
 .state-thinking .eye-glow-inner {
-  animation: thinking-glow-wander 3.6s ease-in-out infinite;
+  animation: thinking-highlight 4.8s ease-in-out infinite;
 }
 
 .state-thinking .mouth-neon-svg {
@@ -162,12 +439,12 @@
 }
 
 .state-thinking .agent-orbit-scanner {
-  opacity: 0.85;
-  animation: orbit-rotate 3.2s linear infinite;
+  opacity: 0.45;
+  animation: orbit-rotate 8s linear infinite;
 }
 
 .state-thinking .particle {
-  opacity: 0.7;
+  opacity: 0.55;
 }
 
 /* ==========================================================================
@@ -182,6 +459,37 @@
     transform: scale(1.1);
     box-shadow: 0 0 36px var(--agent-glow), 0 0 68px var(--agent-glow-soft);
   }
+}
+
+@keyframes listen-track {
+  0%, 100% {
+    transform: translate3d(0, -6px, 18px) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -8px, 18px) scale(1.02);
+  }
+}
+
+.state-listening .agent-chassis {
+  animation: none;
+}
+
+.state-listening .agent-face-rig {
+  animation: listen-lean 5.6s ease-in-out infinite;
+}
+
+@keyframes listen-lean {
+  0%, 100% {
+    transform: rotateX(-10deg) rotateY(0deg);
+  }
+  50% {
+    transform: rotateX(-14deg) rotateY(4deg);
+  }
+}
+
+.state-listening .eyes-container {
+  transition: none;
+  animation: listen-track 2.4s ease-in-out infinite;
 }
 
 .state-listening .agent-eye {
@@ -217,6 +525,19 @@
   }
 }
 
+@keyframes speak-nod {
+  0%, 100% {
+    transform: rotateX(0deg) scale(1);
+  }
+  50% {
+    transform: rotateX(-6deg) scale(1.015);
+  }
+}
+
+.state-speaking .agent-face-rig {
+  animation: speak-nod 1.8s ease-in-out infinite;
+}
+
 .state-speaking .agent-eye {
   width: 42px;
   height: 60px;
@@ -224,7 +545,6 @@
   animation: speak-eye-squint 0.6s ease-in-out infinite;
 }
 
-/* Talking mouth movement keyframe */
 @keyframes talking-mouth-loop {
   0%, 100% {
     transform: scaleY(0.85) scaleX(0.95);
@@ -286,7 +606,6 @@
   animation: happy-bounce 0.8s ease-in-out;
 }
 
-/* Happy smiling crescent arc eyes (^_^) */
 .state-happy .agent-eye {
   width: 48px;
   height: 38px;
@@ -300,17 +619,45 @@
 }
 
 /* ==========================================================================
-   State 6: FOCUSED / CODING
+   State 6: FOCUSED / CODING — squint and scan a line of work
    ========================================================================== */
-.state-focused .agent-eye {
-  width: 52px;
-  height: 24px;
-  border-radius: 12px;
-  box-shadow: 0 0 20px var(--agent-glow), 0 0 34px var(--agent-glow-soft);
+@keyframes code-scan {
+  0%, 100% {
+    transform: translate3d(-8px, 4px, 18px);
+  }
+  50% {
+    transform: translate3d(9px, 5px, 18px);
+  }
+}
+
+@keyframes code-lean {
+  0%, 100% {
+    transform: rotateX(14deg) rotateY(-8deg);
+  }
+  50% {
+    transform: rotateX(16deg) rotateY(8deg);
+  }
+}
+
+.state-focused .agent-face-rig {
+  animation: code-lean 3.6s ease-in-out infinite;
 }
 
 .state-focused .eyes-container {
   gap: calc(var(--eye-spacing) - 4px);
+  transition: gap 0.3s ease;
+  animation: code-scan 2.8s ease-in-out infinite;
+}
+
+.state-focused .agent-eye {
+  width: 52px;
+  height: 22px;
+  border-radius: 12px;
+  box-shadow: 0 0 20px var(--agent-glow), 0 0 34px var(--agent-glow-soft);
+}
+
+.state-focused .eye-glow-inner {
+  transform: translateY(4px) scaleX(1.15);
 }
 
 .state-focused .mouth-neon-svg {
@@ -318,44 +665,174 @@
 }
 
 /* ==========================================================================
-   State 7: ALERT / ERROR
+   State 6b: SEARCHING — glance left and right as if scanning results
    ========================================================================== */
-@keyframes error-shake {
-  0%, 100% { transform: translate(0, 0); }
-  20% { transform: translate(-3px, 2px); }
-  40% { transform: translate(3px, -2px); }
-  60% { transform: translate(-2px, -1px); }
-  80% { transform: translate(2px, 1px); }
+@keyframes search-glance {
+  0%, 12% {
+    transform: translate3d(-14px, -4px, 18px);
+  }
+  50%, 62% {
+    transform: translate3d(14px, -4px, 18px);
+  }
+  100% {
+    transform: translate3d(-14px, -4px, 18px);
+  }
 }
 
-@keyframes error-eye-flicker {
-  0%, 100% { opacity: 1; }
-  25% { opacity: 0.4; }
-  50% { opacity: 0.9; }
-  75% { opacity: 0.3; }
+@keyframes search-turn {
+  0%, 12% {
+    transform: rotateY(32deg) rotateX(-4deg);
+  }
+  50%, 62% {
+    transform: rotateY(-32deg) rotateX(-4deg);
+  }
+  100% {
+    transform: rotateY(32deg) rotateX(-4deg);
+  }
 }
 
-.state-error .fairlx-agent-face {
-  animation: error-shake 0.35s ease-in-out infinite;
+.state-searching .agent-face-rig {
+  animation: search-turn 2.6s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+}
+
+.state-searching .eyes-container {
+  transition: none;
+  animation: search-glance 2.6s cubic-bezier(0.45, 0.05, 0.25, 1) infinite;
+}
+
+.state-searching .agent-eye {
+  width: 44px;
+  height: 66px;
+  border-radius: 22px;
+}
+
+.state-searching .eye-glow-inner {
+  transform: translateY(-3px);
+}
+
+/* ==========================================================================
+   State 6c: READING — look down-right and travel along a line
+   ========================================================================== */
+@keyframes read-line {
+  0%, 8% {
+    transform: translate3d(-10px, 11px, 18px);
+  }
+  70% {
+    transform: translate3d(12px, 12px, 18px);
+  }
+  78%, 100% {
+    transform: translate3d(-10px, 14px, 18px);
+  }
+}
+
+@keyframes read-lean {
+  0%, 100% {
+    transform: rotateX(18deg) rotateY(-10deg);
+  }
+  50% {
+    transform: rotateX(20deg) rotateY(-14deg);
+  }
+}
+
+.state-reading .agent-face-rig {
+  animation: read-lean 4.2s ease-in-out infinite;
+}
+
+.state-reading .eyes-container {
+  transition: none;
+  animation: read-line 3.4s cubic-bezier(0.4, 0.1, 0.2, 1) infinite;
+}
+
+.state-reading .agent-eye {
+  width: 46px;
+  height: 36px;
+  border-radius: 14px;
+}
+
+.state-reading .eye-pupil-center {
+  transform: translate(-30%, 40%) !important;
+  opacity: 0.35 !important;
+}
+
+.state-reading .eye-glow-inner {
+  transform: translate(4px, 8px) scale(0.9);
+}
+
+/* ==========================================================================
+   State 7: ERROR / CONCERN — worried look, not a face glitch
+   ========================================================================== */
+@keyframes error-concern {
+  0%, 100% {
+    transform: rotateZ(-7deg) translateY(2px);
+  }
+  50% {
+    transform: rotateZ(7deg) translateY(2px);
+  }
+}
+
+@keyframes error-rig {
+  0%, 100% {
+    transform: rotateX(12deg);
+  }
+  50% {
+    transform: rotateX(14deg);
+  }
+}
+
+@keyframes error-look-down {
+  0%, 100% {
+    transform: translate3d(0, 12px, 18px);
+  }
+  50% {
+    transform: translate3d(0, 13px, 18px);
+  }
+}
+
+.state-error .agent-chassis {
+  animation: error-concern 3.4s ease-in-out infinite;
+  box-shadow:
+    0 22px 40px -12px rgba(0, 0, 0, 0.55),
+    inset 20px 12px 32px rgba(255, 255, 255, 0.9),
+    inset -24px -30px 46px rgba(239, 68, 68, 0.28);
+}
+
+.state-error .agent-face-rig {
+  animation: error-rig 3.4s ease-in-out infinite;
+}
+
+.state-error .eyes-container {
+  transition: none;
+  animation: error-look-down 3.4s ease-in-out infinite;
 }
 
 .state-error .agent-eye {
-  width: 42px;
-  height: 38px;
-  border-radius: 14px;
-  animation: error-eye-flicker 0.2s ease-in-out infinite;
+  width: 40px;
+  height: 46px;
+  border-radius: 50%;
+  opacity: 1;
+  filter: none;
 }
 
 .state-error .agent-eye-left {
-  transform: rotate(14deg);
+  transform: rotate(-10deg) translateY(2px);
 }
 
 .state-error .agent-eye-right {
-  transform: rotate(-14deg);
+  transform: rotate(10deg) translateY(2px);
+}
+
+.state-error .eye-pupil-center {
+  transform: translate(-50%, 42%) !important;
+  opacity: 0.4 !important;
+}
+
+.state-error .eye-glow-inner {
+  transform: translateY(10px) scale(0.88);
+  opacity: 0.8;
 }
 
 .state-error .mouth-neon-svg {
-  filter: drop-shadow(0 0 14px #ef4444);
+  filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.45));
 }
 
 /* ==========================================================================
@@ -412,9 +889,31 @@
 /* ==========================================================================
    State 10: CURIOUS / TILT - Expressive curious kid pose (eyes and expression)
    ========================================================================== */
+@keyframes curious-bob {
+  0%, 100% {
+    transform: rotateZ(8deg) scale(1.02);
+  }
+  50% {
+    transform: rotateZ(11deg) scale(1.04);
+  }
+}
+
+@keyframes curious-rig {
+  0%, 100% {
+    transform: rotateY(-10deg) rotateX(-8deg);
+  }
+  50% {
+    transform: rotateY(-14deg) rotateX(-10deg);
+  }
+}
+
 .state-curious .agent-chassis {
-  transform: scale(1.02);
-  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: center center;
+  animation: curious-bob 2.8s ease-in-out infinite;
+}
+
+.state-curious .agent-face-rig {
+  animation: curious-rig 2.8s ease-in-out infinite;
 }
 
 .state-curious .agent-eye-left {
@@ -435,6 +934,10 @@
   transform: translateY(-12px) rotate(4deg);
 }
 
+.state-curious .eye-glow-inner {
+  transform: translate(-2px, -6px);
+}
+
 /* ==========================================================================
    Quantum Thought Particles Keyframe
    ========================================================================== */
@@ -452,5 +955,60 @@
   100% {
     transform: translateY(-80px) scale(1.1);
     opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floating-agent,
+  .state-idle .agent-chassis,
+  .state-idle .agent-face-rig,
+  .state-idle .eyes-container,
+  .state-idle .agent-globe-rings,
+  .state-idle .agent-screen-content,
+  .state-idle .eye-glow-inner,
+  .state-idle .eye-pupil-center,
+  .state-thinking .agent-chassis,
+  .state-thinking .agent-face-rig,
+  .state-thinking .eyes-container,
+  .state-thinking .agent-eye,
+  .state-thinking .eye-glow-inner,
+  .state-thinking .agent-orbit-scanner,
+  .state-listening .agent-face-rig,
+  .state-listening .eyes-container,
+  .state-listening .agent-eye,
+  .state-speaking .agent-face-rig,
+  .state-speaking .agent-eye,
+  .state-focused .agent-face-rig,
+  .state-focused .eyes-container,
+  .state-searching .agent-face-rig,
+  .state-searching .eyes-container,
+  .state-reading .agent-face-rig,
+  .state-reading .eyes-container,
+  .state-error .agent-chassis,
+  .state-error .agent-face-rig,
+  .state-error .eyes-container,
+  .state-curious .agent-chassis,
+  .state-curious .agent-face-rig {
+    animation: none !important;
+  }
+
+  .state-thinking .agent-chassis {
+    transform: rotateZ(-10deg);
+  }
+
+  .state-thinking .agent-face-rig {
+    transform: rotateY(20deg) rotateX(-18deg);
+  }
+
+  .state-thinking .eyes-container {
+    transform: translate3d(-12px, -15px, 18px);
+  }
+
+  .state-error .agent-chassis {
+    transform: rotateZ(-6deg);
+  }
+
+  .state-error .eyes-container {
+    transform: translate3d(0, 12px, 18px);
   }
 }

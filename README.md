@@ -18,18 +18,42 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-08T20:47:00.500Z
+**Last updated:** 2026-09-08T22:27:49.202Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
+**This commit**
+
+- `src/app/agent/layout.tsx`
+- `src/app/globals.css`
+- `src/features/agent/api/use-agent-runs.ts`
+- `src/features/agent/api/use-personal-agent.ts`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-crew-panel.tsx`
+- `src/features/agent/components/agent-scope-bar.tsx`
+- `src/features/agent/components/coding-session-panel.tsx`
+- `src/features/agent/components/diff-viewer.tsx`
+- `src/features/agent/components/implementation-plan-card.tsx`
+- `src/features/agent/components/personal-agent-setup.tsx`
+- `src/features/agent/components/session-artifacts.tsx`
+- `src/features/agent/components/workflow-sidebar-ui.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/agent/face/animations.css`
+- `src/features/agent/face/engine.ts`
+- `src/features/agent/face/face.css`
+- `src/features/agent/face/fairlx-agent-face.tsx`
+- `src/features/agent/face/mouth-paths.ts`
+- `src/features/agent/face/present.test.ts`
+- …and 23 more files
+
 **Latest commits**
 
+- `746030f` chore: bump version to 0.2.112 [skip ci] (2026-09-08)
+- `bae2612` Merge pull request #312 from ANCIENTINSANE/main (2026-09-09)
 - `cf26f12` feat: modernize AI task UX and resolve critical runtime/schema errors (2026-09-09)
 - `d496951` chore: bump version to 0.2.111 [skip ci] (2026-09-07)
 - `29fbc0f` Merge pull request #311 from Happyesss/main (2026-09-08)
 - `2bfcffb` chore: bump version to 0.2.110 [skip ci] (2026-09-07)
-- `2131661` chore: bump version to 0.2.109 [skip ci] (2026-09-07)
-- `6281509` feat: implement agent personal stand-in system with voice training, approval workflows, and visual face animations (2026-09-08)
 <!-- docs:latest:end -->
 
 ---

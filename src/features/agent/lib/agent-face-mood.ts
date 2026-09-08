@@ -1,6 +1,16 @@
 import type { AgentRun, AgentRunStatus, AgentToolEvent, AgentToolEventType } from "../types";
 
-export type AgentFaceMood = "idle" | "lookDown" | "thinking" | "coding" | "happy" | "ask" | "error" | "listening";
+export type AgentFaceMood =
+  | "idle"
+  | "lookDown"
+  | "thinking"
+  | "coding"
+  | "searching"
+  | "reading"
+  | "happy"
+  | "ask"
+  | "error"
+  | "listening";
 
 const CODING_EVENT_TYPES = new Set<AgentToolEventType>([
   "code_inspect",
@@ -19,6 +29,34 @@ const CODING_EVENT_TYPES = new Set<AgentToolEventType>([
   "coding_session_start",
   "coding_session_exec",
   "coding_session_status",
+  "coding_session_implement",
+  "coding_session_browser",
+]);
+
+const SEARCHING_EVENT_TYPES = new Set<AgentToolEventType>([
+  "web_search",
+  "web_fetch",
+  "file_search",
+  "search_harness",
+]);
+
+const READING_EVENT_TYPES = new Set<AgentToolEventType>([
+  "github_read_file",
+  "github_list_files",
+  "github_list_repos",
+  "github_list_owners",
+  "github_list_prs",
+  "github_list_issues",
+  "github_list_branches",
+  "github_list_releases",
+  "github_account_status",
+  "personal_read",
+  "list_workspaces",
+  "list_projects",
+  "list_work_items",
+  "mcp_list",
+  "mcp_resources",
+  "database_query",
 ]);
 
 const CODING_TITLE = /\b(builder|coder|git|sandbox|pull request|commit|patch)\b/i;
@@ -28,6 +66,8 @@ export const AGENT_FACE_LABEL: Record<AgentFaceMood, string> = {
   lookDown: "Personal Agent, watching you type",
   thinking: "Personal Agent, thinking",
   coding: "Personal Agent, writing code",
+  searching: "Personal Agent, searching",
+  reading: "Personal Agent, reading",
   happy: "Personal Agent, done",
   ask: "Personal Agent, waiting for you",
   error: "Personal Agent, needs attention",
@@ -45,14 +85,45 @@ function recentEvents(events: AgentToolEvent[] | undefined, windowMs = 14_000): 
   });
 }
 
+function isCodingEvent(event: AgentToolEvent): boolean {
+  return (
+    CODING_EVENT_TYPES.has(event.type) ||
+    (event.type === "delegate_agent" && CODING_TITLE.test(`${event.title} ${event.detail || ""}`)) ||
+    (event.type === "subagent_progress" && CODING_TITLE.test(`${event.title} ${event.detail || ""}`))
+  );
+}
+
+function isSearchingEvent(event: AgentToolEvent): boolean {
+  return SEARCHING_EVENT_TYPES.has(event.type);
+}
+
+function isReadingEvent(event: AgentToolEvent): boolean {
+  return READING_EVENT_TYPES.has(event.type);
+}
+
 export function isCodingFaceActivity(events: AgentToolEvent[] | undefined, kind?: AgentRun["kind"]): boolean {
   if (kind === "coding_session") return true;
-  return recentEvents(events).some(
-    (event) =>
-      CODING_EVENT_TYPES.has(event.type) ||
-      (event.type === "delegate_agent" && CODING_TITLE.test(`${event.title} ${event.detail || ""}`)) ||
-      (event.type === "subagent_progress" && CODING_TITLE.test(`${event.title} ${event.detail || ""}`)),
-  );
+  return recentEvents(events).some(isCodingEvent);
+}
+
+export function isSearchingFaceActivity(events: AgentToolEvent[] | undefined): boolean {
+  return recentEvents(events).some(isSearchingEvent);
+}
+
+export function isReadingFaceActivity(events: AgentToolEvent[] | undefined): boolean {
+  return recentEvents(events).some(isReadingEvent);
+}
+
+function resolveRunningFaceMood(events: AgentToolEvent[] | undefined, kind?: AgentRun["kind"]): AgentFaceMood {
+  if (kind === "coding_session") return "coding";
+  const recent = recentEvents(events);
+  for (let i = recent.length - 1; i >= 0; i -= 1) {
+    const event = recent[i];
+    if (isCodingEvent(event)) return "coding";
+    if (isSearchingEvent(event)) return "searching";
+    if (isReadingEvent(event)) return "reading";
+  }
+  return "thinking";
 }
 
 export function resolveAgentFaceMood(input: {
@@ -67,7 +138,7 @@ export function resolveAgentFaceMood(input: {
   const status = input.status;
   if (status === "failed") return "error";
   if (status === "running") {
-    return isCodingFaceActivity(input.events, input.kind) ? "coding" : "thinking";
+    return resolveRunningFaceMood(input.events, input.kind);
   }
   if (input.listening) return "listening";
   if (input.typing) return "lookDown";
