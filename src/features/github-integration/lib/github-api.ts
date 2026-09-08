@@ -998,6 +998,7 @@ export class GitHubAPI {
     full_name: string;
     private: boolean;
     html_url: string;
+    description?: string | null;
     owner: { login: string };
     default_branch: string;
   }>> {
@@ -1007,6 +1008,36 @@ export class GitHubAPI {
       throw new Error(`Failed to list repositories: ${response.statusText}`);
     }
     return response.json();
+  }
+
+  async searchRepositories(query: string): Promise<Array<{
+    id: number;
+    name: string;
+    full_name: string;
+    private: boolean;
+    html_url: string;
+    description?: string | null;
+    owner: { login: string };
+    default_branch: string;
+  }>> {
+    const q = query.trim();
+    if (!q) return [];
+    const url = `${GITHUB_API_BASE}/search/repositories?q=${encodeURIComponent(q)}&per_page=30`;
+    const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+    if (!response.ok) {
+      throw new Error(`Failed to search repositories: ${response.statusText}`);
+    }
+    const payload = (await response.json()) as { items?: Array<{
+      id: number;
+      name: string;
+      full_name: string;
+      private: boolean;
+      html_url: string;
+      description?: string | null;
+      owner: { login: string };
+      default_branch: string;
+    }> };
+    return payload.items ?? [];
   }
 
   async getAuthenticatedUser(): Promise<{ login: string; id: number; type?: string }> {
@@ -1102,7 +1133,12 @@ export class GitHubAPI {
   /**
    * Create a comment on an issue or PR
    */
-  async createIssueComment(owner: string, repo: string, issueNumber: number, body: string): Promise<void> {
+  async createIssueComment(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    body: string,
+  ): Promise<{ html_url: string; id: number }> {
     const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/issues/${issueNumber}/comments`;
     const response = await this.fetchWithRetry(url, {
       method: "POST",
@@ -1115,6 +1151,8 @@ export class GitHubAPI {
     if (!response.ok) {
       throw new Error(`Failed to create comment on issue #${issueNumber}: ${response.statusText}`);
     }
+    const json = (await response.json()) as { html_url?: string; id?: number };
+    return { html_url: json.html_url || "", id: json.id || 0 };
   }
 
   async getBranchSha(owner: string, repo: string, branch: string): Promise<string> {
@@ -1388,6 +1426,118 @@ export class GitHubAPI {
       throw new Error(text.slice(0, 400) || `Failed to merge pull request: ${response.statusText}`);
     }
     return (await response.json()) as { merged: boolean; sha?: string; message?: string; html_url?: string };
+  }
+
+  async request<T = unknown>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
+    const url = path.startsWith("http")
+      ? path
+      : `${GITHUB_API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+    const response = await this.fetchWithRetry(url, {
+      method,
+      headers: {
+        ...this.getHeaders(),
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const text = await response.text();
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : undefined;
+    } catch {
+      data = text;
+    }
+    if (!response.ok) {
+      const message =
+        data && typeof data === "object" && "message" in data
+          ? String((data as { message?: unknown }).message || "")
+          : text.slice(0, 400);
+      return { ok: false, status: response.status, error: message || response.statusText, data: data as T };
+    }
+    return { ok: true, status: response.status, data: data as T };
+  }
+
+  async updateRepository(params: {
+    owner: string;
+    repo: string;
+    private?: boolean;
+    description?: string;
+    homepage?: string;
+    name?: string;
+  }): Promise<{
+    full_name: string;
+    html_url: string;
+    private: boolean;
+    description: string | null;
+    default_branch: string;
+  }> {
+    const body: Record<string, unknown> = {};
+    if (typeof params.private === "boolean") body.private = params.private;
+    if (params.description !== undefined) body.description = params.description;
+    if (params.homepage !== undefined) body.homepage = params.homepage;
+    if (params.name) body.name = params.name;
+    const result = await this.request<{
+      full_name: string;
+      html_url: string;
+      private: boolean;
+      description: string | null;
+      default_branch: string;
+    }>("PATCH", `/repos/${params.owner}/${params.repo}`, body);
+    if (!result.ok || !result.data) {
+      throw new Error(result.error || "Failed to update repository");
+    }
+    return result.data;
+  }
+
+  async deleteFile(params: {
+    owner: string;
+    repo: string;
+    path: string;
+    message: string;
+    branch: string;
+    sha: string;
+  }): Promise<{ html_url?: string }> {
+    const result = await this.request<{ content?: { html_url?: string } | null }>(
+      "DELETE",
+      `/repos/${params.owner}/${params.repo}/contents/${params.path}`,
+      {
+        message: params.message,
+        sha: params.sha,
+        branch: params.branch,
+      },
+    );
+    if (!result.ok) {
+      throw new Error(result.error || `Failed to delete ${params.path}`);
+    }
+    return { html_url: result.data?.content?.html_url };
+  }
+
+  async createIssue(params: {
+    owner: string;
+    repo: string;
+    title: string;
+    body?: string;
+    labels?: string[];
+    assignees?: string[];
+  }): Promise<{ number: number; html_url: string; title: string; state: string }> {
+    const result = await this.request<{ number: number; html_url: string; title: string; state: string }>(
+      "POST",
+      `/repos/${params.owner}/${params.repo}/issues`,
+      {
+        title: params.title,
+        body: params.body,
+        labels: params.labels,
+        assignees: params.assignees,
+      },
+    );
+    if (!result.ok || !result.data) {
+      throw new Error(result.error || "Failed to create issue");
+    }
+    return result.data;
   }
 
   async requestReviewers(params: {

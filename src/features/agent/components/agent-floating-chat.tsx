@@ -289,7 +289,7 @@ function AgentFloatingChatInner() {
                   awaiting
                     ? "Accept or deny the pending action first"
                     : run.kind === "training"
-                      ? "Type your own answer, or tap a choice above"
+                      ? "Or write your own answer"
                       : "Plan, Build, / for skills, @ for context"
                 }
                 onFollowUp={(content) => {

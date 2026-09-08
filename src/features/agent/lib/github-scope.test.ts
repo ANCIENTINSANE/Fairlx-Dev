@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatProjectGithubLine, hasProjectGithubRepo } from "./github-scope";
+import { formatProjectGithubLine, hasGithubRepoAccess, hasProjectGithubRepo } from "./github-scope";
 import type { AgentContext } from "../types";
 
 function context(repos: AgentContext["githubRepos"] = []): AgentContext {
@@ -46,14 +46,18 @@ describe("github scope", () => {
     ctx.githubAccount = { connected: true, login: "surendra" };
     ctx.githubAttachProjectIds = ["p1"];
     expect(formatProjectGithubLine(ctx, "p1")).toMatch(/account connected/i);
+    expect(formatProjectGithubLine(ctx, "p1")).toMatch(/github_list_repos/);
+    expect(formatProjectGithubLine(ctx, "p1")).toMatch(/github_link_repo/);
     expect(formatProjectGithubLine(ctx, "p1")).toMatch(/github_create_repo/);
     expect(formatProjectGithubLine(ctx, "p1")).toMatch(/linkToProject true/);
+    expect(formatProjectGithubLine(ctx, "p1")).toMatch(/github_write_file README.md/);
   });
 
   it("does not let a worker attach a repository", () => {
     const ctx = context();
     ctx.githubAccount = { connected: true, login: "worker" };
     expect(formatProjectGithubLine(ctx, "p1")).toMatch(/cannot attach/i);
+    expect(formatProjectGithubLine(ctx, "p1")).toMatch(/github_list_repos/);
     expect(formatProjectGithubLine(ctx, "p1")).toMatch(/linkToProject false/);
   });
 
@@ -62,5 +66,13 @@ describe("github scope", () => {
     ctx.githubAccount = { connected: true, login: "surendra" };
     expect(formatProjectGithubLine(ctx, "p1")).toMatch(/@surendra/);
     expect(formatProjectGithubLine(ctx, "p1")).toMatch(/Never call request_capability/i);
+  });
+
+  it("requires Fairlx GitHub API access, not only Sign in with GitHub", () => {
+    const ctx = context();
+    ctx.githubAccount = { connected: true, login: "surendra", hasRepoAccess: false };
+    expect(hasGithubRepoAccess(ctx)).toBe(false);
+    ctx.githubAccount = { connected: true, login: "surendra", hasRepoAccess: true };
+    expect(hasGithubRepoAccess(ctx)).toBe(true);
   });
 });

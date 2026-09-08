@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Plug } from "lucide-react";
 
@@ -40,13 +40,6 @@ export function PluginConnectCard({
   const continueRun = useContinueAgentRun();
   const { data: githubOauth } = useGetOAuthStatus();
   const githubOauthConfigured = githubOauth?.oauthConfigured ?? false;
-  const resumed = useRef(false);
-
-  useEffect(() => {
-    if (!alreadyGranted || !runId || resumed.current) return;
-    resumed.current = true;
-    continueRun.mutate({ runId });
-  }, [alreadyGranted, runId, continueRun]);
 
   const options = useMemo(() => {
     const fromPending = (data?.catalog ?? []).filter((item) => pending.catalogIds.includes(item.id));
@@ -119,8 +112,18 @@ export function PluginConnectCard({
 
   if (alreadyGranted) {
     return (
-      <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-4">
-        <p className="text-sm text-foreground">GitHub is already connected. Continuing…</p>
+      <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-4 space-y-3">
+        <p className="text-sm text-foreground">GitHub is already connected to this Fairlx profile.</p>
+        {runId ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={continueRun.isPending}
+            onClick={() => continueRun.mutate({ runId })}
+          >
+            {continueRun.isPending ? "Continuing…" : "Continue"}
+          </Button>
+        ) : null}
       </div>
     );
   }

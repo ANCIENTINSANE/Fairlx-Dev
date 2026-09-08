@@ -5,7 +5,9 @@ export type IntegrationProvider =
   | "discord"
   | "mcp_custom"
   | "gitlab"
-  | "bitbucket";
+  | "bitbucket"
+  | "teams"
+  | "whatsapp";
 
 export type ProjectIntegration = Models.Document & {
   projectId: string;

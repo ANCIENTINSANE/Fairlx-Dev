@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -13,6 +13,13 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
+  Copy,
+  Eye,
+  Layers,
+  PanelRightClose,
+  PanelRightOpen,
+  SquareTerminal,
 } from "lucide-react";
 import { RiAddCircleFill } from "react-icons/ri";
 
@@ -55,7 +62,31 @@ import { AgentCrewPanel } from "./agent-crew-panel";
 import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 import { DiffViewer, type CheckRun, type DiffFile } from "./diff-viewer";
 import { CodingSessionPanel } from "./coding-session-panel";
+import { SessionArtifacts } from "./session-artifacts";
+import { ImplementationPlanCard } from "./implementation-plan-card";
+import { resolveRunImplementationPlan } from "../lib/implementation-plan";
+import { describeCodingPreview } from "../lib/sandbox-preview";
 import { useCommentCodingSession, useGetCodingSession, useMergeCodingSession, useStartCodingSession } from "../api/use-coding-session";
+
+const SIDEBAR_MIN = 280;
+const SIDEBAR_MAX = 760;
+const SIDEBAR_DEFAULT = 384;
+const SIDEBAR_COLLAPSED = 44;
+const SIDEBAR_WIDTH_KEY = "fairlx.agent.workflow.sidebarWidth";
+const SIDEBAR_COLLAPSED_KEY = "fairlx.agent.workflow.sidebarCollapsed";
+
+const SIDEBAR_TABS = [
+  ["plan", "Plan", ClipboardList],
+  ["context", "Context", Layers],
+  ["changes", "Changes", GitBranch],
+  ["terminal", "Terminal", SquareTerminal],
+  ["preview", "Preview", Eye],
+] as const;
+
+function clampSidebarWidth(value: number) {
+  const max = typeof window === "undefined" ? SIDEBAR_MAX : Math.min(SIDEBAR_MAX, window.innerWidth * 0.7);
+  return Math.min(max, Math.max(SIDEBAR_MIN, value));
+}
 
 
 function FloatingComposer({ children }: { children: React.ReactNode }) {
@@ -175,8 +206,8 @@ function WorkflowSidebar({
 }: {
   run: AgentRun;
   events: AgentToolEvent[];
-  tab: "context" | "changes" | "terminal" | "preview";
-  onTab: (tab: "context" | "changes" | "terminal" | "preview") => void;
+  tab: "plan" | "context" | "changes" | "terminal" | "preview";
+  onTab: (tab: "plan" | "context" | "changes" | "terminal" | "preview") => void;
 }) {
   const { data: context } = useGetAgentContext();
   const { data: harness } = useGetAgentHarness();
@@ -215,6 +246,21 @@ function WorkflowSidebar({
   const commentSession = useCommentCodingSession();
   const mergeSession = useMergeCodingSession();
   const session = sessionPayload?.session;
+  const previewMeta = describeCodingPreview({
+    previewUrl: session?.previewUrl,
+    status: session?.status,
+    sandboxId: session?.sandboxId,
+    driver: session?.driver,
+    previewLive: session?.previewLive,
+  });
+  const previewKey = session?.previewUrl || (session?.sandboxId ? `sandbox:${session.sandboxId}` : "");
+  const previewShownRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!previewKey || previewShownRef.current === previewKey) return;
+    if (!previewMeta.live) return;
+    previewShownRef.current = previewKey;
+    onTab("preview");
+  }, [previewKey, previewMeta.live, previewMeta.stub, onTab]);
   const diffFiles = (Array.isArray(sessionPayload?.diff?.files) ? sessionPayload.diff.files : []) as DiffFile[];
   const checks = (Array.isArray(sessionPayload?.diff?.checks) ? sessionPayload.diff.checks : []) as CheckRun[];
   const walkthrough = typeof sessionPayload?.walkthrough === "string" ? sessionPayload.walkthrough : undefined;
@@ -233,7 +279,7 @@ function WorkflowSidebar({
   const terminals = events.filter((event) => event.type === "terminal" || event.type === "coding_session_exec");
   const githubUrl = repo?.githubUrl || (repo?.owner && repo.repositoryName ? `https://github.com/${repo.owner}/${repo.repositoryName}` : "");
   const prLinks = events
-    .filter((event) => event.type === "github_open_pr" || event.type === "github_write_file")
+    .filter((event) => event.type === "github_open_pr" || event.type === "github_write_file" || event.type === "github_create_repo" || event.type === "github_update_repo" || event.type === "github_create_issue")
     .map((event) => {
       const payload = event.payload && typeof event.payload === "object" ? (event.payload as { html_url?: string; title?: string; path?: string }) : {};
       return {
@@ -243,37 +289,172 @@ function WorkflowSidebar({
       };
     })
     .filter((item) => item.url);
+  const implementationPlan = resolveRunImplementationPlan(run);
+  const [width, setWidth] = useState(SIDEBAR_DEFAULT);
+  const [collapsed, setCollapsed] = useState(false);
+  const [sidebarReady, setSidebarReady] = useState(false);
+  const widthRef = useRef(width);
+
+  useEffect(() => {
+    widthRef.current = width;
+  }, [width]);
+
+  useEffect(() => {
+    const storedWidth = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    if (Number.isFinite(storedWidth) && storedWidth > 0) setWidth(clampSidebarWidth(storedWidth));
+    setCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+    setSidebarReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarReady) return;
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+  }, [sidebarReady, width]);
+
+  useEffect(() => {
+    if (!sidebarReady) return;
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  }, [collapsed, sidebarReady]);
+
+  const startResize = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = widthRef.current;
+    const onMove = (move: globalThis.MouseEvent) => {
+      setCollapsed(false);
+      setWidth(clampSidebarWidth(startWidth + (startX - move.clientX)));
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const stagingFiles = staging
+    .filter((item) => !diffFiles.some((file) => file.filename === item.path))
+    .map((item) => ({
+      filename: item.path,
+      status: "modified",
+      additions: 0,
+      deletions: 0,
+      changes: 0,
+      patch: item.content,
+    })) as DiffFile[];
+  const changeFiles = [...diffFiles, ...stagingFiles];
 
   return (
-    <aside className="hidden lg:flex w-96 bg-sidebar border-l border-sidebar-border flex-col flex-shrink-0 h-full">
-      {/* Tabs Header at top of Right Sidebar */}
-      <div className="flex border-b border-sidebar-border bg-sidebar shrink-0">
-        {(
-          [
-            ["context", "Context"],
-            ["changes", "Changes"],
-            ["terminal", "Terminal"],
-            ["preview", "Preview"],
-          ] as const
-        ).map(([id, label]) => (
+    <aside
+      style={{ width: collapsed ? SIDEBAR_COLLAPSED : width }}
+      className="relative hidden h-full flex-shrink-0 flex-col overflow-hidden border-l border-sidebar-border bg-sidebar lg:flex"
+    >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize right panel"
+        title="Drag to resize"
+        onMouseDown={startResize}
+        onDoubleClick={() => setCollapsed((value) => !value)}
+        className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/50"
+      />
+      {collapsed ? (
+        <div className="flex h-full flex-col items-center gap-1 py-2">
+          <button
+            type="button"
+            title="Expand panel"
+            onClick={() => setCollapsed(false)}
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <PanelRightOpen className="size-4" />
+          </button>
+          {SIDEBAR_TABS.map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              title={id === "changes" && changeFiles.length ? `${label} · ${changeFiles.length}` : label}
+              onClick={() => {
+                onTab(id);
+                setCollapsed(false);
+              }}
+              className={cn(
+                "relative flex size-8 items-center justify-center rounded-md",
+                tab === id
+                  ? "bg-sidebar-accent text-primary"
+                  : "text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground",
+              )}
+            >
+              <Icon className="size-4" />
+              {id === "changes" && changeFiles.length ? (
+                <span className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-primary px-0.5 text-center text-[9px] font-semibold leading-[14px] text-primary-foreground">
+                  {changeFiles.length}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+      <div className="flex shrink-0 items-stretch border-b border-sidebar-border bg-sidebar">
+        <div className="flex min-w-0 flex-1 overflow-x-auto">
+          {SIDEBAR_TABS.map(([id, label]) => (
           <button
             key={id}
             type="button"
             onClick={() => onTab(id)}
             className={cn(
-              "flex-1 py-3 text-xs font-semibold transition-colors border-b-2",
+              "inline-flex min-w-[3.5rem] flex-1 items-center justify-center gap-1 border-b-2 px-1 py-3 text-[11px] font-semibold transition-colors",
               tab === id
-                ? "text-primary border-primary bg-sidebar-accent/50"
-                : "text-muted-foreground border-transparent hover:text-foreground hover:bg-sidebar-accent/30"
+                ? "border-primary bg-sidebar-accent/50 text-primary"
+                : "border-transparent text-muted-foreground hover:bg-sidebar-accent/30 hover:text-foreground"
             )}
           >
             {label}
+            {id === "changes" && changeFiles.length ? (
+              <span
+                className={cn(
+                  "inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums",
+                  tab === id ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {changeFiles.length}
+              </span>
+            ) : null}
           </button>
-        ))}
+          ))}
+        </div>
+        <button
+          type="button"
+          title="Collapse panel"
+          onClick={() => setCollapsed(true)}
+          className="flex w-9 shrink-0 items-center justify-center border-l border-sidebar-border text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+        >
+          <PanelRightClose className="size-4" />
+        </button>
       </div>
 
-      {/* Tabs Body */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-5">
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          tab === "changes" ? "overflow-hidden" : "custom-scrollbar gap-5 overflow-y-auto p-4",
+        )}
+      >
+        {tab === "plan" ? (
+          <div className="space-y-3">
+            {implementationPlan ? (
+              <ImplementationPlanCard plan={implementationPlan} />
+            ) : (
+              <p className="text-xs text-muted-foreground px-1">
+                The agent submits an implementation plan here before coding. Accept it to start the Azure session.
+              </p>
+            )}
+          </div>
+        ) : null}
+
         {tab === "context" ? (
           <>
             <div className="flex flex-col gap-3">
@@ -375,65 +556,56 @@ function WorkflowSidebar({
         ) : null}
 
         {tab === "changes" ? (
-          <div className="space-y-3">
-            {session ? (
-              <DiffViewer
-                files={diffFiles}
-                checks={checks}
-                walkthrough={walkthrough}
-                onComment={(path, line, body) =>
-                  commentSession.mutate({ sessionId: session.id, path, line, body })
-                }
-                onMerge={session.prNumber ? () => mergeSession.mutate(session.id) : undefined}
-                merging={mergeSession.isPending}
-              />
-            ) : null}
+          <div className="flex min-h-0 flex-1 flex-col">
+            {changeFiles.length ? (
+              <div className="min-h-0 flex-1">
+                <DiffViewer
+                  files={changeFiles}
+                  checks={checks}
+                  walkthrough={walkthrough}
+                  branch={session?.headBranch || repo?.branch || "main"}
+                  onComment={
+                    session
+                      ? (path, line, body) => commentSession.mutate({ sessionId: session.id, path, line, body })
+                      : undefined
+                  }
+                  onMerge={session?.prNumber ? () => mergeSession.mutate(session.id) : undefined}
+                  merging={mergeSession.isPending}
+                />
+              </div>
+            ) : (
+              <p className="px-3 py-4 text-xs text-muted-foreground">
+                {repo
+                  ? "No pull requests yet. After the sandbox pushes fairlx/{key}, the in-app diff appears here."
+                  : "Connect your GitHub account to edit code."}
+              </p>
+            )}
+            <div className="shrink-0 border-t border-sidebar-border p-2">
+              <SessionArtifacts session={session} />
+            </div>
             {prLinks.length ? (
-              <div className="space-y-2">
+              <div className="shrink-0 space-y-1 border-t border-sidebar-border p-2">
                 {prLinks.map((item) => (
                   <a
                     key={item.id}
                     href={item.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="block rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3 hover:bg-sidebar-accent transition-colors"
+                    className="block truncate rounded-md px-2 py-1.5 text-[11px] text-primary hover:bg-sidebar-accent"
                   >
-                    <p className="text-xs font-medium text-primary truncate">{item.label}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{item.url}</p>
+                    {item.label}
                   </a>
                 ))}
               </div>
             ) : null}
-            {staging.length === 0 && !prLinks.length && !session ? (
-              <p className="text-xs text-muted-foreground px-1">
-                {repo
-                  ? "No pull requests yet. Accept a GitHub write to open a real PR."
-                  : "Connect your GitHub account to edit code."}
-              </p>
-            ) : (
-              staging.map((item) => (
-                <Link
-                  key={item.id}
-                  href="/agent/git"
-                  className="block rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3 hover:bg-sidebar-accent transition-colors"
-                >
-                  <p className="text-xs font-medium text-foreground truncate">{item.path}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {item.status}
-                    {item.branch ? ` · ${item.branch}` : ""}
-                  </p>
-                  {item.summary ? <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{item.summary}</p> : null}
-                </Link>
-              ))
-            )}
             {repo ? (
               <a
                 href={githubUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium px-1"
+                className="inline-flex shrink-0 items-center gap-1.5 border-t border-sidebar-border px-3 py-2 text-xs font-medium text-primary hover:underline"
               >
-                <GitBranch className="size-3.5" /> Open {repo.owner}/{repo.repositoryName} on GitHub
+                <GitBranch className="size-3.5" /> Open {repo.owner}/{repo.repositoryName}
               </a>
             ) : null}
           </div>
@@ -461,17 +633,74 @@ function WorkflowSidebar({
 
         {tab === "preview" ? (
           <div className="space-y-3">
-            {session?.previewUrl ? (
-              <iframe
-                title="Coding session preview"
-                src={session.previewUrl}
-                className="w-full min-h-[28rem] rounded-lg border border-sidebar-border bg-background"
-              />
-            ) : null}
+            {session ? (
+              <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/30 p-3 space-y-2">
+                <p className="text-xs font-medium text-foreground">
+                  Sandbox app preview · {session.status.replace(/_/g, " ")}
+                  {previewMeta.driver !== "none" ? ` · ${previewMeta.driver}` : ""}
+                  {previewMeta.live ? " · live" : previewMeta.stub ? " · not live" : ""}
+                </p>
+                {session.codingAgent ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Coder: {session.codingAgent === "claude_code" ? "Claude Code in sandbox" : session.codingAgent === "codex" ? "Codex in sandbox" : "Fairlx specialists (CLI credentials missing)"}
+                  </p>
+                ) : null}
+                {previewMeta.preparing || session.status === "preparing" || session.status === "queued" ? (
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    {previewMeta.note || "Preparing clone, install, and dev server…"}
+                  </div>
+                ) : null}
+                {previewMeta.stub ? (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-300">{previewMeta.note}</p>
+                ) : null}
+                {previewMeta.live && previewMeta.url ? (
+                  <>
+                    <p className="text-[11px] text-muted-foreground">
+                      In-app browser for the Azure sandbox app (not github.dev).
+                    </p>
+                    <iframe
+                      title="Sandbox app preview"
+                      src={previewMeta.url}
+                      className="w-full min-h-[28rem] rounded-lg border border-sidebar-border bg-background"
+                    />
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={previewMeta.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-w-0 flex-1 truncate text-[11px] text-primary"
+                      >
+                        {previewMeta.url}
+                      </a>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="secondary"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(previewMeta.url);
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                      >
+                        <Copy className="size-3" /> Copy link
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+                <SessionArtifacts session={session} />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground px-1">
+                No coding session sandbox for this chat yet. After you Accept the implementation plan, Fairlx clones the repo in Azure, installs, starts the app, and the live preview appears here.
+              </p>
+            )}
             {githubUrl ? (
               <>
                 <p className="text-xs text-muted-foreground px-1">
-                  Preview code directly via GitHub repository links.
+                  Linked GitHub repository (source remote, not the running preview).
                 </p>
                 <a
                   href={githubUrl}
@@ -482,31 +711,22 @@ function WorkflowSidebar({
                   <span>Open Repository</span>
                   <ExternalLink className="size-3.5" />
                 </a>
-                {repo?.owner && repo.repositoryName ? (
-                  <a
-                    href={`https://github.dev/${repo.owner}/${repo.repositoryName}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3 text-xs font-medium text-foreground hover:bg-sidebar-accent transition-colors"
-                  >
-                    <span>Open in GitHub.dev</span>
-                    <ExternalLink className="size-3.5" />
-                  </a>
-                ) : null}
               </>
             ) : project ? (
               <Link
                 href={`/workspaces/${project.workspaceId}/projects/${project.id}/github`}
                 className="block rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-300 font-medium"
               >
-                Connect GitHub to preview this project&apos;s code.
+                Connect GitHub so Fairlx can clone the repo in Azure.
               </Link>
             ) : (
-              <p className="text-xs text-muted-foreground px-1">Select a project to preview linked code.</p>
+              <p className="text-xs text-muted-foreground px-1">Select a project to preview the sandbox app.</p>
             )}
           </div>
         ) : null}
       </div>
+        </>
+      )}
     </aside>
   );
 }
@@ -533,7 +753,7 @@ function WorkflowViewInner() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
-  const [tab, setTab] = useState<"context" | "changes" | "terminal" | "preview">("context");
+  const [tab, setTab] = useState<"plan" | "context" | "changes" | "terminal" | "preview">("context");
   const [DeleteDialog, confirmDelete] = useConfirm(
     "Delete Run",
     "Are you sure you want to delete this chat run? This action cannot be undone.",
@@ -809,7 +1029,7 @@ function WorkflowViewInner() {
                   : awaitingPlugin
                     ? "Connect a plugin to continue"
                   : run.kind === "training"
-                    ? "Type your own answer, or tap a choice above"
+                    ? "Or write your own answer"
                     : "Plan, Build, / for skills, @ for context"
               }
               onFollowUp={(content) => {

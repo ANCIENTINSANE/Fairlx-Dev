@@ -17,6 +17,8 @@ import { setupAgentHarness } from './collections/agent-harness';
 import { setupPersonalAgents } from './collections/personal-agents';
 import { setupAgentJobs } from './collections/agent-jobs';
 import { setupAgentCodingSessions } from './collections/agent-coding-sessions';
+import { setupAgentProjectSecrets } from './collections/agent-project-secrets';
+import { setupAgentCodingEnvironments } from './collections/agent-coding-environments';
 import { setupGithubAccounts } from './collections/github-accounts';
 import { printSummary } from './lib/logger';
 
@@ -33,6 +35,8 @@ async function main() {
     await setupPersonalAgents(databases, databaseId);
     await setupAgentJobs(databases, databaseId);
     await setupAgentCodingSessions(databases, databaseId);
+    await setupAgentProjectSecrets(databases, databaseId);
+    await setupAgentCodingEnvironments(databases, databaseId);
     await setupGithubAccounts(databases, databaseId);
 
     printSummary();

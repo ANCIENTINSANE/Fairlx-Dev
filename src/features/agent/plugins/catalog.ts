@@ -5,7 +5,7 @@ import type {
   AgentPluginPublic,
   AgentToolEvent,
 } from "../types";
-import { linkedGithubRepos, hasGithubAccount } from "../lib/github-scope";
+import { linkedGithubRepos, hasGithubAccount, hasGithubRepoAccess } from "../lib/github-scope";
 
 export type PluginCatalogAuth = "platform" | "oauth" | "token" | "mcp";
 
@@ -92,11 +92,38 @@ export const PLUGIN_CATALOG: PluginCatalogItem[] = [
   },
   {
     id: "slack",
-    name: "Slack / Discord",
-    description: "Notify a connected project channel.",
+    name: "Slack",
+    description: "Notify a channel. @Fairlx starts a coding session; @Fairlx-auto is autonomous.",
     capabilities: ["chat.notify"],
-    auth: "platform",
-    fields: [],
+    auth: "oauth",
+    fields: [{ key: "channelId", label: "Default channel id" }],
+  },
+  {
+    id: "discord",
+    name: "Discord",
+    description: "Notify a Discord channel. Mentions share the same inbound coding-session pipeline as Slack.",
+    capabilities: ["chat.notify"],
+    auth: "token",
+    fields: [
+      { key: "url", label: "Webhook URL" },
+      { key: "channelId", label: "Channel id" },
+    ],
+  },
+  {
+    id: "teams",
+    name: "Microsoft Teams",
+    description: "Incoming webhook. @Fairlx / @Fairlx-auto start or resume a bound coding session.",
+    capabilities: ["chat.notify"],
+    auth: "token",
+    fields: [{ key: "url", label: "Outgoing webhook URL (Fairlx: /api/integrations/teams/webhook)" }],
+  },
+  {
+    id: "whatsapp",
+    name: "WhatsApp",
+    description: "WhatsApp Cloud API webhook. @Fairlx mentions start or resume a coding session.",
+    capabilities: ["chat.notify"],
+    auth: "token",
+    fields: [{ key: "apiKey", label: "Cloud API token", secret: true }],
   },
   {
     id: "security",
@@ -163,10 +190,10 @@ export function hasCapability(
     return context.integrations.some((item) => /slack|discord/i.test(item.provider ?? ""));
   }
   if (capability === "code.read" || capability === "security.review") {
-    return linkedGithubRepos(context).length > 0 && hasGithubAccount(context);
+    return linkedGithubRepos(context).length > 0 && hasGithubRepoAccess(context);
   }
   if (capability === "code.write") {
-    return hasGithubAccount(context);
+    return hasGithubAccount(context) || hasGithubRepoAccess(context);
   }
   return plugins.some((plugin) => pluginHasCapability(plugin, capability));
 }
@@ -176,7 +203,10 @@ export function missingCapabilities(
   plugins: AgentPluginConnection[],
   context: AgentContext,
 ): AgentCapability[] {
-  return inferCapabilities(query).filter((cap) => !hasCapability(plugins, context, cap));
+  return inferCapabilities(query).filter((cap) => {
+    if (isGithubCapability(cap) && hasGithubAccount(context)) return false;
+    return !hasCapability(plugins, context, cap);
+  });
 }
 
 export function isGithubCapability(capability: AgentCapability): boolean {

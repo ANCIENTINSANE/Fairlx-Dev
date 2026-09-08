@@ -1,12 +1,13 @@
 import { Databases, ID, Query } from "node-appwrite";
 
 import { AGENT_RUNS_ID, DATABASE_ID } from "@/config";
-import type { AgentChatMessage, AgentRun, AgentRunMode, AgentRunStatus, AgentToolEvent } from "../types";
+import type { AgentChatMessage, AgentRun, AgentRunMode, AgentRunStatus, AgentToolEvent, ImplementationPlan } from "../types";
 import { extractAttachedFiles, serializeAttachments, withAttachedFiles } from "./attachments";
 import { AGENT_EVENTS_JSON_MAX, AGENT_MESSAGES_JSON_MAX, AGENT_PROMPT_ATTR_MAX } from "./limits";
 import { isTrainingRun } from "./personal-training";
 import { displayUserContent } from "./session-context";
 import { parseJson, stringifyBounded, truncateString } from "./truncate";
+import { parseImplementationPlan, planAcceptanceStub, compactImplementationPlan } from "./implementation-plan";
 
 type RunDocument = {
   $id: string;
@@ -30,6 +31,8 @@ type RunDocument = {
 type RunExtra = {
   kind?: string;
   sessionId?: string;
+  autonomousCoding?: boolean;
+  implementationPlan?: ImplementationPlan;
   contextPeak?: {
     conversation: number;
     summarized_conversation: number;
@@ -66,6 +69,9 @@ export function parseRun(doc: RunDocument): AgentRun {
     error: doc.error || undefined,
     kind,
     sessionId: extra.sessionId,
+    autonomousCoding: extra.autonomousCoding === true,
+    implementationPlan:
+      parseImplementationPlan(extra.implementationPlan) ?? planAcceptanceStub(extra.implementationPlan) ?? undefined,
     contextPeak:
       contextPeak && typeof contextPeak.conversation === "number"
         ? {
@@ -76,6 +82,39 @@ export function parseRun(doc: RunDocument): AgentRun {
     createdAt: doc.$createdAt,
     updatedAt: doc.$updatedAt || doc.$createdAt,
   };
+}
+
+export function stringifyRunExtra(extra: RunExtra, max = 4096): string {
+  const compact = extra.implementationPlan ? compactImplementationPlan(extra.implementationPlan) : undefined;
+  const parsedPlan = parseImplementationPlan(compact);
+  const acceptance =
+    extra.implementationPlan?.status === "accepted" || extra.implementationPlan?.status === "rejected"
+      ? {
+          title: String(extra.implementationPlan.title || "Implementation plan").slice(0, 80),
+          status: extra.implementationPlan.status,
+        }
+      : null;
+  const build = (includePeak: boolean, plan?: ImplementationPlan) => {
+    const next: RunExtra = {
+      kind: extra.kind,
+      sessionId: extra.sessionId,
+      ...(extra.autonomousCoding ? { autonomousCoding: true } : {}),
+      ...(plan ? { implementationPlan: plan } : {}),
+      ...(includePeak && extra.contextPeak ? { contextPeak: extra.contextPeak } : {}),
+    };
+    return JSON.stringify(next);
+  };
+  const fullPlan = parsedPlan ?? (acceptance as ImplementationPlan | undefined);
+  let json = build(true, fullPlan);
+  if (json.length <= max) return json;
+  json = build(false, fullPlan);
+  if (json.length <= max) return json;
+  json = build(true, (acceptance as ImplementationPlan | undefined) ?? undefined);
+  if (json.length <= max) return json;
+  json = build(false, (acceptance as ImplementationPlan | undefined) ?? undefined);
+  if (json.length <= max) return json;
+  if (acceptance) return JSON.stringify({ kind: extra.kind, implementationPlan: acceptance });
+  return JSON.stringify({ kind: extra.kind, sessionId: extra.sessionId });
 }
 
 export async function listRuns(databases: Databases, userId: string, limit = 50): Promise<AgentRun[]> {
@@ -113,8 +152,9 @@ export async function createRun(
     projectId?: string;
     modelId?: string;
     messages?: AgentChatMessage[];
-    kind?: "chat" | "training";
+    kind?: "chat" | "training" | "coding_session";
     title?: string;
+    autonomousCoding?: boolean;
   },
 ): Promise<AgentRun> {
   const fullPrompt = input.prompt.trim();
@@ -147,7 +187,13 @@ export async function createRun(
     modelId: input.modelId || "",
     messagesJson: stringifyBounded(messages, AGENT_MESSAGES_JSON_MAX),
     eventsJson: stringifyBounded([], AGENT_EVENTS_JSON_MAX),
-    extraJson: stringifyBounded({ kind }, 4096),
+    extraJson: stringifyBounded(
+      {
+        kind: input.kind === "coding_session" ? "coding_session" : kind,
+        ...(input.autonomousCoding ? { autonomousCoding: true } : {}),
+      },
+      4096,
+    ),
     attachmentsJson: serializeAttachments(attachments),
     error: "",
   };
@@ -198,6 +244,8 @@ export async function updateRun(
     extra: {
       kind?: string;
       sessionId?: string;
+      autonomousCoding?: boolean;
+      implementationPlan?: ImplementationPlan;
       contextPeak?: {
         conversation: number;
         summarized_conversation: number;
@@ -220,7 +268,7 @@ export async function updateRun(
   }
   if (patch.events !== undefined) payload.eventsJson = stringifyBounded(patch.events, AGENT_EVENTS_JSON_MAX);
   if (patch.error !== undefined) payload.error = truncateString(patch.error, 2048);
-  if (patch.extra !== undefined) payload.extraJson = stringifyBounded(patch.extra, 4096);
+  if (patch.extra !== undefined) payload.extraJson = stringifyRunExtra(patch.extra, 4096);
 
   let doc;
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -243,23 +291,15 @@ export async function updateRun(
   }
 
   const parsed = parseRun(doc as unknown as RunDocument);
-  if (patch.messages) {
+  if (patch.messages || patch.events || patch.extra) {
     return {
       ...parsed,
-      messages: patch.messages,
+      messages: patch.messages ?? parsed.messages,
       events: patch.events ?? parsed.events,
       contextPeak: patch.extra?.contextPeak ?? parsed.contextPeak,
+      sessionId: patch.extra?.sessionId ?? parsed.sessionId,
+      implementationPlan: patch.extra?.implementationPlan ?? parsed.implementationPlan,
     };
-  }
-  if (patch.events) {
-    return {
-      ...parsed,
-      events: patch.events,
-      contextPeak: patch.extra?.contextPeak ?? parsed.contextPeak,
-    };
-  }
-  if (patch.extra?.contextPeak) {
-    return { ...parsed, contextPeak: patch.extra.contextPeak };
   }
   return parsed;
 }

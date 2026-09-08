@@ -3,7 +3,7 @@ import { z } from "zod";
 export const upsertIntegrationSchema = z.object({
   projectId: z.string().min(1),
   workspaceId: z.string().min(1),
-  provider: z.enum(["slack", "discord", "mcp_custom", "gitlab", "bitbucket"]),
+  provider: z.enum(["slack", "discord", "mcp_custom", "gitlab", "bitbucket", "teams", "whatsapp"]),
   enabled: z.boolean().optional(),
   channelId: z.string().optional().nullable(),
   channelName: z.string().optional().nullable(),

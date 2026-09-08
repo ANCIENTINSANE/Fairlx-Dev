@@ -1,4 +1,6 @@
+import type { AgentToolCall } from "../../types";
 import type { SandboxCreateParams, SandboxDriver, SandboxExecResult, SandboxInfo } from "./types";
+import { agentDebugLog } from "./debug-log";
 import { redactSecrets } from "./types";
 
 const API_VERSION = "2026-02-01-preview";
@@ -27,6 +29,27 @@ export function readAzureSandboxConfig(): AzureSandboxConfig | null {
   const subscriptionId = process.env.AZURE_SANDBOX_SUBSCRIPTION_ID?.trim() || "";
   const resourceGroup = process.env.AZURE_SANDBOX_RESOURCE_GROUP?.trim() || "";
   const groupId = process.env.AZURE_SANDBOX_GROUP_ID?.trim() || "";
+  // #region agent log
+  agentDebugLog({
+    hypothesisId: "A",
+    location: "sandbox/azure.ts:readAzureSandboxConfig",
+    message: "sandbox env presence",
+    data: {
+      hasTenant: Boolean(tenantId),
+      hasClient: Boolean(clientId),
+      hasSecret: Boolean(clientSecret),
+      hasSub: Boolean(subscriptionId),
+      hasRg: Boolean(resourceGroup),
+      hasGroup: Boolean(groupId),
+      tenantPrefix: tenantId.slice(0, 8),
+      clientPrefix: clientId.slice(0, 8),
+      tenantLen: tenantId.length,
+      clientLen: clientId.length,
+      sessionPool: Boolean(process.env.AZURE_SESSION_POOL_ENDPOINT?.trim()),
+      region: process.env.AZURE_SANDBOX_REGION?.trim() || "westus3",
+    },
+  });
+  // #endregion
   if (!tenantId || !clientId || !clientSecret || !subscriptionId || !resourceGroup || !groupId) {
     return null;
   }
@@ -65,11 +88,124 @@ async function clientCredentialsToken(config: AzureSandboxConfig, scope: string)
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-  const json = (await response.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
+  const json = (await response.json().catch(() => ({}))) as {
+    access_token?: string;
+    error?: string;
+    error_description?: string;
+    error_codes?: number[];
+  };
+  // #region agent log
+  agentDebugLog({
+    hypothesisId: "B",
+    location: "sandbox/azure.ts:clientCredentialsToken",
+    message: "token endpoint result",
+    data: {
+      ok: response.ok,
+      status: response.status,
+      scope,
+      tenantPrefix: config.tenantId.slice(0, 8),
+      clientPrefix: config.clientId.slice(0, 8),
+      azureError: json.error || null,
+      errorCodes: json.error_codes || [],
+      aadsts: String(json.error_description || "").match(/AADSTS\d+/)?.[0] || null,
+      hasAccessToken: Boolean(json.access_token),
+    },
+  });
+  // #endregion
   if (!response.ok || !json.access_token) {
-    throw new Error(json.error_description || `Azure token failed (${response.status})`);
+    throw new Error(
+      formatAzureSandboxAuthError(json.error_description || `Azure token failed (${response.status})`, config),
+    );
   }
   return json.access_token;
+}
+
+export function azureAuthErrorCode(text: string): string | null {
+  return (text || "").match(/AADSTS\d{5,6}/)?.[0] ?? null;
+}
+
+export function isNonRetryableAzureAuthError(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error || "");
+  return azureAuthErrorCode(text) === "AADSTS700016" || /\b700016\b/.test(text);
+}
+
+export function formatAzureSandboxAuthError(description: string, config: Pick<AzureSandboxConfig, "tenantId" | "clientId">): string {
+  const code = azureAuthErrorCode(description);
+  if (code === "AADSTS700016" || /was not found in the directory/i.test(description)) {
+    return [
+      "AADSTS700016: Azure sandbox login failed because the app registration is not in this Entra tenant.",
+      `AZURE_SANDBOX_CLIENT_ID starts with ${config.clientId.slice(0, 8)} and AZURE_SANDBOX_TENANT_ID starts with ${config.tenantId.slice(0, 8)}.`,
+      "Open that same app in Entra ID Overview and set AZURE_SANDBOX_TENANT_ID to its Directory (tenant) ID, or admin-consent the app into this tenant.",
+      "Do not retry coding_session_start until those env values match. GitHub Pages is not an Azure sandbox preview.",
+    ].join(" ");
+  }
+  return description;
+}
+
+export function runHasNonRetryableSandboxAuth(inputs: {
+  events?: Array<{ payload?: unknown; detail?: string; title?: string }>;
+  messages?: Array<{ content?: string }>;
+}): boolean {
+  const chunks: string[] = [];
+  for (const event of inputs.events ?? []) {
+    chunks.push(event.detail || "", event.title || "", JSON.stringify(event.payload ?? ""));
+  }
+  for (const message of inputs.messages ?? []) {
+    chunks.push(message.content || "");
+  }
+  return chunks.some((chunk) => isNonRetryableAzureAuthError(chunk));
+}
+
+function innerToolName(call: AgentToolCall): string {
+  if (call.name !== "mcp_call") return call.name;
+  try {
+    const parsed = JSON.parse(call.arguments || "{}") as { tool?: string };
+    return String(parsed.tool || "").trim() || "mcp_call";
+  } catch {
+    return "mcp_call";
+  }
+}
+
+export function filterCallsForFailedSandboxAuth(calls: AgentToolCall[]): {
+  allowed: AgentToolCall[];
+  blocked: AgentToolCall[];
+} {
+  const allowed: AgentToolCall[] = [];
+  const blocked: AgentToolCall[] = [];
+  for (const call of calls) {
+    const inner = innerToolName(call);
+    if (call.name === "coding_session_start" || inner === "coding_session_start") blocked.push(call);
+    else allowed.push(call);
+  }
+  return { allowed, blocked };
+}
+
+export function blockedSandboxAuthResult(call: AgentToolCall): string {
+  return JSON.stringify({
+    error:
+      "AADSTS700016: Azure sandbox app is not in this Entra tenant. Do not retry coding_session_start. Fix AZURE_SANDBOX_TENANT_ID and CLIENT_ID so they belong to the same app registration. GitHub Pages is not an Azure sandbox preview.",
+    blocked: true,
+    retryable: false,
+    code: "AADSTS700016",
+    tool: call.name,
+  });
+}
+
+export const AZURE_SANDBOX_AUTH_USER_MESSAGE =
+  "Azure sandbox preview is blocked by AADSTS700016: the app registration is not in this Entra tenant. Set AZURE_SANDBOX_CLIENT_ID and AZURE_SANDBOX_TENANT_ID from the same Entra app registration (Overview → Application ID and Directory ID), or admin-consent that app into this tenant. I will not start another coding session. A GitHub or raw HTML link is not an Azure sandbox preview.";
+
+export function conversationWantsAzureSandbox(text: string): boolean {
+  return /\b(azure sandbox|use azure|sandbox preview|azure preview)\b/i.test(text || "");
+}
+
+export function rewriteSandboxAuthAssistantContent(params: {
+  userText: string;
+  assistantText: string;
+  hasAuthFailure: boolean;
+}): string {
+  if (!params.hasAuthFailure) return params.assistantText;
+  if (!conversationWantsAzureSandbox(params.userText)) return params.assistantText;
+  return AZURE_SANDBOX_AUTH_USER_MESSAGE;
 }
 
 export class AzureSandboxDriver implements SandboxDriver {
@@ -86,7 +222,8 @@ export class AzureSandboxDriver implements SandboxDriver {
       const value = await clientCredentialsToken(this.config, ADC_SCOPE);
       this.token = { value, expiresAt: Date.now() + 50 * 60 * 1000 };
       return value;
-    } catch {
+    } catch (error) {
+      if (isNonRetryableAzureAuthError(error)) throw error;
       const value = await clientCredentialsToken(this.config, ADC_SCOPE_FALLBACK);
       this.token = { value, expiresAt: Date.now() + 50 * 60 * 1000 };
       return value;
@@ -133,6 +270,19 @@ export class AzureSandboxDriver implements SandboxDriver {
   }
 
   async create(params?: SandboxCreateParams): Promise<SandboxInfo> {
+    // #region agent log
+    agentDebugLog({
+      hypothesisId: "D",
+      location: "sandbox/azure.ts:create",
+      message: "sandbox create start",
+      data: {
+        hasSessionPool: Boolean(this.config.sessionPoolEndpoint),
+        usedFallback: this.usedFallback,
+        groupIdLen: this.config.groupId.length,
+        endpointHost: this.config.endpoint.replace(/^https?:\/\//, "").split("/")[0],
+      },
+    });
+    // #endregion
     try {
       const result = await this.request("PUT", `${groupPath(this.config)}/sandboxes`, {
         json: {
@@ -154,6 +304,12 @@ export class AzureSandboxDriver implements SandboxDriver {
               { pattern: "*.azure.net", action: "Allow" },
               { pattern: "*.openai.azure.com", action: "Allow" },
               { pattern: "*.services.ai.azure.com", action: "Allow" },
+              { pattern: "api.anthropic.com", action: "Allow" },
+              { pattern: "*.anthropic.com", action: "Allow" },
+              { pattern: "api.openai.com", action: "Allow" },
+              { pattern: "*.openai.com", action: "Allow" },
+              { pattern: "playwright.azureedge.net", action: "Allow" },
+              { pattern: "*.playwright.dev", action: "Allow" },
             ],
           },
           lifecycle: { autoSuspendPolicy: { enabled: true, interval: 900, mode: "Memory" } },
@@ -163,6 +319,7 @@ export class AzureSandboxDriver implements SandboxDriver {
       if (!id) throw new Error("Azure sandbox create returned no id");
       return { id, driver: "azure" };
     } catch (error) {
+      if (isNonRetryableAzureAuthError(error)) throw error;
       if (this.config.sessionPoolEndpoint && !this.usedFallback) {
         this.usedFallback = true;
         return this.createSessionPool(params);

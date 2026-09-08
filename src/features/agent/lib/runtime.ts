@@ -7,6 +7,7 @@ import {
   GROK_46_MODEL_ID,
   getPlatformDefaultModelId,
   isPlatformGrokEnabled,
+  resolveExtraFoundrySpec,
 } from "../constants";
 import type {
   AgentAiConfigStored,
@@ -29,7 +30,11 @@ import { extractToolCallsFromText, mergeToolCalls, normalizeAgentToolCall, strip
 import { displayUserContent, isPersonalSessionMode, trainingSaveReady } from "./session-context";
 import { fromResponsesResponse, isResponsesResponse, stripUnsupportedSamplingParams, toResponsesRequest } from "./openai-responses";
 import type { AgentLlmApi } from "./openai-responses";
-import { getPlatformProviderCredentials, overlayPlatformModel } from "./platform-credentials";
+import {
+  getPlatformProviderCredentials,
+  normalizeAzureFoundryBaseUrl,
+  overlayPlatformModel,
+} from "./platform-credentials";
 import { buildSystemPrompt } from "./prompt";
 import { isTrainingKickoffContent, isTrainingRun, profileIsTrained } from "./personal-training";
 import { getAiDocument, getMcpDocument, parseAiConfig, parseMcpConfig } from "./store";
@@ -63,9 +68,20 @@ import { sanitizeAssistantVisible } from "./visible-content";
 import { extractBoardProjectFromTool } from "./project-launch";
 import { specialistById } from "./graph";
 import { buildSpecialistUserMessage, extractAttachedFiles, parentPromptFromMessages, subjectsFromFiles } from "./attachments";
-import { hasProjectGithubRepo } from "./github-scope";
+import { hasGithubAccount, hasProjectGithubRepo, projectGithubRepos } from "./github-scope";
+import { githubLinkRepo } from "../plugins/github";
+import {
+  parseGithubAttachRequest,
+  pendingGithubOwnerChoice,
+  matchGithubOwnerReply,
+  githubCreateRepoArgsFromOwnerChoice,
+  conversationWantsGithubCreateRepo,
+  conversationWantsGithubVisibility,
+  latestGithubRepoRef,
+  mergeProjectGithubRepo,
+} from "../plugins/github-helpers";
 import { capSpecialistResult, CONTEXT_BUDGET_RATIO, estimatedFittedTokens, factsFromTurn, filterToolsForSpecialist, fitMessagesForModel, mergeStateKnowledge, selectToolsForTurn } from "./brain";
-import { catalogForCapability, missingCapabilities } from "../plugins/catalog";
+import { catalogForCapability, isGithubCapability, missingCapabilities } from "../plugins/catalog";
 import { claimQueuedJobs } from "./jobs";
 import { scheduleAgentJob } from "./schedule-job";
 import {
@@ -92,6 +108,33 @@ import {
   needsConfirmation,
 } from "./write-guard";
 import { hasRequiredWebResearch, seedDocTurnLimitsFromMessages } from "./doc-turn-limits";
+import {
+  applyPlanProgressFromTool,
+  blockedBuildGateResult,
+  blockedErrorDumpResult,
+  blockedSandboxWaitResult,
+  buildGateShouldBlock,
+  codingSessionArgsFromPlan,
+  compactImplementationPlan,
+  conversationLooksLikeError,
+  filterCallsForBuildGate,
+  filterCallsForErrorDump,
+  filterCallsUntilSandbox,
+  parseImplementationPlan,
+  planIsAccepted,
+  resolveRunImplementationPlan,
+  runHasAcceptedPlan,
+  runIsWaitingForSandbox,
+  shouldUseInspectModel,
+} from "./implementation-plan";
+import {
+  blockedSandboxAuthResult,
+  filterCallsForFailedSandboxAuth,
+  isNonRetryableAzureAuthError,
+  rewriteSandboxAuthAssistantContent,
+  runHasNonRetryableSandboxAuth,
+} from "./sandbox/azure";
+import { agentDebugLog } from "./sandbox/debug-log";
 
 const MAX_TOOL_ITERATIONS = 48;
 const MAX_SPECIALIST_ITERATIONS = 16;
@@ -232,13 +275,21 @@ export function resolveChatTarget(stored: AgentAiConfigStored): ChatTarget {
     if (!creds) {
       throw new Error(`Platform credentials are not configured for ${provider.displayName}.`);
     }
+    const overlay = resolveExtraFoundrySpec(model.id);
+    const userKey = provider.apiKeyEncrypted ? decryptSecret(provider.apiKeyEncrypted) : "";
+    const apiKey = overlay?.apiKey || userKey || creds.apiKey;
+    if (!apiKey) {
+      throw new Error(`Platform credentials are not configured for ${provider.displayName}.`);
+    }
+    const baseUrl = overlay?.endpoint ? normalizeAzureFoundryBaseUrl(overlay.endpoint) : creds.baseUrl;
+    const deployment = overlay?.deployment || model.modelId || creds.deployment;
     return {
-      url: joinUrl(creds.baseUrl, `${creds.openaiPath}${creds.api === "responses" ? "/responses" : "/chat/completions"}`),
+      url: joinUrl(baseUrl, `${creds.openaiPath}${creds.api === "responses" ? "/responses" : "/chat/completions"}`),
       headers: {
         "Content-Type": "application/json",
-        [creds.authHeader]: creds.apiKey,
+        [creds.authHeader]: apiKey,
       },
-      model: model.modelId || creds.deployment,
+      model: deployment,
       maxOutputTokens: model.maxOutputTokens,
       maxInputTokens: model.maxInputTokens,
       modelId: model.id,
@@ -311,6 +362,29 @@ export function resolveReviewerTarget(stored: AgentAiConfigStored): ChatTarget {
     }
   }
   return resolveChatTarget(stored);
+}
+
+export function resolveOrchestratorTarget(
+  stored: AgentAiConfigStored,
+  userText: string,
+  planAccepted: boolean,
+): ChatTarget {
+  if (shouldUseInspectModel(userText, planAccepted)) {
+    return resolveWorkerTarget(stored);
+  }
+  return resolveChatTarget(stored);
+}
+
+export function specialistChatTarget(
+  specialist: AgentSpecialistId,
+  targets: { worker: ChatTarget; builder: ChatTarget; reviewer: ChatTarget },
+  planAccepted: boolean,
+): ChatTarget {
+  if (specialist === "builder" || specialist === "git") {
+    return planAccepted ? targets.builder : targets.worker;
+  }
+  if (specialist === "reviewer") return targets.reviewer;
+  return targets.worker;
 }
 
 type OpenAiMessage = {
@@ -580,8 +654,16 @@ export async function runAgentTurn(params: {
       takeHigherChatPeak(run.contextPeak, latest?.contextPeak),
       meter?.breakdown,
     );
+    const plan = run.implementationPlan ?? latest?.implementationPlan;
     const extra = {
-      kind: run.kind ?? latest?.kind ?? "chat",
+      kind:
+        latest?.kind === "coding_session" || run.kind === "coding_session"
+          ? ("coding_session" as const)
+          : latest?.kind === "training" || run.kind === "training"
+            ? ("training" as const)
+            : (run.kind ?? latest?.kind ?? "chat"),
+      sessionId: run.sessionId || latest?.sessionId,
+      ...(plan ? { implementationPlan: compactImplementationPlan(plan) } : {}),
       contextPeak,
     };
     const updated = await updateRun(databases, run.id, { ...patch, extra });
@@ -590,6 +672,9 @@ export async function runAgentTurn(params: {
       messages: patch.messages ?? run.messages,
       events: patch.events ?? updated.events,
       contextPeak,
+      sessionId: run.sessionId || extra.sessionId || updated.sessionId,
+      implementationPlan: run.implementationPlan ?? extra.implementationPlan ?? updated.implementationPlan,
+      kind: extra.kind ?? updated.kind,
     };
   };
 
@@ -614,7 +699,7 @@ export async function runAgentTurn(params: {
     return null;
   };
 
-  const [initialHarness, context, mcpDoc, aiDoc, runs, personalProfile] = await Promise.all([
+  const [initialHarness, loadedContext, mcpDoc, aiDoc, runs, personalProfile] = await Promise.all([
     getOrCreateHarness(databases, user.$id),
     loadAgentContext(databases, user),
     getMcpDocument(databases, user.$id),
@@ -623,8 +708,13 @@ export async function runAgentTurn(params: {
     getPersonalAgent(databases, user.$id),
   ]);
   let harness = initialHarness;
+  let context = loadedContext;
   const permissionType = (): AgentPermissionType =>
     harness.settings.permissionType === "all_access" ? "all_access" : "staged";
+  const autonomousCoding = () =>
+    harness.settings.autonomousCoding === true ||
+    harness.settings.permissionType === "all_access" ||
+    run.autonomousCoding === true;
   const mcp = ensurePersonalMcp(parseMcpConfig(mcpDoc?.configJson));
   const stored = parseAiConfig(aiDoc);
 
@@ -642,15 +732,30 @@ export async function runAgentTurn(params: {
   const stoppedBeforeModel = await haltIfStopped();
   if (stoppedBeforeModel) return stoppedBeforeModel;
 
+  const lastUserText = displayUserContent(
+    [...run.messages].reverse().find((message) => message.role === "user")?.content || run.prompt || "",
+  );
+  const userTexts = (
+    run.messages.some((message) => message.role === "user")
+      ? run.messages.filter((message) => message.role === "user").map((message) => displayUserContent(message.content))
+      : [lastUserText]
+  ).filter(Boolean);
+  const intentText = [lastUserText, run.prompt, ...userTexts].filter(Boolean).join("\n");
+  const restoredPlan = resolveRunImplementationPlan(run);
+  if (restoredPlan) run.implementationPlan = restoredPlan;
+  const planAccepted = () => runHasAcceptedPlan(run) || planIsAccepted(run.implementationPlan);
+  const buildGateActive = () => buildGateShouldBlock(intentText, lastUserText, planAccepted());
+  const sandboxWaitActive = () => planAccepted() && runIsWaitingForSandbox(run);
+
   let target: ChatTarget;
   let workerTarget: ChatTarget;
   let builderTarget: ChatTarget;
   let reviewerTarget: ChatTarget;
   try {
-    target = resolveChatTarget(stored);
     workerTarget = resolveWorkerTarget(stored);
     builderTarget = resolveSessionBuilderTarget(stored);
     reviewerTarget = resolveReviewerTarget(stored);
+    target = resolveOrchestratorTarget(stored, intentText, planAccepted());
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to resolve model.";
     return persistUnlessStopped({ status: "failed", error: message });
@@ -694,15 +799,45 @@ export async function runAgentTurn(params: {
   });
   if (run.status === "stopped") return run;
 
-  const lastUserText = displayUserContent(
-    [...run.messages].reverse().find((message) => message.role === "user")?.content || run.prompt || "",
-  );
-  const userTexts = (
-    run.messages.some((message) => message.role === "user")
-      ? run.messages.filter((message) => message.role === "user").map((message) => displayUserContent(message.content))
-      : [lastUserText]
-  ).filter(Boolean);
   const conversationAllowsDelete = conversationDeleteIntent(userTexts).allowed;
+
+  const attachHaystack = [lastUserText, ...userTexts, run.prompt].filter(Boolean).join("\n");
+  const wantsGithubAttach = /\b(connect|link|attach)\b/i.test(attachHaystack);
+  const attachRef = wantsGithubAttach ? parseGithubAttachRequest(attachHaystack) : undefined;
+  if (attachRef && run.projectId && !hasProjectGithubRepo(context, run.projectId)) {
+    const linked = await githubLinkRepo({
+      databases,
+      userId: user.$id,
+      projectId: run.projectId,
+      owner: attachRef.owner,
+      repo: attachRef.repo,
+    });
+    if ("linked" in linked && linked.linked) {
+      context = mergeProjectGithubRepo(context, {
+        projectId: run.projectId,
+        workspaceId: run.workspaceId || "",
+        owner: String(linked.owner),
+        repo: String(linked.repo),
+        githubUrl: typeof linked.githubUrl === "string" && linked.githubUrl ? linked.githubUrl : undefined,
+        branch: String(linked.branch || "main"),
+      });
+      run = await persistUnlessStopped({
+        events: [
+          ...run.events,
+          {
+            id: crypto.randomUUID(),
+            type: "github_link_repo",
+            title: `Attached ${linked.fullName}`,
+            detail: linked.instruction,
+            payload: linked,
+            createdAt: new Date().toISOString(),
+            runId: run.id,
+          },
+        ],
+      });
+      if (run.status === "stopped") return run;
+    }
+  }
   const selectedTools = training
     ? [askUserTool(), ...(trainingSaveReady(run.messages) ? [trainingSaveTool()] : [])]
     : selectToolsForTurn(
@@ -711,9 +846,10 @@ export async function runAgentTurn(params: {
           enabledTools: harness.settings.enabledTools ?? [],
           mcpTools: mcpToolDefs,
         }),
-        lastUserText,
+        [run.prompt, ...userTexts].filter(Boolean).join("\n") || lastUserText,
         {
           hasGithubRepo: hasProjectGithubRepo(context, run.projectId),
+          hasGithubAccount: hasGithubAccount(context),
           hasProject: Boolean(
             run.projectId ||
               harness.settings.defaultProjectId ||
@@ -729,7 +865,7 @@ export async function runAgentTurn(params: {
       : selectedTools;
   const personalPrompt =
     personalProfile && profileIsTrained(personalProfile) ? personalProfile.compiledPrompt : undefined;
-  const system = buildSystemPrompt({
+  let system = buildSystemPrompt({
     harness,
     context,
     run,
@@ -737,6 +873,16 @@ export async function runAgentTurn(params: {
     personalPrompt,
     personalAnswers: personalProfile?.answers,
   });
+  const rebuildSystem = () => {
+    system = buildSystemPrompt({
+      harness,
+      context,
+      run,
+      mcp,
+      personalPrompt,
+      personalAnswers: personalProfile?.answers,
+    });
+  };
 
   const toolContext = (opts?: { userAccepted?: boolean }) => ({
     runId: run.id,
@@ -814,6 +960,89 @@ export async function runAgentTurn(params: {
   let failStreak = 0;
   let forceAnswer = false;
   let pluginGap: AgentCapability | null = null;
+  let launchedCodingSessionFromPlan = false;
+
+  const applyCallGate = (
+    calls: AgentToolCall[],
+    sinkMessages: AgentChatMessage[],
+    sinkEvents?: AgentToolEvent[],
+  ): AgentToolCall[] => {
+    const recordBlocked = (
+      blocked: AgentToolCall[],
+      resultFor: (call: AgentToolCall) => string,
+      thought?: { title: string; detail: string },
+    ) => {
+      for (const call of blocked) {
+        const content = resultFor(call);
+        seenCalls.set(toolCallFingerprint(call.name, call.arguments), content);
+        sinkMessages.push({
+          id: crypto.randomUUID(),
+          role: "tool",
+          content,
+          toolCallId: call.id,
+          toolName: call.name,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      if (blocked.length && sinkEvents && thought) {
+        sinkEvents.push(thoughtEvent(run.id, thought.title, thought.detail));
+      }
+      if (blocked.length && calls.length === blocked.length) forceAnswer = true;
+    };
+    if (conversationLooksLikeError(lastUserText) && !isNonRetryableAzureAuthError(lastUserText)) {
+      const gated = filterCallsForErrorDump(calls);
+      recordBlocked(gated.blocked, blockedErrorDumpResult, {
+        title: "That message is an error",
+        detail: "Fix the cited file. Do not treat the error as a spec to make a website or create work items.",
+      });
+      return gated.allowed;
+    }
+    if (
+      isNonRetryableAzureAuthError(lastUserText) ||
+      runHasNonRetryableSandboxAuth({
+        events: [...(run.events ?? []), ...(sinkEvents ?? [])],
+        messages: [...run.messages, ...sinkMessages],
+      })
+    ) {
+      const gated = filterCallsForFailedSandboxAuth(calls);
+      // #region agent log
+      agentDebugLog({
+        hypothesisId: "G",
+        location: "runtime.ts:applyCallGate",
+        message: "sandbox auth gate",
+        data: {
+          blockedStarts: gated.blocked.map((call) => call.name),
+          userLooksLikeAuthError: isNonRetryableAzureAuthError(lastUserText),
+          callNames: calls.map((call) => call.name),
+        },
+      });
+      // #endregion
+      recordBlocked(gated.blocked, blockedSandboxAuthResult, {
+        title: "Azure sandbox auth failed",
+        detail:
+          "AADSTS700016: the app registration is not in this Entra tenant. Do not retry the coding session. GitHub Pages is not an Azure preview.",
+      });
+      return gated.allowed;
+    }
+    if (buildGateActive()) {
+      const gated = filterCallsForBuildGate(calls);
+      recordBlocked(gated.blocked, blockedBuildGateResult, {
+        title: "Waiting for an accepted plan",
+        detail:
+          "Specialists, GitHub writes, PRs, and coding sessions stay blocked until you Accept the implementation plan.",
+      });
+      return gated.allowed;
+    }
+    if (sandboxWaitActive()) {
+      const gated = filterCallsUntilSandbox(calls);
+      recordBlocked(gated.blocked, blockedSandboxWaitResult, {
+        title: "Waiting for sandbox preview",
+        detail: "Wait for sandboxId and the preview URL before writing files or opening a PR.",
+      });
+      return gated.allowed;
+    }
+    return calls;
+  };
 
   const applyToolCall = async (
     call: AgentToolCall,
@@ -909,6 +1138,63 @@ export async function runAgentTurn(params: {
       toolName: call.name,
       createdAt: new Date().toISOString(),
     });
+    if (
+      (canonical.name === "github_create_repo" || canonical.name === "github_link_repo") &&
+      run.projectId &&
+      !isFailedToolContent(result.content)
+    ) {
+      try {
+        const parsed = JSON.parse(result.content) as {
+          linked?: boolean;
+          owner?: string;
+          repo?: string;
+          githubUrl?: string;
+          htmlUrl?: string;
+          defaultBranch?: string;
+          branch?: string;
+        };
+        if (parsed.linked && parsed.owner && parsed.repo) {
+          context = mergeProjectGithubRepo(context, {
+            projectId: run.projectId,
+            workspaceId: run.workspaceId || "",
+            owner: parsed.owner,
+            repo: parsed.repo,
+            githubUrl: parsed.githubUrl || parsed.htmlUrl,
+            branch: parsed.branch || parsed.defaultBranch,
+          });
+          rebuildSystem();
+        }
+      } catch {
+        /* keep prior context */
+      }
+    }
+    if (!isFailedToolContent(result.content)) {
+      if (canonical.name === "submit_implementation_plan") {
+        let parsedPlan: unknown = null;
+        try {
+          parsedPlan = JSON.parse(result.content);
+        } catch {
+          parsedPlan = null;
+        }
+        const plan = parseImplementationPlan(parsedPlan);
+        if (plan) {
+          run.implementationPlan = { ...plan, status: "accepted" };
+          rebuildSystem();
+        }
+      }
+      if (canonical.name === "coding_session_start") {
+        launchedCodingSessionFromPlan = true;
+        try {
+          const parsed = JSON.parse(result.content) as { sessionId?: string };
+          if (parsed.sessionId) run.sessionId = parsed.sessionId;
+        } catch {
+          /* ignore */
+        }
+      }
+      if (run.implementationPlan && planIsAccepted(run.implementationPlan)) {
+        run.implementationPlan = applyPlanProgressFromTool(run.implementationPlan, canonical.name);
+      }
+    }
     const launch = extractBoardProjectFromTool(canonical.name, toolContent, canonical.arguments);
     if (launch?.projectId) {
       const workspaceId = launch.workspaceId || run.workspaceId || "";
@@ -926,6 +1212,35 @@ export async function runAgentTurn(params: {
         });
       }
     }
+    if (
+      canonical.name === "submit_implementation_plan" &&
+      planIsAccepted(run.implementationPlan) &&
+      !launchedCodingSessionFromPlan &&
+      hasProjectGithubRepo(context, run.projectId)
+    ) {
+      const args = run.implementationPlan
+        ? codingSessionArgsFromPlan(
+            run.implementationPlan,
+            context.workItems.find((item) => item.projectId === run.projectId)?.id ||
+              context.workItems[0]?.id,
+          )
+        : null;
+      if (args) {
+        const startCall: AgentToolCall = {
+          id: crypto.randomUUID(),
+          name: "coding_session_start",
+          arguments: JSON.stringify({ workItemId: args.workItemId, exposePort: args.exposePort }),
+        };
+        nextMessages.push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "",
+          toolCalls: [startCall],
+          createdAt: new Date().toISOString(),
+        });
+        await applyToolCall(startCall, nextMessages, nextEvents, { userAccepted: true });
+      }
+    }
     return pendingWrites;
   };
 
@@ -934,6 +1249,18 @@ export async function runAgentTurn(params: {
     nextEvents: AgentToolEvent[],
     writes: AgentToolCall[],
   ) => {
+    const planCall = writes.find((call) => call.name === "submit_implementation_plan");
+    if (planCall && !planIsAccepted(run.implementationPlan)) {
+      try {
+        const draft = parseImplementationPlan(JSON.parse(planCall.arguments || "{}"));
+        if (draft) {
+          run.implementationPlan = { ...draft, status: "draft" };
+          rebuildSystem();
+        }
+      } catch {
+        /* keep prior plan */
+      }
+    }
     const summary = writes.map((call) => confirmationSummary(call)).join(" · ");
     nextEvents.push({
       id: crypto.randomUUID(),
@@ -1015,17 +1342,30 @@ export async function runAgentTurn(params: {
     const subagentId = crypto.randomUUID();
     const parentPrompt = parentPromptFromMessages(run.messages, run.prompt);
     const specialistTask = buildSpecialistUserMessage({ task, parentPrompt, subject });
-    const events: AgentToolEvent[] = [
-      {
-        id: crypto.randomUUID(),
-        type: "subagent_started",
-        title: `${specialist} started${subject ? ` · ${subject}` : ""}`,
-        detail: (subject ? `${subject}: ${task}` : task).slice(0, 180),
-        payload: { id: subagentId, specialist, parent, task, subject },
-        createdAt: new Date().toISOString(),
-        runId: run.id,
-      },
-    ];
+      const specialistTarget = specialistChatTarget(
+        specialist,
+        { worker: workerTarget, builder: builderTarget, reviewer: reviewerTarget },
+        planAccepted(),
+      );
+      const events: AgentToolEvent[] = [
+        {
+          id: crypto.randomUUID(),
+          type: "subagent_started",
+          title: `${specialist} started${subject ? ` · ${subject}` : ""}`,
+          detail: (subject ? `${subject}: ${task}` : task).slice(0, 180),
+          payload: {
+            id: subagentId,
+            specialist,
+            parent,
+            task,
+            subject,
+            modelName: specialistTarget.displayName,
+            modelId: specialistTarget.modelId,
+          },
+          createdAt: new Date().toISOString(),
+          runId: run.id,
+        },
+      ];
     const pendingWrites: AgentToolCall[] = [];
     const specialistRun: AgentRun = {
       ...run,
@@ -1053,12 +1393,6 @@ export async function runAgentTurn(params: {
         runId: run.id,
       });
       await persistMergedEvents(events);
-      const specialistTarget =
-        specialist === "builder" || specialist === "git"
-          ? builderTarget
-          : specialist === "reviewer"
-            ? reviewerTarget
-            : workerTarget;
       const completion = await chatCompletion(
         specialistTarget,
         {
@@ -1117,7 +1451,10 @@ export async function runAgentTurn(params: {
           refuseUnsolicitedDestructive(call, messages, events);
           continue;
         }
-        if (needsConfirmation(call, permissionType())) {
+        if (
+          needsConfirmation(call, permissionType(), { autonomousCoding: autonomousCoding() }) &&
+          !(planAccepted() && call.name === "coding_session_start")
+        ) {
           pendingWrites.push(call);
           messages.push({
             id: crypto.randomUUID(),
@@ -1131,6 +1468,9 @@ export async function runAgentTurn(params: {
         }
         executable.push(call);
       }
+      const gatedExecutable = applyCallGate(executable, messages, events);
+      executable.length = 0;
+      executable.push(...gatedExecutable);
       const applySpecialistResult = async (
         call: AgentToolCall,
         result: Awaited<ReturnType<typeof executeTool>>,
@@ -1253,6 +1593,64 @@ export async function runAgentTurn(params: {
       if (missing[0]) {
         return pauseForPlugin(missing[0], run.messages, run.events);
       }
+      const ownerChoice = pendingGithubOwnerChoice(run.messages);
+      const chosenOwner = ownerChoice ? matchGithubOwnerReply(lastUserText, ownerChoice.owners) : undefined;
+      if (chosenOwner && conversationWantsGithubCreateRepo(attachHaystack)) {
+        const project = context.projects.find((item) => item.id === run.projectId);
+        const createCall: AgentToolCall = {
+          id: crypto.randomUUID(),
+          name: "github_create_repo",
+          arguments: JSON.stringify(
+            githubCreateRepoArgsFromOwnerChoice({
+              owner: chosenOwner,
+              projectName: project?.name,
+              projectKey: project?.key,
+              private: conversationWantsGithubVisibility(attachHaystack) !== "public",
+            }),
+          ),
+        };
+        const nextMessages: AgentChatMessage[] = [
+          ...run.messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "",
+            toolCalls: [createCall],
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        return pauseForConfirmation(nextMessages, run.events, [createCall]);
+      }
+      const visibility = conversationWantsGithubVisibility(lastUserText);
+      if (visibility && hasGithubAccount(context)) {
+        const attached = projectGithubRepos(context, run.projectId)[0];
+        const fromMessages = latestGithubRepoRef(run.messages);
+        const owner = attached?.owner || fromMessages?.owner;
+        const repo = attached?.repositoryName || fromMessages?.repo;
+        if (owner && repo) {
+          const updateCall: AgentToolCall = {
+            id: crypto.randomUUID(),
+            name: "github_update_repo",
+            arguments: JSON.stringify({
+              owner,
+              repo,
+              private: visibility === "private",
+              visibility,
+            }),
+          };
+          const nextMessages: AgentChatMessage[] = [
+            ...run.messages,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "",
+              toolCalls: [updateCall],
+              createdAt: new Date().toISOString(),
+            },
+          ];
+          return pauseForConfirmation(nextMessages, run.events, [updateCall]);
+        }
+      }
     }
 
     if (resume) {
@@ -1280,6 +1678,9 @@ export async function runAgentTurn(params: {
       });
       if (run.status === "stopped") return run;
       if (resume.decision === "deny") {
+        if (pendingCalls.some((call) => call.name === "submit_implementation_plan") && run.implementationPlan) {
+          run.implementationPlan = { ...run.implementationPlan, status: "rejected" };
+        }
         for (const call of pendingCalls) {
           nextMessages.push({
             id: crypto.randomUUID(),
@@ -1553,8 +1954,23 @@ export async function runAgentTurn(params: {
           });
           return pauseForQuestion(nextMessages, askedEvents, askCall);
         }
-        const gated = allowedCalls.filter((call) => needsConfirmation(call, permissionType()));
-        const autoCalls = allowedCalls.filter((call) => !needsConfirmation(call, permissionType()));
+        const nextEvents = withContextMeter({
+          events: run.events,
+          runId: run.id,
+          system,
+          tools: iterationTools,
+          messages: nextMessages,
+          harness,
+          mcp,
+          maxInputTokens: target.maxInputTokens ?? 0,
+        });
+        const confirmNeeded = (call: AgentToolCall) => {
+          if (planAccepted() && call.name === "coding_session_start") return false;
+          return needsConfirmation(call, permissionType(), { autonomousCoding: autonomousCoding() });
+        };
+        let workingCalls = applyCallGate(allowedCalls, nextMessages, nextEvents);
+        const gated = workingCalls.filter((call) => confirmNeeded(call));
+        const autoCalls = workingCalls.filter((call) => !confirmNeeded(call));
         const rest = autoCalls.filter((call) => call.name !== "delegate_agent");
         const attached = run.messages.flatMap((message) =>
           message.role === "user" ? extractAttachedFiles(message.content) : [],
@@ -1570,16 +1986,6 @@ export async function runAgentTurn(params: {
             ...delegates,
           ];
         }
-        const nextEvents = withContextMeter({
-          events: run.events,
-          runId: run.id,
-          system,
-          tools: iterationTools,
-          messages: nextMessages,
-          harness,
-          mcp,
-          maxInputTokens: target.maxInputTokens ?? 0,
-        });
         if (refusedDestructive.length) {
           nextEvents.push({
             id: crypto.randomUUID(),
@@ -1703,6 +2109,9 @@ export async function runAgentTurn(params: {
           }
         }
 
+        if (pluginGap && isGithubCapability(pluginGap) && hasGithubAccount(context)) {
+          pluginGap = null;
+        }
         if (pluginGap) {
           return pauseForPlugin(pluginGap, nextMessages, nextEvents);
         }
@@ -1714,12 +2123,12 @@ export async function runAgentTurn(params: {
               refuseUnsolicitedDestructive(call, nextMessages, nextEvents);
               return false;
             }
-            return needsConfirmation(call, permissionType());
+            return confirmNeeded(call);
           }),
         ];
         const autoSpecialistWrites = specialistWrites.filter((call) => {
           if (isDestructiveToolCall(call) && !conversationAllowsDelete) return false;
-          return !needsConfirmation(call, permissionType());
+          return !confirmNeeded(call);
         });
         for (const call of autoSpecialistWrites) {
           const stoppedBeforeTool = await haltIfStopped();
@@ -1770,6 +2179,30 @@ export async function runAgentTurn(params: {
             : "Done."),
         createdAt: new Date().toISOString(),
       };
+      const hasAuthFailure =
+        isNonRetryableAzureAuthError(lastUserText) ||
+        runHasNonRetryableSandboxAuth({
+          events: snapshotEvents,
+          messages: run.messages,
+        });
+      const rewritten = rewriteSandboxAuthAssistantContent({
+        userText: lastUserText,
+        assistantText: assistantMessage.content,
+        hasAuthFailure,
+      });
+      // #region agent log
+      agentDebugLog({
+        hypothesisId: "J",
+        location: "runtime.ts:finalAnswer",
+        message: "sandbox auth answer rewrite",
+        data: {
+          hasAuthFailure,
+          rewritten: rewritten !== assistantMessage.content,
+          wantsAzure: /\bazure sandbox\b/i.test(lastUserText),
+        },
+      });
+      // #endregion
+      assistantMessage.content = rewritten;
       const completedMessages = [...run.messages, assistantMessage];
       const facts = factsFromTurn(completedMessages);
       if (facts.length) {

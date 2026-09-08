@@ -144,6 +144,42 @@ export interface McpRuntime {
    * the same name and email the Fairlx UI shows. Optional for test runtimes.
    */
   lookupUsers?: (userIds: string[]) => Promise<McpUserProfile[]>;
+  /**
+   * List GitHub.com repositories for the acting Fairlx user's connected GitHub account.
+   * Distinct from Fairlx-attached project repos in githubRepos.
+   */
+  listGithubAccountRepos?: (input: {
+    userId: string;
+    query?: string;
+  }) => Promise<{
+    connected: boolean;
+    githubLogin?: string;
+    repositories: Array<{
+      name: string;
+      fullName: string;
+      url: string;
+      private: boolean;
+      defaultBranch: string;
+      description?: string | null;
+      source: "github_account";
+    }>;
+    error?: string;
+    hint?: string;
+  }>;
+  /**
+   * Call GitHub REST as the acting Fairlx user. path is like /repos/owner/repo.
+   */
+  githubRequest?: (input: {
+    userId: string;
+    method: string;
+    path: string;
+    body?: unknown;
+  }) => Promise<{
+    ok: boolean;
+    status: number;
+    data?: unknown;
+    error?: string;
+  }>;
   /** Drop member/permission caches after a workspace role change. */
   onMembershipChanged?: (info: { userId: string; workspaceId: string }) => Promise<void>;
   /** Drop project-access caches after a team or team-membership change. */

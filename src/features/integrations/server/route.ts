@@ -308,6 +308,8 @@ const app = new Hono()
         challenge?: string;
         event?: {
           type: string;
+          text?: string;
+          user?: string;
           links?: Array<{ url: string }>;
           channel: string;
           message_ts: string;
@@ -362,6 +364,55 @@ const app = new Hono()
           } catch (err) {
             console.warn("[Slack] unfurl failed:", err);
           }
+        }
+      }
+
+      if (
+        (body.event?.type === "app_mention" || body.event?.type === "message") &&
+        body.event.text &&
+        body.team_id
+      ) {
+        try {
+          const { handleInboundFairlxMention } = await import("@/features/agent/lib/inbound-mentions");
+          const { parseFairlxMention } = await import("@/features/agent/lib/mentions");
+          if (parseFairlxMention(body.event.text)) {
+            const integrations = await adminDb.listDocuments<ProjectIntegration>(
+              DATABASE_ID,
+              PROJECT_INTEGRATIONS_ID,
+              [Query.equal("provider", "slack"), Query.equal("externalTeamId", body.team_id), Query.limit(1)],
+            );
+            const slack = integrations.documents[0];
+            if (slack?.enabled) {
+              const result = await handleInboundFairlxMention({
+                databases: adminDb,
+                source: "slack",
+                text: body.event.text,
+                userId: slack.createdBy || process.env.FAIRLX_AGENT_USER_ID || "fairlx-agent",
+                projectId: slack.projectId,
+                workspaceId: slack.workspaceId,
+              });
+              if (result.ok && slack.channelId) {
+                const token = decryptIntegrationToken(slack.accessToken);
+                if (token) {
+                  await fetch("https://slack.com/api/chat.postMessage", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                      channel: body.event.channel || slack.channelId,
+                      text: result.auto
+                        ? `Fairlx started an autonomous coding session${result.workItemId ? ` for the linked work item` : ""}.`
+                        : `Fairlx attached this thread to the coding session.`,
+                    }),
+                  });
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("[Slack] Fairlx mention failed:", err);
         }
       }
 
@@ -446,10 +497,15 @@ const app = new Hono()
   .post("/discord/interactions", async (c) => {
     const body = await c.req.json<{
       type?: number;
-      data?: { name?: string; options?: Array<{ name: string; value: string }> };
+      data?: {
+        name?: string;
+        options?: Array<{ name: string; value?: string; options?: Array<{ name: string; value?: string }> }>;
+        resolved?: { messages?: Record<string, { content?: string }> };
+      };
       guild_id?: string;
       channel_id?: string;
       token?: string;
+      content?: string;
     }>();
 
     // Discord PING
@@ -518,6 +574,57 @@ const app = new Hono()
           type: 4,
           data: { content: `Created **${workItem.key}**: ${title}` },
         });
+      }
+    }
+
+    if (body.type === 2 || body.type === 3) {
+      try {
+        const { parseFairlxMention, extractDiscordInteractionText } = await import("@/features/agent/lib/mentions");
+        const { handleInboundFairlxMention } = await import("@/features/agent/lib/inbound-mentions");
+        const text = extractDiscordInteractionText(body);
+        if (parseFairlxMention(text)) {
+          const { databases: adminDb } = await createAdminClient();
+          const integrations = await adminDb.listDocuments<ProjectIntegration>(
+            DATABASE_ID,
+            PROJECT_INTEGRATIONS_ID,
+            [
+              Query.equal("provider", "discord"),
+              Query.equal("externalTeamId", body.guild_id || ""),
+              Query.limit(1),
+            ],
+          );
+          let discord = integrations.documents[0];
+          if (!discord && body.channel_id) {
+            const byChannel = await adminDb.listDocuments<ProjectIntegration>(
+              DATABASE_ID,
+              PROJECT_INTEGRATIONS_ID,
+              [Query.equal("provider", "discord"), Query.equal("channelId", body.channel_id), Query.limit(1)],
+            );
+            discord = byChannel.documents[0];
+          }
+          if (discord?.enabled) {
+            const result = await handleInboundFairlxMention({
+              databases: adminDb,
+              source: "discord",
+              text,
+              userId: discord.createdBy || process.env.FAIRLX_AGENT_USER_ID || "fairlx-agent",
+              projectId: discord.projectId,
+              workspaceId: discord.workspaceId,
+            });
+            return c.json({
+              type: 4,
+              data: {
+                content: result.ok
+                  ? result.auto
+                    ? "Fairlx started an autonomous coding session."
+                    : "Fairlx attached this to the coding session."
+                  : result.error || "Fairlx could not start a session. Include a work-item key like WEB-12.",
+              },
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[Discord] Fairlx mention failed:", err);
       }
     }
 
@@ -855,5 +962,80 @@ const app = new Hono()
       });
     }
   );
+
+app.post("/teams/webhook", async (c) => {
+  const { databases: adminDb } = await createAdminClient();
+  const body = await c.req.json<{
+    type?: string;
+    text?: string;
+    channelData?: { tenant?: { id?: string } };
+  }>().catch(() => ({} as { text?: string }));
+  if (body.type === "ping") return c.json({ ok: true });
+  const text = String(body.text || "");
+  const tenantId = body.channelData?.tenant?.id;
+  const integrations = await adminDb.listDocuments<ProjectIntegration>(DATABASE_ID, PROJECT_INTEGRATIONS_ID, [
+    Query.equal("provider", "teams"),
+    ...(tenantId ? [Query.equal("externalTeamId", tenantId)] : []),
+    Query.limit(1),
+  ]);
+  const teams = integrations.documents[0];
+  if (!teams) return c.json({ type: "message", text: "No Fairlx project is linked to this Teams workspace." });
+  const { handleInboundFairlxMention } = await import("@/features/agent/lib/inbound-mentions");
+  const result = await handleInboundFairlxMention({
+    databases: adminDb,
+    source: "teams",
+    text,
+    userId: teams.createdBy || process.env.FAIRLX_AGENT_USER_ID || "fairlx-agent",
+    projectId: teams.projectId,
+    workspaceId: teams.workspaceId,
+  });
+  return c.json({
+    type: "message",
+    text: result.ok
+      ? result.auto
+        ? "Fairlx started an autonomous coding session."
+        : "Fairlx attached this to the coding session."
+      : result.error || "Fairlx could not start a session.",
+  });
+});
+
+app.get("/whatsapp/webhook", async (c) => {
+  const mode = c.req.query("hub.mode");
+  const token = c.req.query("hub.verify_token");
+  const challenge = c.req.query("hub.challenge");
+  if (mode === "subscribe" && token && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+    return c.text(challenge || "", 200);
+  }
+  return c.json({ error: "Forbidden" }, 403);
+});
+
+app.post("/whatsapp/webhook", async (c) => {
+  const { databases: adminDb } = await createAdminClient();
+  const body = await c.req.json<{
+    entry?: Array<{
+      changes?: Array<{ value?: { messages?: Array<{ text?: { body?: string } }>; metadata?: { phone_number_id?: string } } }>;
+    }>;
+  }>().catch(() => ({}));
+  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body || "";
+  const phoneId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id || "";
+  if (!message) return c.json({ ok: true });
+  const integrations = await adminDb.listDocuments<ProjectIntegration>(DATABASE_ID, PROJECT_INTEGRATIONS_ID, [
+    Query.equal("provider", "whatsapp"),
+    ...(phoneId ? [Query.equal("externalTeamId", phoneId)] : []),
+    Query.limit(1),
+  ]);
+  const row = integrations.documents[0];
+  if (!row) return c.json({ ok: true });
+  const { handleInboundFairlxMention } = await import("@/features/agent/lib/inbound-mentions");
+  await handleInboundFairlxMention({
+    databases: adminDb,
+    source: "whatsapp",
+    text: message,
+    userId: row.createdBy || process.env.FAIRLX_AGENT_USER_ID || "fairlx-agent",
+    projectId: row.projectId,
+    workspaceId: row.workspaceId,
+  });
+  return c.json({ ok: true });
+});
 
 export default app;

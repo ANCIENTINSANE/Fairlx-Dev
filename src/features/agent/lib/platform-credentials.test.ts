@@ -6,15 +6,19 @@ import {
   DEEPSEEK_FLASH_MODEL_ID,
   DEEPSEEK_PRO_MODEL_ID,
   FOUNDRY_GPT_LUNA_MODEL_ID,
+  FOUNDRY_GPT_SOL_MODEL_ID,
   GROK_46_MODEL_ID,
   LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID,
   PLATFORM_DEEPSEEK_PROVIDER_ID,
   PLATFORM_FOUNDRY_PROVIDER_ID,
   PLATFORM_XAI_PROVIDER_ID,
+  extraFoundryModels,
   getPlatformDefaultModelId,
   getPlatformModels,
   getPlatformProviders,
   isPlatformGrokEnabled,
+  looksLikeAzureApiKey,
+  resolveExtraFoundrySpec,
 } from "../constants";
 import { defaultAiStoredConfig, mergePlatformAiConfig } from "./defaults";
 import {
@@ -289,6 +293,42 @@ describe("Platform Grok environment-based visibility", () => {
       const gpt54 = models.find((model) => model.id === "gpt-5.4");
       expect(gpt54?.modelId).toBe("gpt-5.4-fairlx");
       expect(gpt54?.isPlatform).toBe(true);
+    });
+
+    it("does not treat an Azure API key as a Sol deployment name", () => {
+      const misplaced = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789key";
+      expect(looksLikeAzureApiKey(misplaced)).toBe(true);
+      expect(looksLikeAzureApiKey("gpt-5.6-sol")).toBe(false);
+      vi.stubEnv("AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT", misplaced);
+      vi.stubEnv("AGENT_DEEPSEEK_AZURE_API_KEY", "test-deepseek-key");
+      const sol = extraFoundryModels().find((model) => model.id === FOUNDRY_GPT_SOL_MODEL_ID);
+      expect(sol?.modelId).toBe("gpt-5.6-sol");
+      expect(resolveExtraFoundrySpec(FOUNDRY_GPT_SOL_MODEL_ID)?.apiKey).toBe(misplaced);
+
+      const config = defaultAiStoredConfig();
+      const target = resolveChatTarget({
+        ...config,
+        mode: "manual",
+        selectedModelId: FOUNDRY_GPT_SOL_MODEL_ID,
+      });
+      expect(target.modelId).toBe(FOUNDRY_GPT_SOL_MODEL_ID);
+      expect(target.model).toBe("gpt-5.6-sol");
+      expect(target.api).toBe("responses");
+      expect(target.headers["api-key"]).toBe(misplaced);
+      expect(target.url).toBe("https://projectfairlx-resource.services.ai.azure.com/openai/v1/responses");
+    });
+
+    it("uses a dedicated Sol API key with the default deployment name", () => {
+      vi.stubEnv("AGENT_FOUNDRY_SOL_AZURE_API_KEY", "sol-only-key");
+      vi.stubEnv("AGENT_DEEPSEEK_AZURE_API_KEY", "test-deepseek-key");
+      const config = defaultAiStoredConfig();
+      const target = resolveChatTarget({
+        ...config,
+        mode: "manual",
+        selectedModelId: FOUNDRY_GPT_SOL_MODEL_ID,
+      });
+      expect(target.model).toBe("gpt-5.6-sol");
+      expect(target.headers["api-key"]).toBe("sol-only-key");
     });
   });
 });

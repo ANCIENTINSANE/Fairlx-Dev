@@ -71,13 +71,17 @@ export function defaultHarnessData(): Pick<
   };
 }
 
-function mergeEnabledTools(saved: string[] | undefined): string[] {
-  const base = !Array.isArray(saved)
-    ? [...DEFAULT_ENABLED_TOOLS]
-    : NEW_AGENT_TOOL_IDS.some((id) => saved.includes(id))
-      ? saved
-      : [...saved, ...NEW_AGENT_TOOL_IDS];
-  return base.includes("web_fetch") ? base : [...base, "web_fetch"];
+export function mergeEnabledTools(saved: string[] | undefined): string[] {
+  const base = Array.isArray(saved) && saved.length ? [...saved] : [...DEFAULT_ENABLED_TOOLS];
+  const have = new Set(base);
+  for (const id of NEW_AGENT_TOOL_IDS) {
+    if (!have.has(id)) {
+      base.push(id);
+      have.add(id);
+    }
+  }
+  if (!have.has("web_fetch")) base.push("web_fetch");
+  return base;
 }
 
 function parsePlugins(raw: unknown): AgentPluginConnection[] {
@@ -106,6 +110,7 @@ export function parseHarness(doc: HarnessDocument): AgentHarness {
   if (settings.permissionType !== "all_access") {
     settings.permissionType = "staged";
   }
+  settings.autonomousCoding = settings.autonomousCoding === true;
 
   const settingsExtras = parseJson<{ gitStaging?: unknown; chatMeta?: unknown; plugins?: unknown }>(
     doc.settingsJson,

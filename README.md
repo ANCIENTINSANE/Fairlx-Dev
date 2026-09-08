@@ -18,18 +18,42 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-07T23:23:16.540Z
+**Last updated:** 2026-09-08T20:46:56.787Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
+**This commit**
+
+- `.env.example`
+- `docs/coding-sessions.md`
+- `packages/fairlx-mcp/src/runtime/types.ts`
+- `packages/fairlx-mcp/src/tools/catalog.ts`
+- `packages/fairlx-mcp/src/tools/github-actions.test.ts`
+- `packages/fairlx-mcp/src/tools/github-actions.ts`
+- `packages/fairlx-mcp/src/tools/github-repo-list.test.ts`
+- `packages/fairlx-mcp/src/tools/index.ts`
+- `packages/fairlx-mcp/src/tools/read.ts`
+- `scripts/database-initialization/collections/agent-coding-environments.ts`
+- `scripts/database-initialization/collections/agent-coding-sessions.ts`
+- `scripts/database-initialization/collections/agent-project-secrets.ts`
+- `scripts/database-initialization/setup-agent-collections.ts`
+- `src/app/oauth/route.ts`
+- `src/config.ts`
+- `src/features/agent/api/use-coding-environment.ts`
+- `src/features/agent/api/use-project-secrets.ts`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-crew-panel.tsx`
+- …and 104 more files
+
 **Latest commits**
 
+- `d496951` chore: bump version to 0.2.111 [skip ci] (2026-09-07)
+- `29fbc0f` Merge pull request #311 from Happyesss/main (2026-09-08)
+- `2bfcffb` chore: bump version to 0.2.110 [skip ci] (2026-09-07)
 - `2131661` chore: bump version to 0.2.109 [skip ci] (2026-09-07)
 - `6281509` feat: implement agent personal stand-in system with voice training, approval workflows, and visual face animations (2026-09-08)
 - `0c1ae00` chore: bump version to 0.2.108 [skip ci] (2026-09-07)
-- `3a80594` Merge pull request #310 from ANCIENTINSANE/main (2026-09-08)
-- `7c00a2b` feat: run GitHub code actions as the user and isolate coding sessions (2026-09-08)
-- `b5cda5c` chore: bump version to 0.2.107 [skip ci] (2026-09-06)
 <!-- docs:latest:end -->
 
 ---

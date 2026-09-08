@@ -1,8 +1,9 @@
-import { ID, Query, type Databases, type Models } from "node-appwrite";
+import { ID, Query, type Databases, type Models, type Users } from "node-appwrite";
 
 import { DATABASE_ID, GITHUB_ACCOUNTS_ID } from "@/config";
 
 import { decryptToken, encryptToken, isEncryptionConfigured } from "./encryption";
+import { lookupAppwriteGithubAuth, isGithubProvider } from "./github-appwrite-auth";
 import { GitHubAPI } from "./github-api";
 
 /** Classic OAuth App scopes: private repo R/W (includes create), list orgs, manage repo webhooks. */
@@ -23,6 +24,8 @@ export type GithubAccountDoc = Models.Document & {
 
 export type GithubAccountPublic = {
   connected: boolean;
+  /** True when Fairlx has a GitHub API token (OAuth or PAT) for repo read/write. */
+  hasRepoAccess: boolean;
   githubLogin?: string;
   githubUserId?: string;
   authMethod?: GithubAuthMethod;
@@ -81,10 +84,11 @@ export function decodeStoredGithubToken(stored?: string | null): string {
 
 function toPublic(doc: GithubAccountDoc | null): GithubAccountPublic {
   if (!doc || doc.status === "disconnected" || !doc.accessToken) {
-    return { connected: false };
+    return { connected: false, hasRepoAccess: false };
   }
   return {
     connected: true,
+    hasRepoAccess: true,
     githubLogin: doc.githubLogin,
     githubUserId: doc.githubUserId,
     authMethod: doc.authMethod,
@@ -107,18 +111,43 @@ export async function getGithubAccountDoc(
   }
 }
 
+async function loadAdminUsers(): Promise<Users | null> {
+  try {
+    const { createAdminClient } = await import("@/lib/appwrite");
+    return (await createAdminClient()).users;
+  } catch {
+    return null;
+  }
+}
+
 export async function getGithubAccountPublic(
   databases: Databases,
   userId: string,
+  users?: Users,
 ): Promise<GithubAccountPublic> {
   const doc = await getGithubAccountDoc(databases, userId);
-  return toPublic(doc);
+  const stored = toPublic(doc);
+  if (stored.hasRepoAccess) return stored;
+
+  const appwriteUsers = users ?? (await loadAdminUsers());
+  if (!appwriteUsers) return stored;
+  const found = await lookupAppwriteGithubAuth(appwriteUsers, userId);
+  if (!found.identityLinked && !found.token) return stored;
+
+  return {
+    connected: true,
+    hasRepoAccess: false,
+    githubLogin: stored.githubLogin,
+    githubUserId: found.githubUserId || stored.githubUserId,
+    authMethod: "oauth",
+  };
 }
 
 export async function resolveUserGithubToken(
   databases: Databases,
   userId: string,
   _projectId?: string,
+  users?: Users,
 ): Promise<ResolvedGithubToken | null> {
   const account = await getGithubAccountDoc(databases, userId);
   const accountToken = decodeStoredGithubToken(account?.accessToken);
@@ -129,7 +158,39 @@ export async function resolveUserGithubToken(
       githubLogin: account?.githubLogin,
     };
   }
-  return null;
+
+  const appwriteUsers = users ?? (await loadAdminUsers());
+  if (!appwriteUsers) return null;
+  const found = await lookupAppwriteGithubAuth(appwriteUsers, userId);
+  if (!found.token) return null;
+
+  const persisted = await upsertGithubAccount(databases, {
+    userId,
+    token: found.token,
+    authMethod: "oauth",
+    githubUserId: found.githubUserId,
+  });
+  return {
+    token: found.token,
+    source: "account",
+    githubLogin: persisted?.githubLogin,
+  };
+}
+
+export async function importGithubAccountFromAppwriteSession(
+  databases: Databases,
+  userId: string,
+  session: { provider?: string; providerAccessToken?: string; providerUid?: string },
+): Promise<GithubAccountDoc | null> {
+  if (!isGithubProvider(session.provider) || !(session.providerAccessToken || "").trim()) {
+    return null;
+  }
+  return upsertGithubAccount(databases, {
+    userId,
+    token: session.providerAccessToken.trim(),
+    authMethod: "oauth",
+    githubUserId: session.providerUid,
+  });
 }
 
 /** Token for project-level GitHub ops (webhooks/sync). Uses the person who attached the repo, never a copied project token. */

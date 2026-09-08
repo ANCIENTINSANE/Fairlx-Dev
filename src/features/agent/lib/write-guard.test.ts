@@ -37,6 +37,8 @@ describe("isWriteToolCall", () => {
     expect(isWriteToolCall(call("github_write_file", { path: "a.ts", content: "x" }))).toBe(true);
     expect(isWriteToolCall(call("github_open_pr", { title: "Fix", head: "fairlx/x" }))).toBe(true);
     expect(isWriteToolCall(call("github_create_repo", { name: "app" }))).toBe(true);
+    expect(isWriteToolCall(call("github_update_repo", { owner: "acme", repo: "app", private: true }))).toBe(true);
+    expect(isWriteToolCall(call("github_link_repo", { owner: "ANCIENTINSANE", repo: "Fairlx-Dev" }))).toBe(true);
     expect(isWriteToolCall(call("github_read_file", { path: "a.ts" }))).toBe(false);
   });
 
@@ -90,11 +92,34 @@ describe("write risk and permission type", () => {
     expect(writeRiskLevel(call("github_merge_pr", { pullNumber: 12 }))).toBe("privileged");
     expect(writeRiskLevel(call("github_create_repo", { name: "agent-harness" }))).toBe("privileged");
     expect(confirmationSummary(call("github_create_repo", { name: "agent-harness", owner: "acme" }))).toBe(
-      "Create GitHub repository acme/agent-harness?",
+      "Create private GitHub repository acme/agent-harness?",
+    );
+    expect(confirmationSummary(call("github_update_repo", { owner: "ANCIENTINSANE", repo: "agent-harness", private: true }))).toBe(
+      "Make ANCIENTINSANE/agent-harness private?",
+    );
+    expect(writeRiskLevel(call("github_link_repo", { owner: "ANCIENTINSANE", repo: "Fairlx-Dev" }))).toBe("privileged");
+    expect(confirmationSummary(call("github_link_repo", { owner: "ANCIENTINSANE", repo: "Fairlx-Dev" }))).toBe(
+      "Attach ANCIENTINSANE/Fairlx-Dev to this project?",
     );
     expect(writeRiskLevel(call("coding_session_start", { workItemId: "WEB-1" }))).toBe("privileged");
     expect(needsConfirmation(call("coding_session_start", { workItemId: "WEB-1" }), "staged")).toBe(true);
     expect(needsConfirmation(call("coding_session_start", { workItemId: "WEB-1" }), "all_access")).toBe(false);
+    expect(writeRiskLevel(call("submit_implementation_plan", { title: "Ship CLI" }))).toBe("privileged");
+    expect(needsConfirmation(call("submit_implementation_plan", { title: "Ship CLI" }), "staged")).toBe(true);
+    expect(
+      needsConfirmation(call("submit_implementation_plan", { title: "Ship CLI" }), "staged", {
+        autonomousCoding: true,
+      }),
+    ).toBe(false);
+    expect(
+      needsConfirmation(call("coding_session_start", { workItemId: "WEB-1" }), "staged", { autonomousCoding: true }),
+    ).toBe(false);
+    expect(needsConfirmation(call("fairlx_doc_create", { title: "PRD" }), "staged", { autonomousCoding: true })).toBe(
+      true,
+    );
+    expect(confirmationSummary(call("submit_implementation_plan", { title: "Ship agent-harness" }))).toBe(
+      "Accept implementation plan: Ship agent-harness?",
+    );
     expect(writeRiskLevel(call("fairlx_work_item_delete", { workItemId: "x" }))).toBe("privileged");
     expect(writeRiskLevel(call("fairlx_workspace_member_add", { name: "Ada" }))).toBe("privileged");
     expect(writeRiskLevel(call("fairlx_doc_create", { title: "PRD" }))).toBe("privileged");

@@ -7,6 +7,7 @@ import {
   PLATFORM_FOUNDRY_PROVIDER_ID,
   PLATFORM_XAI_PROVIDER_ID,
   isPlatformGrokEnabled,
+  resolveExtraFoundrySpec,
 } from "../constants";
 import type { AgentModel, AgentProviderStored } from "../types";
 import type { AgentLlmApi } from "./openai-responses";
@@ -243,26 +244,9 @@ export function overlayPlatformModel(model: AgentModel): AgentModel {
   if (model.id === DEEPSEEK_PRO_MODEL_ID) {
     return withWorkingContextWindow({ ...model, modelId: getPlatformDeepseekProDeployment() });
   }
-  if (model.id === "gpt-5.4" && process.env.AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT?.trim()) {
-    return withWorkingContextWindow({ ...model, modelId: process.env.AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT.trim() });
-  }
-  if (model.id === "gpt-5.5" && process.env.AGENT_FOUNDRY_GPT55_AZURE_DEPLOYMENT?.trim()) {
-    return withWorkingContextWindow({ ...model, modelId: process.env.AGENT_FOUNDRY_GPT55_AZURE_DEPLOYMENT.trim() });
-  }
-  if (model.id === "gpt-5.6-sol" && process.env.AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT?.trim()) {
-    return withWorkingContextWindow({ ...model, modelId: process.env.AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT.trim() });
-  }
-  if (model.id === "claude-sonnet" && process.env.AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_DEPLOYMENT?.trim()) {
-    return withWorkingContextWindow({
-      ...model,
-      modelId: process.env.AGENT_FOUNDRY_CLAUDE_SONNET_AZURE_DEPLOYMENT.trim(),
-    });
-  }
-  if (model.id === "claude-opus" && process.env.AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_DEPLOYMENT?.trim()) {
-    return withWorkingContextWindow({
-      ...model,
-      modelId: process.env.AGENT_FOUNDRY_CLAUDE_OPUS_AZURE_DEPLOYMENT.trim(),
-    });
+  const extra = resolveExtraFoundrySpec(model.id);
+  if (extra) {
+    return withWorkingContextWindow({ ...model, modelId: extra.deployment });
   }
   if (model.isPlatform) return withWorkingContextWindow(model);
   return model;

@@ -6,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -29,7 +30,9 @@ export function AgentPermissionPicker({ className }: { className?: string }) {
   const { data: harness } = useGetAgentHarness();
   const updateHarness = useUpdateAgentHarness();
   const current: AgentPermissionType = harness?.settings.permissionType === "all_access" ? "all_access" : "staged";
+  const autonomousCoding = harness?.settings.autonomousCoding === true;
   const selected = OPTIONS.find((item) => item.id === current) ?? OPTIONS[0]!;
+  const label = current === "staged" && autonomousCoding ? "Staged · auto" : selected.label;
 
   return (
     <DropdownMenu>
@@ -42,8 +45,12 @@ export function AgentPermissionPicker({ className }: { className?: string }) {
           )}
           title={selected.hint}
         >
-          {current === "all_access" ? <ShieldCheck className="size-3.5" /> : <Shield className="size-3.5" />}
-          <span className="max-w-[110px] truncate">{selected.label}</span>
+          {current === "all_access" || autonomousCoding ? (
+            <ShieldCheck className="size-3.5" />
+          ) : (
+            <Shield className="size-3.5" />
+          )}
+          <span className="max-w-[110px] truncate">{label}</span>
           <ChevronDown className="size-3 opacity-60 shrink-0" />
         </button>
       </DropdownMenuTrigger>
@@ -61,6 +68,22 @@ export function AgentPermissionPicker({ className }: { className?: string }) {
             {current === item.id ? <Check className="size-3.5 text-primary mt-0.5 shrink-0" /> : null}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            updateHarness.mutate({ json: { settings: { autonomousCoding: !autonomousCoding } } });
+          }}
+          className="flex items-start justify-between gap-2 text-xs cursor-pointer py-2"
+        >
+          <span>
+            <span className="font-medium block">Autonomous coding</span>
+            <span className="text-muted-foreground">
+              Skip extra Accepts on plan, start, PR, and merge. Default stays staged. Also set by @Fairlx-auto.
+            </span>
+          </span>
+          {autonomousCoding ? <Check className="size-3.5 text-primary mt-0.5 shrink-0" /> : null}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

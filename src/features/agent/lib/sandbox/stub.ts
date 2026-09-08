@@ -41,6 +41,15 @@ export class StubSandboxDriver implements SandboxDriver {
     if (/\bgit push\b/.test(lower)) {
       return { stdout: "Pushed (stub). Connect Azure sandboxes for a real remote.", stderr: "", exitCode: 0 };
     }
+    if (/\btest -f\b/.test(lower)) {
+      return { stdout: "no", stderr: "", exitCode: 0 };
+    }
+    if (/\b(npm (ci|install)|pnpm install|yarn install|bun install|pip install|poetry install|go mod)\b/.test(lower)) {
+      return { stdout: "Install recorded in stub sandbox (not executed on host).", stderr: "", exitCode: 0 };
+    }
+    if (/\bnohup\b|\bfairlx_health_ok\b|\bfairlx_health_fail\b/.test(lower)) {
+      return { stdout: "FAIRLX_HEALTH_FAIL", stderr: "Stub driver never starts a live server.", exitCode: 1 };
+    }
     if (/\bnpm (test|run)|pnpm test|vitest|pytest\b/.test(lower)) {
       return { stdout: "Tests recorded in stub sandbox (not executed on host).", stderr: "", exitCode: 0 };
     }

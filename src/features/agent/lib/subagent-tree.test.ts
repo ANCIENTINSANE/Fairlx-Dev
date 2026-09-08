@@ -194,4 +194,35 @@ describe("subagent tree", () => {
     expect(crew.children[0]?.modelName).toBe("DeepSeek V4 Pro");
     expect(crew.children[0]?.calls).toBe(1);
   });
+
+  it("labels specialists with the actual model from start payload or hints", () => {
+    const crew = buildAgentCrew(
+      [
+        event("subagent_started", "builder started", {
+          id: "b1",
+          specialist: "builder",
+          parent: "orchestrator",
+          task: "Implement CLI",
+          modelName: "GPT-5.6 Sol",
+          modelId: "gpt-5.6-sol",
+        }),
+        event("subagent_started", "planner started", {
+          id: "p1",
+          specialist: "planner",
+          parent: "orchestrator",
+          task: "Write the plan",
+        }),
+      ],
+      "running",
+      {
+        workerModelName: "DeepSeek V4 Flash",
+        builderModelName: "GPT-5.6 Sol",
+        reviewerModelName: "GPT-5.6 Luna",
+      },
+    );
+    expect(crew.children.find((item) => item.specialist === "builder")?.modelName).toBe("GPT-5.6 Sol");
+    expect(crew.children.find((item) => item.specialist === "planner")?.modelName).toBe("DeepSeek V4 Flash");
+    expect(crew.roster.find((item) => item.specialist === "builder")?.modelName).toBe("GPT-5.6 Sol");
+    expect(crew.roster.find((item) => item.specialist === "reviewer")?.modelName).toBe("GPT-5.6 Luna");
+  });
 });

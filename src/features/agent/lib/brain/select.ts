@@ -1,4 +1,5 @@
 import { isOrgInviteIntent, isSendMailIntent } from "../../plugins/catalog";
+import { conversationLooksLikeError } from "../implementation-plan";
 
 export type SelectableTool = {
   type: "function";
@@ -7,6 +8,7 @@ export type SelectableTool = {
 
 const ALWAYS = [
   "delegate_agent",
+  "submit_implementation_plan",
   "request_capability",
   "search_harness",
   "persist_memory",
@@ -49,6 +51,23 @@ export function isDocResearchQuery(query: string): boolean {
 type Bucket = { pattern: RegExp; names: string[] };
 
 const BUCKETS: Bucket[] = [
+  {
+    pattern: /\b(start building|build the project|build this|implement|scaffold|coding session)\b/i,
+    names: [
+      "submit_implementation_plan",
+      "github_list_files",
+      "github_read_file",
+      "fairlx_sprint_list",
+      "fairlx_work_item_list",
+      "fairlx_project_get",
+      "coding_session_start",
+      "coding_session_exec",
+      "coding_session_status",
+      "coding_session_implement",
+      "coding_session_browser",
+      "delegate_agent",
+    ],
+  },
   {
     pattern: /\b(send|draft|compose).{0,80}(e-?mail|mail)|outlook|gmail|resend|smtp|inbox\b/i,
     names: [
@@ -94,13 +113,27 @@ const BUCKETS: Bucket[] = [
       "coding_session_start",
       "coding_session_exec",
       "coding_session_status",
+      "coding_session_implement",
+      "coding_session_browser",
       "github_open_pr",
       "github_merge_pr",
       "terminal",
     ],
   },
   {
-    pattern: /\b(pr\b|pull request|commit|branch|repo|repository|diff|github|edit the code|patch)\b/i,
+    pattern: /\b(connect|link|attach)\b.{0,80}\b(repo|repository|github)\b|\b(repo|repository|github)\b.{0,80}\b(connect|link|attach)\b/i,
+    names: ["github_link_repo", "github_list_repos", "github_account_status", "git_status"],
+  },
+  {
+    pattern: /\b(make it private|make it public|visibility|private repo|public repo)\b|\b(private|public)\b.{0,40}\b(repo|repository|github)\b|\b(repo|repository|github)\b.{0,40}\b(private|public|visibility)\b/i,
+    names: ["github_update_repo", "github_list_repos", "github_account_status", "github_create_repo"],
+  },
+  {
+    pattern: /\b(issue|issues|bug report)\b/i,
+    names: ["github_list_issues", "github_create_issue", "github_close_issue", "github_comment_issue"],
+  },
+  {
+    pattern: /\b(pr\b|pull request|commit|branch|repo|repository|diff|github|edit the code|patch|readme)\b/i,
     names: [
       "git_status",
       "github_list_files",
@@ -109,11 +142,24 @@ const BUCKETS: Bucket[] = [
       "github_open_pr",
       "github_merge_pr",
       "github_account_status",
+      "github_list_repos",
       "github_list_owners",
       "github_create_repo",
+      "github_link_repo",
+      "github_update_repo",
+      "github_delete_file",
+      "github_list_prs",
+      "github_list_issues",
+      "github_create_issue",
+      "github_close_issue",
+      "github_comment_issue",
+      "github_list_branches",
+      "github_list_releases",
       "coding_session_start",
       "coding_session_exec",
       "coding_session_status",
+      "coding_session_implement",
+      "coding_session_browser",
       "code_inspect",
       "git_stage",
       "git_unstage",
@@ -222,9 +268,18 @@ export function wantedToolNames(query: string): Set<string> {
   }
   const sendMail = isSendMailIntent(query);
   const invite = isOrgInviteIntent(query);
+  const pastedError = conversationLooksLikeError(query);
+  if (pastedError) {
+    wanted.add("github_list_files");
+    wanted.add("github_read_file");
+    wanted.add("github_write_file");
+    wanted.add("code_inspect");
+    wanted.add("coding_session_status");
+  }
   for (const bucket of BUCKETS) {
     const isMailBucket = bucket.names.includes("mail_send");
     if (isMailBucket && !sendMail) continue;
+    if (pastedError && bucket.names.includes("coding_session_start")) continue;
     if (bucket.pattern.test(query) || (invite && bucket.names.includes("fairlx_workspace_member_add"))) {
       for (const name of bucket.names) {
         if (name === "mail_send" && !sendMail) continue;
@@ -241,7 +296,7 @@ export function wantedToolNames(query: string): Set<string> {
 export function selectToolsForTurn<T extends SelectableTool>(
   tools: T[],
   query: string,
-  options?: { hasGithubRepo?: boolean; hasProject?: boolean },
+  options?: { hasGithubRepo?: boolean; hasGithubAccount?: boolean; hasProject?: boolean },
 ): T[] {
   if (!tools.length) return tools;
   const wanted = wantedToolNames(query);
@@ -252,6 +307,26 @@ export function selectToolsForTurn<T extends SelectableTool>(
     wanted.add("fairlx_sprint_plan");
     wanted.add("fairlx_workspace_list");
   }
+  if (options?.hasGithubAccount) {
+    wanted.add("github_list_repos");
+    wanted.add("github_account_status");
+    wanted.add("github_list_owners");
+    wanted.add("github_create_repo");
+    wanted.add("github_link_repo");
+    wanted.add("github_update_repo");
+    wanted.add("github_delete_file");
+    wanted.add("github_write_file");
+    wanted.add("github_list_prs");
+    wanted.add("github_list_issues");
+    wanted.add("github_create_issue");
+    wanted.add("github_close_issue");
+    wanted.add("github_comment_issue");
+    wanted.add("github_list_branches");
+    wanted.add("github_list_releases");
+    wanted.add("git_status");
+    wanted.add("github_list_files");
+    wanted.add("github_read_file");
+  }
   if (options?.hasGithubRepo) {
     wanted.add("github_list_files");
     wanted.add("github_read_file");
@@ -259,11 +334,24 @@ export function selectToolsForTurn<T extends SelectableTool>(
     wanted.add("github_open_pr");
     wanted.add("github_merge_pr");
     wanted.add("github_account_status");
+    wanted.add("github_list_repos");
     wanted.add("github_list_owners");
     wanted.add("github_create_repo");
+    wanted.add("github_link_repo");
+    wanted.add("github_update_repo");
+    wanted.add("github_delete_file");
+    wanted.add("github_list_prs");
+    wanted.add("github_list_issues");
+    wanted.add("github_create_issue");
+    wanted.add("github_close_issue");
+    wanted.add("github_comment_issue");
+    wanted.add("github_list_branches");
+    wanted.add("github_list_releases");
     wanted.add("coding_session_start");
     wanted.add("coding_session_exec");
     wanted.add("coding_session_status");
+    wanted.add("coding_session_implement");
+    wanted.add("coding_session_browser");
     wanted.add("security_review");
   }
   const skipGithubRead =

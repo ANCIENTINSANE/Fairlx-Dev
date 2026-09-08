@@ -37,10 +37,14 @@ describe("formatAgentTurnError", () => {
     );
   });
 
-  it("maps fetch failed to a retryable provider drop", () => {
-    expect(formatAgentTurnError(new Error("fetch failed"))).toBe(
-      "The model provider connection dropped. Retry the same message.",
-    );
+  it("explains missing Azure deployments when the env var was an API key", () => {
+    expect(
+      formatAgentTurnError(
+        new Error(
+          "The API deployment for this resource does not exist. If you created the deployment within the last 5 minutes, please wait a moment and try again.",
+        ),
+      ),
+    ).toMatch(/deployment name \(for example gpt-5\.6-sol\), not an API key/i);
   });
 
   it("maps DeepSeek Azure rate limits to a retryable message", () => {

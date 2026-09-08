@@ -37,6 +37,7 @@ export async function setupAgentCodingSessions(
   await ensureStringAttribute(databases, databaseId, COLLECTION_ID, "orchestratorModelId", 256, false);
   await ensureStringAttribute(databases, databaseId, COLLECTION_ID, "workerModelId", 256, false);
   await ensureStringAttribute(databases, databaseId, COLLECTION_ID, "eventsJson", 1_048_576, true);
+  await ensureStringAttribute(databases, databaseId, COLLECTION_ID, "metaJson", 16_384, false);
 
   await waitForAttributesAvailable(databases, databaseId, COLLECTION_ID, [
     "userId",

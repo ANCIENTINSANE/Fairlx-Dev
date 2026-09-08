@@ -36,14 +36,14 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   coding_session_start: {
     description:
-      "Start or resume an Azure coding session for a work item: clone the linked repo in an isolated sandbox and branch fairlx/{key}. Privileged — waits for Accept unless all_access. Never runs git on the Fairlx host.",
+      "Start or resume an Azure coding session for a work item: clone the linked repo in an isolated sandbox, branch fairlx/{key}, and wait for sandboxId/previewUrl. Never runs git on the Fairlx host. After Accept this runs without a second confirmation.",
     parameters: {
       type: "object",
       properties: {
         workItemId: { type: "string", description: "Work item id or key (WEB-12)." },
         repoId: { type: "string" },
         baseBranch: { type: "string" },
-        exposePort: { type: "number", description: "Optional port to expose for Preview." },
+        exposePort: { type: "number", description: "Port to expose after the app is healthy. Default 3000." },
       },
       required: ["workItemId"],
     },
@@ -61,10 +61,89 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   coding_session_status: {
-    description: "Get coding session status, preview URL, PR, and recent sandbox events.",
+    description:
+      "Get coding session status, sandboxId, preview URL (previewLive vs stub), coding agent, artifacts, PR, and job progress. Call this directly — do not wrap it in mcp_call.",
     parameters: {
       type: "object",
-      properties: { sessionId: { type: "string" }, workItemId: { type: "string" } },
+      properties: {
+        sessionId: { type: "string" },
+        workItemId: { type: "string" },
+        exposePort: { type: "number", description: "Expose this port on an already-running sandbox." },
+      },
+    },
+  },
+  coding_session_implement: {
+    description:
+      "Run Claude Code or Codex inside the Azure sandbox against /workspace. Prefer this over github_write_file. Fails clearly if those CLIs have no credentials; specialists may exec in the sandbox as fallback and must not dump GitHub files while the sandbox is bound.",
+    parameters: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "Implementation instructions for the sandbox coding agent." },
+        task: { type: "string" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  coding_session_browser: {
+    description:
+      "Open the running sandbox app in a sandbox-side browser and capture a screenshot (recording when available).",
+    parameters: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  submit_implementation_plan: {
+    description:
+      "Submit a phased implementation plan for build/change work. Waits for Accept. Do not write GitHub files, open PRs, start a coding session, or fan out specialists until the user Accepts this plan.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        summary: { type: "string" },
+        phases: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              tasks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    specialist: {
+                      type: "string",
+                      enum: ["planner", "researcher", "builder", "git", "reviewer", "ops", "security", "workflow", "tester"],
+                    },
+                  },
+                  required: ["title"],
+                },
+              },
+            },
+            required: ["title", "tasks"],
+          },
+        },
+        repo: {
+          type: "object",
+          properties: {
+            owner: { type: "string" },
+            name: { type: "string" },
+            exists: { type: "boolean" },
+          },
+        },
+        execution: {
+          type: "object",
+          properties: {
+            codingSession: { type: "boolean" },
+            exposePort: { type: "number" },
+            workItemId: { type: "string" },
+          },
+        },
+      },
+      required: ["title", "phases"],
     },
   },
   github_merge_pr: {
@@ -103,20 +182,162 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
       "List the connected GitHub personal login and organizations. If more than one owner is returned, ask the user where to create the repository before github_create_repo.",
     parameters: { type: "object", properties: {} },
   },
+  github_list_repos: {
+    description:
+      "Search this user's connected GitHub account for repositories (GitHub.com), then show Fairlx-attached project repos. fairlx_github_repo_list only returns Fairlx attachments — an empty attachment list does not mean GitHub is disconnected. Pass query to filter by name (e.g. Fairlx). To attach one to this project, call github_link_repo. Then github_list_files with repoId owner/repo.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Optional name filter, e.g. Fairlx." },
+      },
+    },
+  },
   github_create_repo: {
     description:
-      "Create a GitHub repository with a README (autoInit) under the user's personal account or an organization, then link it to this Fairlx project. Privileged — waits for Accept. If owners.length > 1 and owner is omitted, returns needsOwnerChoice instead of creating.",
+      "Create a new GitHub repository with a README (autoInit) under the user's personal account or an organization, then link it to this Fairlx project. Defaults to private. Privileged — waits for Accept. If they asked to attach an existing repo (Fairlx-Dev, owner/repo), use github_link_repo instead. If owners.length > 1 and owner is omitted, returns needsOwnerChoice instead of creating. To change visibility on an existing repo, use github_update_repo.",
     parameters: {
       type: "object",
       properties: {
         name: { type: "string", description: "Repository name." },
         owner: { type: "string", description: "GitHub login or organization. Required when the user has orgs." },
         description: { type: "string" },
-        private: { type: "boolean" },
+        private: { type: "boolean", description: "Private repository. Defaults true. Pass false only if they asked for a public repo." },
         autoInit: { type: "boolean", description: "Create with a README. Defaults true." },
         linkToProject: { type: "boolean", description: "Link the new repo to this Fairlx project. Defaults true." },
       },
       required: ["name"],
+    },
+  },
+  github_link_repo: {
+    description:
+      "Attach an existing GitHub.com repository to this Fairlx project (identity only). Use when the user says connect/link/attach a repo such as ANCIENTINSANE/Fairlx-Dev. Do not create a new repository. Do not call request_capability if GitHub is already connected. Privileged — waits for Accept.",
+    parameters: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "GitHub owner or org, e.g. ANCIENTINSANE." },
+        repo: { type: "string", description: "Repository name, e.g. Fairlx-Dev." },
+        repoId: { type: "string", description: "owner/repo or GitHub URL. Alternative to owner + repo." },
+        branch: { type: "string", description: "Default branch. Optional; uses GitHub default when known." },
+      },
+    },
+  },
+  github_update_repo: {
+    description:
+      "Update a GitHub repository the user can admin: visibility (private/public), description, or homepage. Use this when they say make it private, make it public, or change visibility. Do not say this action is unavailable. Privileged — waits for Accept. Pass owner and repo, repoId owner/repo, or omit to use the attached project repo.",
+    parameters: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo: { type: "string" },
+        repoId: { type: "string", description: "owner/repo or attached repo id." },
+        private: { type: "boolean", description: "true for private, false for public." },
+        visibility: { type: "string", enum: ["private", "public"] },
+        description: { type: "string" },
+        homepage: { type: "string" },
+      },
+    },
+  },
+  github_delete_file: {
+    description: "Delete a file on a GitHub branch. Privileged — waits for Accept.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        message: { type: "string" },
+        branch: { type: "string" },
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
+      required: ["path"],
+    },
+  },
+  github_list_prs: {
+    description: "List pull requests in a GitHub repository.",
+    parameters: {
+      type: "object",
+      properties: {
+        state: { type: "string", enum: ["open", "closed", "all"] },
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
+    },
+  },
+  github_list_issues: {
+    description: "List GitHub issues (not pull requests) in a repository.",
+    parameters: {
+      type: "object",
+      properties: {
+        state: { type: "string", enum: ["open", "closed", "all"] },
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
+    },
+  },
+  github_create_issue: {
+    description: "Create a GitHub issue. Privileged — waits for Accept.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        body: { type: "string" },
+        labels: { type: "array", items: { type: "string" } },
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
+      required: ["title"],
+    },
+  },
+  github_close_issue: {
+    description: "Close a GitHub issue. Privileged — waits for Accept.",
+    parameters: {
+      type: "object",
+      properties: {
+        issueNumber: { type: "number" },
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
+      required: ["issueNumber"],
+    },
+  },
+  github_comment_issue: {
+    description: "Comment on a GitHub issue or pull request. Privileged — waits for Accept.",
+    parameters: {
+      type: "object",
+      properties: {
+        issueNumber: { type: "number" },
+        body: { type: "string" },
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
+      required: ["issueNumber", "body"],
+    },
+  },
+  github_list_branches: {
+    description: "List branches in a GitHub repository.",
+    parameters: {
+      type: "object",
+      properties: {
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
+    },
+  },
+  github_list_releases: {
+    description: "List GitHub releases for a repository.",
+    parameters: {
+      type: "object",
+      properties: {
+        repoId: { type: "string" },
+        owner: { type: "string" },
+        repo: { type: "string" },
+      },
     },
   },
   file_search: {
@@ -212,7 +433,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   delegate_agent: {
     description:
-      "Delegate one subject to a specialist. Independent work MUST be multiple delegate_agent calls in the same step so they run in parallel. Set subject to a spec heading (one module). Planner = timeline; builder = create that subject's work; ops = assign a percent. Do not delegate once per PRD/FRD/BRD — documentation is one builder or the orchestrator.",
+      "Delegate one subject to a specialist. For build/change work, only the planner may run before the user Accepts submit_implementation_plan. After Accept, independent work MUST be multiple delegate_agent calls in the same step so they run in parallel inside the coding session. Set subject to a plan task or spec heading.",
     parameters: {
       type: "object",
       properties: {
@@ -250,7 +471,8 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   git_status: {
-    description: "Show linked GitHub repositories and the Agent git staging buffer.",
+    description:
+      "Show Fairlx-attached GitHub repositories, this user's GitHub.com repositories when their account is connected, and the Agent git staging buffer. Empty Fairlx attachments does not mean GitHub is disconnected.",
     parameters: { type: "object", properties: {} },
   },
   git_stage: {
@@ -303,7 +525,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   ask_user: {
     description:
-      "Ask the user one question in chat and pause until they answer. Invent 3 or 4 short option labels. The UI always shows a Type your own text box as the last option. Call this whenever you need a decision during training or Personal mode. Do not mention the tool name.",
+      "Ask the user one question in chat and pause until they answer. Invent 3 short option labels. The UI shows them as radio choices and always adds Type your own as the last option, where the user can type something else. Do not add an Other option. Do not mention the tool name.",
     parameters: {
       type: "object",
       properties: {
@@ -311,11 +533,11 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
         options: {
           type: "array",
           items: { type: "string" },
-          description: "3 or 4 invented short labels the user can tap. Never a hardcoded set.",
+          description: "Exactly 3 invented short labels. Optional em-dash description after the title. Never a hardcoded set. Never include Other or Type your own.",
         },
         allowCustom: {
           type: "boolean",
-          description: "Always true. The UI shows an inline custom text box.",
+          description: "Always true. The UI always adds Type your own as the last radio option.",
         },
       },
       required: ["question", "options"],
@@ -347,7 +569,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   request_capability: {
     description:
-      "Request the user connect a missing plugin. Use for email.send when mail is not configured, or code.write when GitHub is not connected and the user asked to create or link a repository. Never call this for GitHub if the prompt says the account is connected or a repo is linked.",
+      "Request the user connect a missing plugin. Use for email.send when mail is not configured. Never call this for GitHub if the prompt says the account is connected, a repo is linked, or they asked to attach an existing GitHub.com repo — call github_link_repo instead.",
     parameters: {
       type: "object",
       properties: {
@@ -384,7 +606,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   github_list_files: {
     description:
-      "List files in a linked GitHub repository. Omit repoId to use this project's linked repo. repoId may be a Fairlx id or owner/repo. Use paths from the listing; do not guess.",
+      "List files in a GitHub repository. Omit repoId to use this project's Fairlx-attached repo. repoId may be a Fairlx id or owner/repo from github_list_repos. Use paths from the listing; do not guess.",
     parameters: {
       type: "object",
       properties: {
@@ -408,7 +630,8 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   github_write_file: {
-    description: "Create or update a file on a GitHub branch. Never runs git on the Fairlx host. Waits for Accept.",
+    description:
+      "Create or update a file on a GitHub branch. Use after github_create_repo to replace the stub README with a detailed README.md. Pass owner and repo from the create result when the project just linked. Never runs git on the Fairlx host. Waits for Accept.",
     parameters: {
       type: "object",
       properties: {
@@ -416,7 +639,9 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
         content: { type: "string" },
         message: { type: "string" },
         branch: { type: "string" },
-        repoId: { type: "string" },
+        repoId: { type: "string", description: "owner/repo or attached repo id." },
+        owner: { type: "string" },
+        repo: { type: "string" },
       },
       required: ["path", "content"],
     },

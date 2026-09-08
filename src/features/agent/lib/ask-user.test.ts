@@ -6,16 +6,44 @@ import {
   normalizeAskUserOptions,
   parseAskUserArgs,
   parseAskUserFromMessage,
+  splitChoiceLabel,
 } from "./ask-user";
 import type { AgentChatMessage, AgentToolEvent } from "../types";
 
 const now = "2026-09-08T00:00:00.000Z";
 
 describe("ask_user parsing", () => {
-  it("keeps at most four unique short options", () => {
+  it("keeps at most three unique short options and drops Other", () => {
     expect(
       normalizeAskUserOptions(["Yes, Tech Lead", "Frontend", "Yes, Tech Lead", "QA", "PM", "Other"]),
-    ).toEqual(["Yes, Tech Lead", "Frontend", "QA", "PM"]);
+    ).toEqual(["Yes, Tech Lead", "Frontend", "QA"]);
+  });
+
+  it("drops reserved custom labels so the UI can add Type your own", () => {
+    expect(normalizeAskUserOptions(["Other", "Type your own…", "Keep README", "Wipe everything"])).toEqual([
+      "Keep README",
+      "Wipe everything",
+    ]);
+  });
+
+  it("joins object options with a description and splits them for display", () => {
+    expect(
+      normalizeAskUserOptions([
+        { label: "Wipe everything", description: "delete README, items, and sprints" },
+        { title: "Keep the README", description: "rebuild the plan" },
+      ]),
+    ).toEqual([
+      "Wipe everything — delete README, items, and sprints",
+      "Keep the README — rebuild the plan",
+    ]);
+    expect(splitChoiceLabel("Wipe everything — delete README, items, and sprints")).toEqual({
+      title: "Wipe everything",
+      description: "delete README, items, and sprints",
+    });
+    expect(splitChoiceLabel("Keep sprints & items - rebuild from scratch")).toEqual({
+      title: "Keep sprints & items",
+      description: "rebuild from scratch",
+    });
   });
 
   it("reads question and options from tool arguments", () => {

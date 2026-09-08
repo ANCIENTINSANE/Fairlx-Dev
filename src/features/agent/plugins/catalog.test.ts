@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { inferCapabilities, missingCapabilities, hasCapability, catalogForCapability } from "./catalog";
 import { scanSourceFiles, verifyFindings } from "./security";
-import { githubCapabilityGap, normalizeGitHubPath, parseGithubRepoRef, parsePrFiles } from "./github-helpers";
+import { githubCapabilityGap, githubPauseCapability, normalizeGitHubPath, parseGithubAttachRequest, parseGithubRepoRef, parsePrFiles, parseGithubOwnerChoiceResult, pendingGithubOwnerChoice, matchGithubOwnerReply, githubRepoNameFromLabel, conversationWantsGithubCreateRepo, conversationWantsGithubVisibility, githubCreateRepoArgsFromOwnerChoice, mergeProjectGithubRepo } from "./github-helpers";
 import type { AgentContext, AgentPluginConnection } from "../types";
 
 function context(): AgentContext {
@@ -85,6 +85,13 @@ describe("capability inference", () => {
     expect(hasCapability([], ctx, "code.read")).toBe(false);
   });
 
+  it("does not pause create-repo for GitHub login identity without a stored PAT", () => {
+    const ctx = context();
+    ctx.githubAccount = { connected: true, login: "surendra", hasRepoAccess: false };
+    expect(hasCapability([], ctx, "code.write")).toBe(true);
+    expect(missingCapabilities("Create a github repo and add a detailed README.", [], ctx)).toEqual([]);
+  });
+
   it("offers GitHub PAT connect for code.write when no repo is linked", () => {
     const items = catalogForCapability("code.write");
     expect(items.some((item) => item.id === "github")).toBe(true);
@@ -117,8 +124,29 @@ describe("github helpers", () => {
     ]);
   });
 
+  it("does not pause for GitHub OAuth when the Fairlx profile is already connected", () => {
+    expect(
+      githubPauseCapability(true, {
+        error: "Connect your GitHub account to your Fairlx profile. Sign in with GitHub or paste a PAT with repo and read:org.",
+        capability: "code.write",
+      }),
+    ).toBeUndefined();
+    expect(githubPauseCapability(false, { error: "GitHub token is missing or cannot push." })).toBe("code.write");
+  });
+
   it("does not treat a missing GitHub path as a plugin gap", () => {
     expect(githubCapabilityGap({ error: "Path not found in repository: src/middleware.ts on main", missing: true })).toBeUndefined();
+  });
+
+  it("parses connect-repo phrasing for attach", () => {
+    expect(parseGithubAttachRequest("now connect the repo Fairlx-Dev from ancientinsane")).toEqual({
+      owner: "ancientinsane",
+      repo: "Fairlx-Dev",
+    });
+    expect(parseGithubAttachRequest("connect ANCIENTINSANE/Fairlx-Dev to this project")).toEqual({
+      owner: "ANCIENTINSANE",
+      repo: "Fairlx-Dev",
+    });
   });
 
   it("parses owner/repo repoIds and normalizes paths", () => {
@@ -130,5 +158,59 @@ describe("github helpers", () => {
     expect(parseGithubRepoRef("6a9c7cbb003521e98c55")).toBeUndefined();
     expect(normalizeGitHubPath("/src/lib/auth.ts")).toBe("src/lib/auth.ts");
     expect(normalizeGitHubPath("src/app/%28portal%29")).toBe("src/app/(portal)");
+  });
+
+  it("matches an owner-choice reply after github_list_owners", () => {
+    const result = JSON.stringify({
+      needsOwnerChoice: true,
+      githubLogin: "ANCIENTINSANE",
+      owners: [
+        { login: "ANCIENTINSANE", type: "User" },
+        { login: "stemlen", type: "Organization" },
+      ],
+    });
+    expect(parseGithubOwnerChoiceResult(result)?.owners.map((item) => item.login)).toEqual([
+      "ANCIENTINSANE",
+      "stemlen",
+    ]);
+    expect(
+      pendingGithubOwnerChoice([
+        { role: "tool", content: result },
+        { role: "user", content: "ANCIENTINSANE" },
+      ])?.owners[0]?.login,
+    ).toBe("ANCIENTINSANE");
+    expect(
+      matchGithubOwnerReply("ANCIENTINSANE", [
+        { login: "ANCIENTINSANE", type: "User" },
+        { login: "stemlen", type: "Organization" },
+      ]),
+    ).toBe("ANCIENTINSANE");
+    expect(conversationWantsGithubCreateRepo("Create a github repo and add a detailed README")).toBe(true);
+    expect(githubRepoNameFromLabel("Fairlx")).toBe("fairlx");
+    expect(githubCreateRepoArgsFromOwnerChoice({ owner: "ANCIENTINSANE", projectName: "Fairlx" })).toEqual({
+      owner: "ANCIENTINSANE",
+      name: "fairlx",
+      autoInit: true,
+      linkToProject: true,
+      private: true,
+      description: "Fairlx managed in Fairlx",
+    });
+    expect(conversationWantsGithubVisibility("make it private")).toBe("private");
+  });
+
+  it("merges a newly created repo onto the current project context", () => {
+    const ctx = mergeProjectGithubRepo(context(), {
+      projectId: "p1",
+      owner: "ANCIENTINSANE",
+      repo: "fairlx",
+      githubUrl: "https://github.com/ANCIENTINSANE/fairlx",
+    });
+    expect(ctx.githubRepos).toEqual([
+      expect.objectContaining({
+        owner: "ANCIENTINSANE",
+        repositoryName: "fairlx",
+        projectId: "p1",
+      }),
+    ]);
   });
 });

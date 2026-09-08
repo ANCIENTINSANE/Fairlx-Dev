@@ -1301,8 +1301,32 @@ async function githubRepoList(
     runtime.collections.githubRepos,
     listQuery(args, [{ type: "equal", field: "projectId", value: projectId }])
   );
+  const projectRepositories = result.documents.map((d) => ({
+    ...redactGithubRepo(withId(d)),
+    source: "fairlx_project" as const,
+  }));
+  const query = typeof args.query === "string" ? args.query : undefined;
+  const account = runtime.listGithubAccountRepos
+    ? await runtime.listGithubAccountRepos({ userId: auth.actorUserId, query })
+    : { connected: false, repositories: [] as Array<{ fullName: string; source: "github_account" }> };
+  const githubRepositories = account.repositories;
+  const repositories = [...projectRepositories, ...githubRepositories];
   return toolResult({
-    repositories: result.documents.map((d) => redactGithubRepo(withId(d))),
-    total: result.total,
+    repositories,
+    total: repositories.length,
+    projectLinkedCount: projectRepositories.length,
+    accountConnected: account.connected,
+    githubLogin: account.githubLogin,
+    githubRepositories,
+    projectRepositories,
+    hint:
+      account.hint ||
+      (account.connected
+        ? projectRepositories.length
+          ? "projectRepositories are attached to this Fairlx project. githubRepositories are from this user's GitHub account."
+          : githubRepositories.length
+            ? "No repository is attached to this Fairlx project. repositories are from this user's GitHub account. Do not say GitHub is disconnected. To attach one, use github_link_repo with owner and repo. Inspect with github_list_files repoId owner/repo."
+            : "This user is signed in with GitHub. No matching GitHub.com repositories were returned. Do not say GitHub is disconnected. Private repos need repo-scope authorization on the Fairlx profile, which is separate from Fairlx login."
+        : "This user has not connected a GitHub account and has not signed into Fairlx with GitHub."),
   });
 }

@@ -26,10 +26,19 @@ export interface SandboxDriver {
   destroy(sandboxId: string): Promise<void>;
 }
 
-export function redactSecrets(text: string): string {
-  return text
+export function redactSecrets(text: string, extraValues: string[] = []): string {
+  let next = text
     .replace(/x-access-token:[^@\s]+@/gi, "x-access-token:***@")
     .replace(/ghp_[A-Za-z0-9]+/g, "ghp_***")
     .replace(/gho_[A-Za-z0-9]+/g, "gho_***")
-    .replace(/github_pat_[A-Za-z0-9_]+/g, "github_pat_***");
+    .replace(/github_pat_[A-Za-z0-9_]+/g, "github_pat_***")
+    .replace(/sk-ant-[A-Za-z0-9_-]+/g, "sk-ant-***")
+    .replace(/\bsk-[A-Za-z0-9]{20,}\b/g, "sk-***")
+    .replace(/\b(ANTHROPIC_API_KEY|OPENAI_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|CODEX_API_KEY)=([^\s]+)/gi, "$1=***");
+  for (const value of extraValues) {
+    const token = value.trim();
+    if (token.length < 8) continue;
+    next = next.split(token).join("***");
+  }
+  return next;
 }
