@@ -77,7 +77,7 @@ body {
     --accent-foreground: 0 0% 98%;
 
     /* Destructive */
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 75% 55%;
     --destructive-foreground: 0 0% 98%;
 
     /* Borders & inputs - very subtle */

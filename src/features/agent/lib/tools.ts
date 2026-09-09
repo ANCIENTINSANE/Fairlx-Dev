@@ -85,7 +85,7 @@ import {
   withSessionMeta,
 } from "./coding-sessions";
 import { startOrResumeCodingSession, pushCodingSessionBranch } from "./coding-session-start";
-import { compactImplementationPlan, parseImplementationPlan } from "./implementation-plan";
+import { parseImplementationPlan, persistImplementationPlan } from "./implementation-plan";
 import { getSandboxDriver, redactSecrets, sandboxDriverKind, sandboxIsAlive } from "./sandbox";
 import { agentDebugLog } from "./sandbox/debug-log";
 import {
@@ -136,7 +136,7 @@ function compactEventPayload(type: string, payload: unknown): unknown {
   if (payload == null) return payload;
   if (type === "submit_implementation_plan") {
     const plan = parseImplementationPlan(payload);
-    if (plan) return compactImplementationPlan(plan);
+    if (plan) return persistImplementationPlan(plan);
     const source = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : null;
     if (source) return { title: source.title, status: source.status, summary: source.summary };
   }

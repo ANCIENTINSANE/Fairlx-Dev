@@ -10,6 +10,30 @@ export type GithubArtifact = {
   kind: "file" | "repo" | "pr" | "issue" | "preview";
 };
 
+const SKIP_GITHUB_TOOLS = /^(github_list_|github_account_status$)/;
+const EXTENSIONLESS_FILES =
+  /^(dockerfile|makefile|license|licence|procfile|gemfile|rakefile|jenkinsfile|cmakelists\.txt)(\..+)?$/i;
+
+/** Directory listings and repo roots should not become "Open file" cards. */
+export function isBrowsableSourcePath(path: string): boolean {
+  const trimmed = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!trimmed || trimmed === "." || trimmed === "/" ) return false;
+  const base = trimmed.split("/").pop() || "";
+  if (!base || base === "." || base === "..") return false;
+  if (base.startsWith(".") && base.length > 1) return true;
+  if (EXTENSIONLESS_FILES.test(base)) return true;
+  return /\.[a-zA-Z0-9]{1,12}$/.test(base);
+}
+
+function shouldSkipGithubTool(name: string): boolean {
+  return SKIP_GITHUB_TOOLS.test(name);
+}
+
+function acceptArtifact(artifact: GithubArtifact): boolean {
+  if (artifact.kind !== "file") return true;
+  return isBrowsableSourcePath(artifact.label);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
@@ -71,8 +95,9 @@ export function githubArtifactsFromEvents(events: AgentToolEvent[] = []): Github
       continue;
     }
     if (!/^github_/.test(event.type)) continue;
+    if (shouldSkipGithubTool(event.type)) continue;
     const artifact = githubArtifactFromPayload(event.id, event.payload, event.detail || event.title);
-    if (!artifact || seen.has(artifact.href)) continue;
+    if (!artifact || seen.has(artifact.href) || !acceptArtifact(artifact)) continue;
     seen.add(artifact.href);
     artifacts.push(artifact);
   }
@@ -117,6 +142,7 @@ export function githubArtifactsFromSteps(steps: TranscriptStep[] = []): GithubAr
       });
       continue;
     }
+    if (shouldSkipGithubTool(step.call.name)) continue;
     const artifact = githubArtifactFromPayload(
       step.call.id,
       merged,
@@ -124,7 +150,7 @@ export function githubArtifactsFromSteps(steps: TranscriptStep[] = []): GithubAr
     );
     if (!artifact) {
       const ref = parseGithubRepoRef(typeof args.repoId === "string" ? args.repoId : "");
-      if (ref && typeof args.path === "string") {
+      if (ref && typeof args.path === "string" && isBrowsableSourcePath(args.path)) {
         const href = githubBlobUrl(ref.owner, ref.repo, args.path, typeof args.branch === "string" ? args.branch : "main");
         if (!seen.has(href)) {
           seen.add(href);
@@ -133,7 +159,7 @@ export function githubArtifactsFromSteps(steps: TranscriptStep[] = []): GithubAr
       }
       continue;
     }
-    if (seen.has(artifact.href)) continue;
+    if (seen.has(artifact.href) || !acceptArtifact(artifact)) continue;
     seen.add(artifact.href);
     artifacts.push(artifact);
   }

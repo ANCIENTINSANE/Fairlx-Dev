@@ -1,4 +1,5 @@
 import type {
+  AgentChatMessage,
   AgentSpecialistId,
   AgentToolCall,
   AgentToolEvent,
@@ -7,6 +8,7 @@ import type {
   ImplementationPlanTask,
   ImplementationPlanTaskStatus,
 } from "../types";
+import { truncateAtBoundary } from "./truncate";
 
 export type {
   ImplementationPlan,
@@ -512,24 +514,100 @@ export function applyPlanProgressFromEvents(plan: ImplementationPlan, events: Ag
   return next;
 }
 
-export function compactImplementationPlan(plan: ImplementationPlan): ImplementationPlan {
+type PlanClampLimits = {
+  title: number;
+  summary: number;
+  phases: number;
+  phaseTitle: number;
+  tasks: number;
+  taskTitle: number;
+  id: number;
+};
+
+/** Fits `agent_runs.extraJson` (16KB) without slicing titles mid-word. */
+const PLAN_STORE_LIMITS: PlanClampLimits = {
+  title: 200,
+  summary: 480,
+  phases: 8,
+  phaseTitle: 180,
+  tasks: 8,
+  taskTitle: 180,
+  id: 48,
+};
+
+/** Events JSON is 1MB — keep the readable plan, only clamp runaway payloads. */
+const PLAN_EVENT_LIMITS: PlanClampLimits = {
+  title: 400,
+  summary: 2000,
+  phases: 16,
+  phaseTitle: 400,
+  tasks: 16,
+  taskTitle: 400,
+  id: 64,
+};
+
+function clampPlan(plan: ImplementationPlan, limits: PlanClampLimits): ImplementationPlan {
   const phases = Array.isArray(plan.phases) ? plan.phases : [];
   return {
-    title: String(plan.title || "Implementation plan").slice(0, 80),
-    summary: String(plan.summary || "").slice(0, 160),
+    title: truncateAtBoundary(String(plan.title || "Implementation plan"), limits.title),
+    summary: truncateAtBoundary(String(plan.summary || ""), limits.summary),
     status: plan.status,
-    phases: phases.slice(0, 5).map((phase) => ({
-      id: String(phase.id || "").slice(0, 32),
-      title: String(phase.title || "").slice(0, 60),
-      tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).slice(0, 6).map((task) => ({
-        id: String(task.id || "").slice(0, 32),
-        title: String(task.title || "").slice(0, 60),
+    phases: phases.slice(0, limits.phases).map((phase) => ({
+      id: String(phase.id || "").slice(0, limits.id),
+      title: truncateAtBoundary(String(phase.title || ""), limits.phaseTitle),
+      tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).slice(0, limits.tasks).map((task) => ({
+        id: String(task.id || "").slice(0, limits.id),
+        title: truncateAtBoundary(String(task.title || ""), limits.taskTitle),
         status: task.status,
         ...(task.specialist ? { specialist: task.specialist } : {}),
       })),
     })),
     ...(plan.repo ? { repo: plan.repo } : {}),
     ...(plan.execution ? { execution: plan.execution } : {}),
+  };
+}
+
+export function compactImplementationPlan(plan: ImplementationPlan): ImplementationPlan {
+  return clampPlan(plan, PLAN_STORE_LIMITS);
+}
+
+export function persistImplementationPlan(plan: ImplementationPlan): ImplementationPlan {
+  return clampPlan(plan, PLAN_EVENT_LIMITS);
+}
+
+function planContentLength(plan: ImplementationPlan): number {
+  return (
+    (plan.summary || "").length +
+    plan.phases.reduce(
+      (sum, phase) =>
+        sum + phase.title.length + phase.tasks.reduce((inner, task) => inner + task.title.length, 0),
+      0,
+    )
+  );
+}
+
+export function mergeImplementationPlans(
+  fuller: ImplementationPlan,
+  overlay: ImplementationPlan,
+): ImplementationPlan {
+  const overlayById = new Map<string, ImplementationPlanTask>();
+  for (const phase of overlay.phases) {
+    for (const task of phase.tasks) overlayById.set(task.id, task);
+  }
+  const status =
+    overlay.status === "accepted" || overlay.status === "rejected" ? overlay.status : fuller.status;
+  return {
+    ...fuller,
+    status,
+    repo: overlay.repo ?? fuller.repo,
+    execution: overlay.execution ?? fuller.execution,
+    phases: fuller.phases.map((phase, phaseIndex) => ({
+      ...phase,
+      tasks: phase.tasks.map((task, taskIndex) => {
+        const match = overlayById.get(task.id) ?? overlay.phases[phaseIndex]?.tasks[taskIndex];
+        return match ? { ...task, status: match.status, specialist: task.specialist || match.specialist } : task;
+      }),
+    })),
   };
 }
 
@@ -543,14 +621,60 @@ export function implementationPlanFromEvents(events: AgentToolEvent[]): Implemen
   return null;
 }
 
+export function implementationPlanFromMessages(messages: AgentChatMessage[] = []): ImplementationPlan | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "assistant") {
+      const calls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
+      for (let callIndex = calls.length - 1; callIndex >= 0; callIndex -= 1) {
+        const call = calls[callIndex];
+        if (call?.name !== "submit_implementation_plan") continue;
+        try {
+          const parsed = parseImplementationPlan(JSON.parse(call.arguments || "{}"));
+          if (parsed) return parsed;
+        } catch {
+          continue;
+        }
+      }
+    }
+    if (message?.role === "tool" && message.toolName === "submit_implementation_plan") {
+      try {
+        const parsed = parseImplementationPlan(JSON.parse(message.content || "{}"));
+        if (parsed) return parsed;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
+}
+
+function pickFullestPlan(...plans: Array<ImplementationPlan | null | undefined>): ImplementationPlan | null {
+  let best: ImplementationPlan | null = null;
+  let bestLen = -1;
+  for (const plan of plans) {
+    if (!plan) continue;
+    const length = planContentLength(plan);
+    if (length > bestLen) {
+      best = plan;
+      bestLen = length;
+    }
+  }
+  return best;
+}
+
 export function resolveRunImplementationPlan(run: {
   implementationPlan?: ImplementationPlan;
   events?: AgentToolEvent[];
+  messages?: AgentChatMessage[];
 }): ImplementationPlan | null {
   const extraStatus = planStatusFromUnknown(run.implementationPlan);
   const fromStored = parseImplementationPlan(run.implementationPlan);
   const fromEvents = implementationPlanFromEvents(run.events ?? []);
-  const plan = fromStored ?? fromEvents;
+  const fromMessages = implementationPlanFromMessages(run.messages ?? []);
+  const fullest = pickFullestPlan(fromStored, fromEvents, fromMessages);
+  const overlay = fromStored ?? fromEvents ?? fromMessages;
+  const plan = fullest && overlay ? mergeImplementationPlans(fullest, overlay) : fullest;
   if (plan) {
     if (extraStatus === "accepted" || extraStatus === "rejected") return { ...plan, status: extraStatus };
     return plan;

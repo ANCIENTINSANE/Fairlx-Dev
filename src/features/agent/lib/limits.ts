@@ -19,6 +19,9 @@ export const AGENT_MESSAGES_JSON_MAX = 1_048_576;
 /** Appwrite `agent_runs.eventsJson` size. Must match the collection attribute. */
 export const AGENT_EVENTS_JSON_MAX = 1_048_576;
 
+/** Appwrite `agent_runs.extraJson` size. Must match the collection attribute. */
+export const AGENT_EXTRA_JSON_MAX = 16_384;
+
 export const MAX_ATTACHED_FILE_CHARS = 2_000_000;
 
 /** Full spec goes to a specialist when it is under this many characters. */

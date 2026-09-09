@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useTheme } from "next-themes";
 
 import {
   ArrowUpRight,
@@ -9,7 +10,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  FileCode,
   FolderKanban,
   Loader2,
   Pencil,
@@ -20,7 +20,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight, vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 import { cn } from "@/lib/utils";
 
@@ -63,8 +63,9 @@ import { splitMarkdownWorkItemTable, type AgentWorkItem } from "../lib/work-item
 import { findPendingConfirmation, isWriteToolCall } from "../lib/write-guard";
 import { findPendingPlugin, isGithubCapability } from "../plugins/catalog";
 import { githubArtifactsFromEvents, githubArtifactsFromSteps, type GithubArtifact } from "../lib/github-artifacts";
+import { ChatSourcePanel } from "./chat-source-panel";
+import { InlineCode } from "./inline-code";
 import {
-  isStubPreviewUrl,
   repairAzurePreviewUrl,
   rewriteAzurePreviewMarkdown,
   type AzurePreviewCanonical,
@@ -127,61 +128,6 @@ function ProjectKanbanCta({
   );
 }
 
-function GithubArtifactCtas({
-  artifacts,
-  previewCanonical,
-}: {
-  artifacts: GithubArtifact[];
-  previewCanonical?: AzurePreviewCanonical;
-}) {
-  if (!artifacts.length) return null;
-  return (
-    <div className="flex flex-col gap-2">
-      {artifacts.map((artifact) => (
-        <a
-          key={artifact.id}
-          href={
-            artifact.kind === "preview"
-              ? repairAzurePreviewUrl(artifact.href, previewCanonical)
-              : artifact.href
-          }
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group relative inline-flex w-full max-w-sm sm:max-w-md items-center gap-3 overflow-hidden rounded-xl border border-border/80 bg-card/90 p-2.5 pr-3 text-left shadow-2xs transition-all duration-200 hover:border-primary/40 hover:bg-card hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary transition-all duration-200 group-hover:border-primary/40 group-hover:bg-primary/15 group-hover:scale-105">
-            <FileCode className="size-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-xs font-semibold text-foreground tracking-tight transition-colors group-hover:text-primary">
-                {artifact.label}
-              </span>
-            </div>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {artifact.kind === "file"
-                ? "Open source file on GitHub"
-                : artifact.kind === "pr"
-                  ? "Open pull request"
-                  : artifact.kind === "issue"
-                    ? "Open issue"
-                    : artifact.kind === "preview"
-                      ? isStubPreviewUrl(artifact.href)
-                        ? "Stub preview — Azure sandbox is not configured"
-                        : "Open live preview"
-                      : "Open repository"}
-            </p>
-          </div>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-2xs transition-all duration-200 group-hover:border-primary/30 group-hover:bg-primary group-hover:text-primary-foreground">
-            <span>Open</span>
-            <ArrowUpRight className="size-3 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </span>
-        </a>
-      ))}
-    </div>
-  );
-}
-
 function fileLinkMap(artifacts: GithubArtifact[] = []) {
   const map = new Map<string, string>();
   for (const artifact of artifacts) {
@@ -232,7 +178,7 @@ function UserBubble({
     <div className="flex justify-end">
       <div
         className={cn(
-          "bg-muted/70 rounded-2xl rounded-br-md max-w-[min(36rem,85%)] text-foreground relative group",
+          "rounded-2xl rounded-br-md max-w-[min(36rem,85%)] text-foreground relative group border border-primary/15 bg-primary/[0.09]",
           compact ? "px-3.5 py-2.5" : "px-4 py-3",
         )}
       >
@@ -294,12 +240,16 @@ function UserBubble({
 function CodeBlock({
   className,
   children,
+  href,
   ...props
 }: {
   className?: string;
   children?: ReactNode;
-}) {
+  href?: string;
+} & HTMLAttributes<HTMLElement>) {
   const [copied, setCopied] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const light = resolvedTheme !== "dark" && resolvedTheme !== "pitch-dark";
   const match = /language-(\w+)/.exec(className || "");
   const codeString = String(children).replace(/\n$/, "");
 
@@ -309,23 +259,38 @@ function CodeBlock({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (match) {
+  const isMultiline = Boolean(match || codeString.includes("\n"));
+
+  if (isMultiline) {
+    const language = match ? match[1] : "text";
     return (
-      <div className="relative group my-3 rounded-lg overflow-hidden border border-border bg-[#1e1e1e]">
-        <div className="flex items-center justify-between px-3 py-1.5 bg-muted/60 border-b border-border text-[11px] text-muted-foreground font-mono">
-          <span>{match[1]}</span>
+      <div
+        className={cn(
+          "relative group my-3 overflow-hidden rounded-lg border",
+          light ? "border-zinc-200 bg-zinc-50" : "border-zinc-800 bg-[#1e1e1e]",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center justify-between border-b px-3 py-1.5 font-mono text-[11px]",
+            light
+              ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+              : "border-zinc-800 bg-zinc-900/80 text-zinc-400",
+          )}
+        >
+          <span>{language}</span>
           <button
             type="button"
             onClick={handleCopy}
-            className="flex items-center gap-1 hover:text-foreground transition-colors"
+            className="flex items-center gap-1 transition-colors hover:text-foreground"
           >
-            {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+            {copied ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
             <span>{copied ? "Copied" : "Copy"}</span>
           </button>
         </div>
         <SyntaxHighlighter
-          style={vscDarkPlus}
-          language={match[1]}
+          style={light ? oneLight : vscDarkPlus}
+          language={language}
           PreTag="div"
           customStyle={{ margin: 0, padding: "12px", fontSize: "12px", background: "transparent" }}
         >
@@ -335,11 +300,7 @@ function CodeBlock({
     );
   }
 
-  return (
-    <code className={cn("bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground", className)} {...props}>
-      {children}
-    </code>
-  );
+  return <InlineCode text={codeString} href={href} className={className} {...props} />;
 }
 
 function MarkdownRich({
@@ -358,21 +319,8 @@ function MarkdownRich({
         components={{
           code(props) {
             const text = String(props.children).replace(/\n$/, "");
-            const href = !props.className && fileLinks?.get(text.toLowerCase());
-            if (href) {
-              return (
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-mono font-medium text-primary hover:bg-primary/15"
-                >
-                  {text}
-                  <ArrowUpRight className="size-3" />
-                </a>
-              );
-            }
-            return <CodeBlock {...props} />;
+            const href = !props.className ? fileLinks?.get(text.toLowerCase()) : undefined;
+            return <CodeBlock href={href} {...props} />;
           },
           p({ children }) {
             return <p className="mb-2.5 last:mb-0 leading-relaxed text-sm text-foreground">{children}</p>;
@@ -517,6 +465,7 @@ function AgentBubble({
   choicesEnabled = false,
   onPickChoice,
   fileLinks,
+  artifacts,
   compact,
   previewCanonical,
 }: {
@@ -528,6 +477,7 @@ function AgentBubble({
   choicesEnabled?: boolean;
   onPickChoice?: (choice: string) => void;
   fileLinks?: Map<string, string>;
+  artifacts?: GithubArtifact[];
   compact?: boolean;
   previewCanonical?: AzurePreviewCanonical;
 }) {
@@ -537,21 +487,32 @@ function AgentBubble({
   const choices = asked?.options.length ? asked.options : normalizeAskUserOptions(parsed.choices);
   const text = (asked ? parsed.text || asked.question || visible : parsed.text) || "";
   const allowCustom = asked ? asked.allowCustom : Boolean(choices.length);
+  const sources = artifacts?.length ? artifacts : [];
 
-  if (!text && !choices.length && !asked) return null;
+  if (!text && !choices.length && !asked && !sources.length) return null;
 
   return (
     <div className="flex-1 min-w-0 max-w-[46rem]">
-      {text ? (
-        <MarkdownContent
-          content={text}
-          workItems={workItems}
-          members={members}
-          workspaceId={workspaceId}
-          projectId={projectId}
-          fileLinks={fileLinks}
-          previewCanonical={previewCanonical}
-        />
+      {text || sources.length ? (
+        <div
+          className={cn(
+            "rounded-2xl rounded-tl-md border border-border/70 bg-card shadow-2xs",
+            compact ? "px-3.5 py-2.5" : "px-4 py-3",
+          )}
+        >
+          {text ? (
+            <MarkdownContent
+              content={text}
+              workItems={workItems}
+              members={members}
+              workspaceId={workspaceId}
+              projectId={projectId}
+              fileLinks={fileLinks}
+              previewCanonical={previewCanonical}
+            />
+          ) : null}
+          {sources.length ? <ChatSourcePanel artifacts={sources} previewCanonical={previewCanonical} /> : null}
+        </div>
       ) : null}
       {choices.length || (allowCustom && asked) ? (
         <AskUserChoices
@@ -609,9 +570,9 @@ function ThinkingBlock({
           if (!canExpand) return;
           setOpen((value) => !value);
         }}
-        className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-[12.5px] text-violet-800 dark:text-violet-200 hover:bg-violet-500/15 transition-colors"
       >
-        {live ? <Loader2 className="size-3.5 animate-spin text-primary" /> : <Sparkles className="size-3.5 text-muted-foreground" />}
+        {live ? <Loader2 className="size-3.5 animate-spin text-violet-600 dark:text-violet-300" /> : <Sparkles className="size-3.5 text-violet-600 dark:text-violet-300" />}
         <span className="font-medium">{label}</span>
         {live ? (
           <span className="tabular-nums text-[12px]">
@@ -773,7 +734,7 @@ function StepRow({
           ) : isAwaiting ? (
             <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
           ) : isFailed ? (
-            <XCircle className="size-3.5 text-destructive" />
+            <XCircle className="size-3.5 text-red-500 dark:text-red-400" />
           ) : (
             <Check className="size-3.5 text-muted-foreground" />
           )}
@@ -931,6 +892,7 @@ function StepsCard({
   workspaceId,
   projectId,
   previewCanonical,
+  artifacts,
 }: {
   lead?: AgentChatMessage;
   steps: TranscriptStep[];
@@ -941,6 +903,7 @@ function StepsCard({
   workspaceId?: string;
   projectId?: string;
   previewCanonical?: AzurePreviewCanonical;
+  artifacts?: GithubArtifact[];
 }) {
   const [open, setOpen] = useState(Boolean(running || awaiting));
   const last = steps[steps.length - 1];
@@ -949,8 +912,8 @@ function StepsCard({
   const visibleSteps = steps.filter((step) => !isRepeatedToolResult(step.result?.content));
   const skipped = steps.length - visibleSteps.length;
   const doneCount = visibleSteps.filter((step) => step.result).length;
-  const artifacts = githubArtifactsFromSteps(visibleSteps);
-  const fileLinks = fileLinkMap(artifacts);
+  const stepArtifacts = githubArtifactsFromSteps(visibleSteps);
+  const fileLinks = fileLinkMap(stepArtifacts);
 
   useEffect(() => {
     if (running || awaiting) setOpen(true);
@@ -978,9 +941,11 @@ function StepsCard({
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-full bg-muted/70 px-2.5 py-1 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
-            {inProgress ? (
+            {awaiting ? (
+              <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+            ) : inProgress ? (
               <Loader2 className="size-3.5 animate-spin text-primary" />
             ) : (
               <CheckCircle2 className="size-3.5 text-muted-foreground" />
@@ -1016,6 +981,7 @@ function StepsCard({
           ) : null}
         </div>
       ) : null}
+      {artifacts?.length ? <ChatSourcePanel artifacts={artifacts} previewCanonical={previewCanonical} /> : null}
     </div>
   );
 }
@@ -1045,14 +1011,21 @@ function ActivityTrail({
   const label = live ? currentTitle || "Working" : activityTrailLabel(rest);
 
   return (
-    <div className="min-w-0 max-w-[46rem] space-y-1">
+    <div className="min-w-0 max-w-[46rem] space-y-1.5">
       {errors.map((event) => (
-        <div key={event.id} className="flex items-start gap-2 text-[12.5px]">
-          <XCircle className="size-3.5 mt-0.5 text-destructive shrink-0" />
-          <p className="leading-relaxed text-destructive">
-            <span className="font-medium">{event.title}</span>
-            {event.detail ? <span> — {event.detail}</span> : null}
-          </p>
+        <div
+          key={event.id}
+          className="flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/[0.07] dark:bg-red-500/10 p-2.5 text-[12.5px]"
+        >
+          <XCircle className="size-4 mt-0.5 text-red-500 dark:text-red-400 shrink-0" />
+          <div className="min-w-0 flex-1 leading-relaxed">
+            <p className="font-semibold text-red-700 dark:text-red-300">{event.title}</p>
+            {event.detail ? (
+              <p className="mt-1 font-mono text-[11px] text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-all leading-relaxed max-h-36 overflow-y-auto rounded bg-black/5 dark:bg-black/25 p-2 border border-red-500/10">
+                {event.detail}
+              </p>
+            ) : null}
+          </div>
         </div>
       ))}
       {rest.length || live ? (
@@ -1063,7 +1036,7 @@ function ActivityTrail({
               if (!canExpand) return;
               setOpen((value) => !value);
             }}
-            className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-full bg-muted/70 px-2.5 py-1 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             {live ? (
               <Loader2 className="size-3.5 animate-spin text-primary" />
@@ -1082,7 +1055,7 @@ function ActivityTrail({
                 return (
                   <div key={event.id} className="flex items-start gap-2 text-[12.5px]">
                     {failed ? (
-                      <XCircle className="size-3.5 mt-0.5 text-destructive shrink-0" />
+                      <XCircle className="size-3.5 mt-0.5 text-red-500 dark:text-red-400 shrink-0" />
                     ) : waiting && live ? (
                       <Loader2 className="size-3.5 mt-0.5 animate-spin text-primary shrink-0" />
                     ) : subagent ? (
@@ -1090,7 +1063,7 @@ function ActivityTrail({
                     ) : (
                       <Check className="size-3.5 mt-0.5 text-muted-foreground shrink-0" />
                     )}
-                    <p className={cn("leading-relaxed", failed ? "text-destructive" : "text-muted-foreground")}>
+                    <p className={cn("leading-relaxed", failed ? "text-red-600 dark:text-red-300 font-medium" : "text-muted-foreground")}>
                       {(() => {
                         const href =
                           event.payload && typeof event.payload === "object"
@@ -1238,6 +1211,7 @@ export function AgentChatThread({
           ...turn.blocks.flatMap((block) => (block.kind === "steps" ? githubArtifactsFromSteps(block.steps) : [])),
         ].filter((item, index, list) => list.findIndex((other) => other.href === item.href) === index);
         const turnFileLinks = fileLinkMap(turnArtifacts);
+        const lastContent = [...turn.blocks].reverse().find((block) => block.kind === "assistant" || block.kind === "steps");
 
         return (
           <div key={turn.user?.id ?? `turn-${turnIndex}`} className="flex flex-col gap-3">
@@ -1304,6 +1278,7 @@ export function AgentChatThread({
                       choicesEnabled={!running && !awaiting && !awaitingPlugin && !sending && block.message.id === lastAssistantMessageId}
                       onPickChoice={onPickChoice}
                       fileLinks={turnFileLinks}
+                      artifacts={block === lastContent ? turnArtifacts : undefined}
                       compact={compact}
                       previewCanonical={previewCanonical}
                     />
@@ -1325,6 +1300,7 @@ export function AgentChatThread({
                       workspaceId={run.workspaceId}
                       projectId={run.projectId}
                       previewCanonical={previewCanonical}
+                      artifacts={block === lastContent ? turnArtifacts : undefined}
                     />
                     {cta}
                   </div>
@@ -1332,7 +1308,11 @@ export function AgentChatThread({
               }
               return null;
             })}
-            <GithubArtifactCtas artifacts={turnArtifacts} previewCanonical={previewCanonical} />
+            {!lastContent && turnArtifacts.length ? (
+              <div className="max-w-[46rem]">
+                <ChatSourcePanel artifacts={turnArtifacts} previewCanonical={previewCanonical} />
+              </div>
+            ) : null}
 
             {turn.usage.some((event) => event.type === "llm_usage" || event.type === "context_meter") ? (
               <AgentTurnUsageCard events={turn.usage} live={Boolean(isLast && turnRunning)} />

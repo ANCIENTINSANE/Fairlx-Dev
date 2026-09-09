@@ -3,7 +3,7 @@ import { Databases, ID, Query } from "node-appwrite";
 import { AGENT_RUNS_ID, DATABASE_ID } from "@/config";
 import type { AgentChatMessage, AgentRun, AgentRunMode, AgentRunStatus, AgentToolEvent, ImplementationPlan } from "../types";
 import { extractAttachedFiles, serializeAttachments, withAttachedFiles } from "./attachments";
-import { AGENT_EVENTS_JSON_MAX, AGENT_MESSAGES_JSON_MAX, AGENT_PROMPT_ATTR_MAX } from "./limits";
+import { AGENT_EVENTS_JSON_MAX, AGENT_EXTRA_JSON_MAX, AGENT_MESSAGES_JSON_MAX, AGENT_PROMPT_ATTR_MAX } from "./limits";
 import { isTrainingRun } from "./personal-training";
 import { displayUserContent } from "./session-context";
 import { parseJson, stringifyBounded, truncateString } from "./truncate";
@@ -85,7 +85,7 @@ export function parseRun(doc: RunDocument): AgentRun {
   };
 }
 
-export function stringifyRunExtra(extra: RunExtra, max = 4096): string {
+export function stringifyRunExtra(extra: RunExtra, max = AGENT_EXTRA_JSON_MAX): string {
   const compact = extra.implementationPlan ? compactImplementationPlan(extra.implementationPlan) : undefined;
   const parsedPlan = parseImplementationPlan(compact);
   const acceptance =
@@ -194,7 +194,7 @@ export async function createRun(
         kind: input.kind === "coding_session" ? "coding_session" : kind,
         ...(input.autonomousCoding ? { autonomousCoding: true } : {}),
       },
-      4096,
+      AGENT_EXTRA_JSON_MAX,
     ),
     attachmentsJson: serializeAttachments(attachments),
     error: "",
@@ -271,7 +271,7 @@ export async function updateRun(
   }
   if (patch.events !== undefined) payload.eventsJson = stringifyBounded(patch.events, AGENT_EVENTS_JSON_MAX);
   if (patch.error !== undefined) payload.error = truncateString(patch.error, 2048);
-  if (patch.extra !== undefined) payload.extraJson = stringifyRunExtra(patch.extra, 4096);
+  if (patch.extra !== undefined) payload.extraJson = stringifyRunExtra(patch.extra);
 
   let doc;
   for (let attempt = 0; attempt < 5; attempt++) {

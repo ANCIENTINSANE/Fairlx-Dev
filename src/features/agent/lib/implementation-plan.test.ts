@@ -16,7 +16,9 @@ import {
   filterCallsForErrorDump,
   implementationPlanFromEvents,
   implementationPlanMarkdown,
+  mergeImplementationPlans,
   parseImplementationPlan,
+  persistImplementationPlan,
   planCompletion,
   planIsAccepted,
   planPanelModel,
@@ -236,16 +238,114 @@ describe("implementation plan model", () => {
   it("compacts a plan for run extra storage", () => {
     const fat = parseImplementationPlan({
       ...samplePlan,
-      summary: "x".repeat(400),
+      summary: "x".repeat(4000),
       phases: Array.from({ length: 10 }, (_, i) => ({
         title: `Phase ${i}`,
         tasks: Array.from({ length: 20 }, (_, j) => ({ title: `Task ${i}-${j}` })),
       })),
     })!;
     const compact = compactImplementationPlan(fat);
-    expect(compact.summary.length).toBeLessThanOrEqual(160);
-    expect(compact.phases.length).toBeLessThanOrEqual(5);
-    expect(compact.phases[0]?.tasks.length).toBeLessThanOrEqual(6);
+    expect(compact.summary.length).toBeLessThanOrEqual(480);
+    expect(compact.phases.length).toBeLessThanOrEqual(8);
+    expect(compact.phases[0]?.tasks.length).toBeLessThanOrEqual(8);
+  });
+
+  it("keeps conversion-section titles instead of slicing mid-word", () => {
+    const plan = parseImplementationPlan({
+      title: "Epic 2 — Content & Conversion Sections",
+      summary:
+        "The Features section (AGEN-10) already exists as a component. We need to build the remaining conversion sections.",
+      phases: [
+        {
+          title: "Create UseCases.tsx with industry cards (engineering, healthcare, finance)",
+          tasks: [{ title: "Import it into App.tsx between Features and Gallery" }],
+        },
+        {
+          title: "Pricing comparison cards (Free, Pro, Enterprise)",
+          tasks: [{ title: "Add a bottom call-to-action, signup form, and waitlist" }],
+        },
+      ],
+    })!;
+    const compact = compactImplementationPlan(plan);
+    expect(compact.summary).toContain("conversion sections");
+    expect(compact.summary).not.toMatch(/\bbu$/);
+    expect(compact.phases[0]?.title).toContain("engineering");
+    expect(compact.phases[0]?.tasks[0]?.title).toContain("Gallery");
+    expect(compact.phases[1]?.title).toContain("Enterprise");
+    expect(persistImplementationPlan(plan).phases[0]?.title).toBe(plan.phases[0]?.title);
+  });
+
+  it("prefers full event titles and overlays stored task progress", () => {
+    const full = parseImplementationPlan({
+      ...samplePlan,
+      summary: "Clone, install, preview, then implement the doctor CLI end to end.",
+    })!;
+    const truncated = compactImplementationPlan({
+      ...full,
+      summary: full.summary.slice(0, 20),
+      phases: full.phases.map((phase) => ({
+        ...phase,
+        title: phase.title.slice(0, 4),
+        tasks: phase.tasks.map((task) => ({ ...task, title: task.title.slice(0, 8), status: "done" as const })),
+      })),
+    });
+    const merged = mergeImplementationPlans(full, { ...truncated, status: "accepted" });
+    expect(merged.summary).toContain("doctor CLI");
+    expect(merged.phases[0]?.tasks[0]?.status).toBe("done");
+    expect(merged.status).toBe("accepted");
+
+    const resolved = resolveRunImplementationPlan({
+      implementationPlan: { ...truncated, status: "accepted" },
+      events: [
+        {
+          id: "e1",
+          type: "submit_implementation_plan",
+          title: full.title,
+          payload: full,
+          createdAt: new Date().toISOString(),
+          runId: "r1",
+        },
+      ],
+    });
+    expect(resolved?.summary).toContain("doctor CLI");
+    expect(resolved?.status).toBe("accepted");
+  });
+
+  it("recovers full titles from submit_implementation_plan tool-call arguments", () => {
+    const full = parseImplementationPlan(samplePlan)!;
+    const truncated = {
+      title: full.title,
+      summary: full.summary.slice(0, 12),
+      status: "accepted" as const,
+      phases: full.phases.map((phase) => ({
+        ...phase,
+        title: phase.title.slice(0, 4),
+        tasks: phase.tasks.map((task) => ({ ...task, title: task.title.slice(0, 8), status: "done" as const })),
+      })),
+    };
+    const resolved = resolveRunImplementationPlan({
+      implementationPlan: truncated,
+      events: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          content: "",
+          createdAt: new Date().toISOString(),
+          toolCalls: [
+            {
+              id: "c1",
+              name: "submit_implementation_plan",
+              arguments: JSON.stringify(samplePlan),
+            },
+          ],
+        },
+      ],
+    });
+    expect(resolved?.summary).toBe(full.summary);
+    expect(resolved?.phases[0]?.tasks[0]?.title).toBe("Clone Azure session");
+    expect(resolved?.phases[0]?.tasks[0]?.status).toBe("done");
+    expect(resolved?.status).toBe("accepted");
   });
 
   it("does not crash when extra JSON kept a title but dropped phases", () => {
