@@ -135,7 +135,7 @@ function RecentRunItem({
     <div
       className={cn(
         "group relative flex items-center justify-between px-2.5 py-1.5 rounded-md text-[12px] transition",
-        running || active
+        active
           ? "bg-sidebar-accent text-sidebar-foreground font-medium"
           : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
       )}
@@ -438,11 +438,11 @@ export function AgentAppShell({ children }: { children: ReactNode }) {
   const { data: context } = useGetAgentContext();
   const { lifecycleState } = useAccountLifecycle();
   const [hash, setHash] = useState("");
-  const [activeRunId, setActiveRunId] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const runId = searchParams.get("runId");
-  const activeRun = (runs ?? []).find((r) => r.id === (runId || activeRunId));
+  const rawRunId = searchParams.get("runId");
+  const activeRunId = pathname.startsWith("/agent/workflow") ? (rawRunId ?? "") : "";
+  const activeRun = (runs ?? []).find((r) => r.id === activeRunId);
 
   const activeWorkspace = useMemo(() => {
     if (activeRun?.workspaceId) {
@@ -461,16 +461,19 @@ export function AgentAppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setMobileNavOpen(false);
-  }, [pathname]);
+  }, [pathname, searchParams]);
 
   useEffect(() => {
-    const sync = () => {
+    const syncHash = () => {
       setHash(window.location.hash);
-      setActiveRunId(new URLSearchParams(window.location.search).get("runId") ?? "");
     };
-    sync();
-    window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    window.addEventListener("popstate", syncHash);
+    return () => {
+      window.removeEventListener("hashchange", syncHash);
+      window.removeEventListener("popstate", syncHash);
+    };
   }, [pathname]);
 
   useEffect(() => {

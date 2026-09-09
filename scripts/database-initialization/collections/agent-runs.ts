@@ -34,6 +34,7 @@ export async function setupAgentRuns(databases: Databases, databaseId: string): 
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'waitingForRunId', 256, false);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'allowedToolsJson', 4096, false);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'qaReportJson', 16384, false);
+    // Must match AGENT_EXTRA_JSON_MAX in src/features/agent/lib/limits.ts.
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'extraJson', 16384, false);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'attachmentsJson', 2097152, false);
 

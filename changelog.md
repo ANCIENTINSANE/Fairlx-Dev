@@ -8,6 +8,9 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-09 | `e998198` | refactor: overhaul implementation plan handling with robust clamping, merging logic, and improved persistence limits | Happyesss |
+| 2026-09-09 | `103a794` | chore: bump version to 0.2.116 [skip ci] | github-actions[bot] |
+| 2026-09-09 | `fbb5b1e` | Merge pull request #314 from ANCIENTINSANE/main | Shashank Kumar Rathour |
 | 2026-09-09 | `44ae78e` | fix: restore Azure sandbox previews and Open Preview links | ANCIENTINSANE |
 | 2026-09-09 | `c2d6216` | chore: bump version to 0.2.115 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `f49ca4b` | Merge pull request #313 from Happyesss/main | Shashank Kumar Rathour |
@@ -88,9 +91,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-01 | `b37fa04` | chore: bump version to 0.2.86 [skip ci] | github-actions[bot] |
 | 2026-09-02 | `e791b19` | feat: add workspace member removal, implement intent compiler for work item queries, and introduce agent-side member/work-item table components. | Happyesss |
 | 2026-09-01 | `9f76456` | chore: bump version to 0.2.85 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `a3a5d2e` | feat: add Grok 4.6 support, introduce run deletion confirmation, and refine MCP work item pagination and polling logic. | Happyesss |
-| 2026-09-01 | `589cab6` | chore: bump version to 0.2.84 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `05ee50e` | feat: add collapsible navigation sections to agent app shell and remove unused model picker and mode switcher | Happyesss |
-| 2026-09-01 | `950b4f7` | chore: bump version to 0.2.83 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-09T14:59:40.319Z
+Last generated: 2026-09-09T16:30:54.753Z

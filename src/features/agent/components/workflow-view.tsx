@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
+  AlertCircle,
   Loader2,
   Pin,
   Trash2,
@@ -658,20 +659,20 @@ function WorkflowSidebar({
               terminals.map((event) => (
                 <div
                   key={event.id}
-                  className="overflow-hidden rounded-xl border border-amber-500/20 bg-zinc-950 text-[11px] text-zinc-100 shadow-sm"
+                  className="overflow-hidden rounded-xl border border-amber-500/25 bg-zinc-50 text-[11px] text-zinc-800 shadow-sm dark:border-amber-500/20 dark:bg-zinc-950 dark:text-zinc-100"
                 >
-                  <div className="flex items-center gap-2 border-b border-white/10 bg-zinc-900 px-3 py-1.5">
+                  <div className="flex items-center gap-2 border-b border-zinc-200 bg-zinc-100 px-3 py-1.5 dark:border-white/10 dark:bg-zinc-900">
                     <span className="flex items-center gap-1">
                       <span className="size-2 rounded-full bg-rose-400/90" />
                       <span className="size-2 rounded-full bg-amber-400/90" />
                       <span className="size-2 rounded-full bg-emerald-400/90" />
                     </span>
-                    <SquareTerminal className="size-3 text-amber-300" />
-                    <span className="min-w-0 flex-1 truncate font-medium text-zinc-200">{event.title}</span>
+                    <SquareTerminal className="size-3 text-amber-600 dark:text-amber-300" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-zinc-700 dark:text-zinc-200">{event.title}</span>
                     <span className="shrink-0 font-mono text-[10px] text-zinc-500">{clockTime(event.createdAt, true)}</span>
                   </div>
                   {event.detail ? (
-                    <pre className="custom-scrollbar max-h-56 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed text-emerald-300/90">
+                    <pre className="custom-scrollbar max-h-56 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed text-emerald-700 dark:text-emerald-300/90">
                       {event.detail}
                     </pre>
                   ) : (
@@ -732,12 +733,15 @@ function WorkflowSidebar({
                   <p className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">{previewMeta.note}</p>
                 ) : null}
                 {session.status === "failed" ? (
-                  <div className="space-y-2 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-[11px] text-rose-800 dark:text-rose-200">
-                    <p className="font-semibold">Sandbox could not start</p>
-                    <p className="whitespace-pre-wrap break-words leading-relaxed">
+                  <div className="space-y-2 rounded-lg border border-red-500/25 bg-red-500/[0.07] dark:bg-red-500/10 p-3 text-[11.5px]">
+                    <div className="flex items-center gap-1.5 font-semibold text-red-700 dark:text-red-300">
+                      <AlertCircle className="size-4 text-red-500 dark:text-red-400 shrink-0" />
+                      <span>Sandbox could not start</span>
+                    </div>
+                    <p className="font-mono text-[10.5px] text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-all leading-relaxed max-h-40 overflow-y-auto rounded bg-black/5 dark:bg-black/25 p-2 border border-red-500/10">
                       {lastSessionError(session) || "The Azure sandbox failed before the app started."}
                     </p>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
                       <Button
                         type="button"
                         size="xs"
@@ -750,7 +754,7 @@ function WorkflowSidebar({
                         {startSession.isPending ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
                         Retry in Azure
                       </Button>
-                      <span className="text-[10px] opacity-80">Fairlx re-checks Azure access live before retrying.</span>
+                      <span className="text-[10px] text-muted-foreground">Fairlx re-checks Azure access live before retrying.</span>
                     </div>
                   </div>
                 ) : null}
@@ -765,8 +769,8 @@ function WorkflowSidebar({
                     <p className="text-[11px] text-muted-foreground">
                       In-app browser for the Azure sandbox app (not github.dev).
                     </p>
-                    <div className="overflow-hidden rounded-xl border border-cyan-500/25 bg-zinc-950">
-                      <div className="flex items-center gap-2 border-b border-white/10 bg-zinc-900 px-2.5 py-1.5">
+                    <div className="overflow-hidden rounded-xl border border-cyan-500/25 bg-zinc-50 dark:bg-zinc-950">
+                      <div className="flex items-center gap-2 border-b border-zinc-200 bg-zinc-100 px-2.5 py-1.5 dark:border-white/10 dark:bg-zinc-900">
                         <span className="flex items-center gap-1">
                           <span className="size-2 rounded-full bg-rose-400/90" />
                           <span className="size-2 rounded-full bg-amber-400/90" />
@@ -777,7 +781,7 @@ function WorkflowSidebar({
                           target="_blank"
                           rel="noopener noreferrer"
                           title="Open preview in a new tab"
-                          className="min-w-0 flex-1 truncate rounded-md bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-300 hover:text-white hover:underline"
+                          className="min-w-0 flex-1 truncate rounded-md bg-white px-2 py-0.5 font-mono text-[10px] text-zinc-600 hover:text-zinc-900 hover:underline dark:bg-zinc-800 dark:text-zinc-300 dark:hover:text-white"
                         >
                           {previewMeta.url}
                         </a>
