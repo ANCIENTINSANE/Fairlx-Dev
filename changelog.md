@@ -4,17 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `scripts/ci/github-sync.sh`
-- `scripts/ci/push_env.js`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-10 | `17fcd6e` | Rueq (Build): Build Retuntion and stable:Yes | ANCIENTINSANE |
 | 2026-09-09 | `e35bfff` | Rueq (Build): Build Retuntion and stable:Yes | ANCIENTINSANE |
 | 2026-09-09 | `6b2114e` | chore: bump version to 0.2.118 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `728b3e4` | Merge pull request #315 from Happyesss/main | Shashank Kumar Rathour |
@@ -95,6 +89,5 @@ Files in this commit:
 | 2026-09-03 | `6661845` | feat: introduce personal agent functionality with new tools, update environment configurations, and enhance agent run management | Happyesss |
 | 2026-09-01 | `9f29adb` | chore: bump version to 0.2.89 [skip ci] | github-actions[bot] |
 | 2026-09-02 | `3481abe` | Merge pull request #297 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-01 | `b14b78f` | chore: bump version to 0.2.88 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-09T18:43:37.838Z
+Last generated: 2026-09-09T18:43:40.636Z
