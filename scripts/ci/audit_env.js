@@ -20,7 +20,7 @@ const deployYml = fs.readFileSync(DEPLOY_YML_PATH, 'utf8');
 const envLocal = fs.readFileSync(ENV_LOCAL_PATH, 'utf8');
 
 // Extraction for deploy.yml: Find all ${{ secrets.NAME }} and ${{ vars.NAME }}
-const workflowMatches = deployYml.matchAll(/\$\{\{\s+(secrets|vars)\.([A-Z0-9_]+)\s+\}\}/g);
+const workflowMatches = deployYml.matchAll(/(secrets|vars)\.([A-Z0-9_]+)/g);
 const requiredKeys = new Set();
 for (const match of workflowMatches) {
     requiredKeys.add(match[2]);
@@ -39,8 +39,25 @@ for (const line of envLines) {
     }
 }
 
-const missingInEnv = [...requiredKeys].filter(key => !providedKeys.has(key)).sort();
-const missingInDeploy = [...providedKeys].filter(key => !requiredKeys.has(key)).sort();
+const ALIASES = {
+    GITHUB_CLIENT_ID: "GH_CLIENT_ID",
+    GITHUB_CLIENT_SECRET: "GH_CLIENT_SECRET",
+    AZURE_SSH_HOST: "AZURE_HOST",
+    NEXT_PUBLIC_ORG_TRIAL_CREDIT_USD: "ORG_TRIAL_CREDIT_USD",
+    NEXT_PUBLIC_PERSONAL_TRIAL_CREDIT_USD: "PERSONAL_TRIAL_CREDIT_USD",
+};
+
+function hasKey(set, key) {
+    if (set.has(key)) return true;
+    for (const [localName, githubName] of Object.entries(ALIASES)) {
+        if (key === githubName && set.has(localName)) return true;
+        if (key === localName && set.has(githubName)) return true;
+    }
+    return false;
+}
+
+const missingInEnv = [...requiredKeys].filter(key => !hasKey(providedKeys, key)).sort();
+const missingInDeploy = [...providedKeys].filter(key => !hasKey(requiredKeys, key)).sort();
 
 console.log('\n--- 🔍 ENV AUDIT RESULTS ---');
 

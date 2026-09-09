@@ -39,7 +39,7 @@ on:
 # Razorpay payments are processed in INR with live conversion rates.
 
 env:
-  API_BASE_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+  API_BASE_URL: ${{ vars.NEXT_PUBLIC_APP_URL || secrets.NEXT_PUBLIC_APP_URL }}
   CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
 jobs:
