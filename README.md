@@ -18,42 +18,18 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-09T14:59:33.090Z
+**Last updated:** 2026-09-09T14:59:40.409Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `.env.example`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/lib/coding-session-start.ts`
-- `src/features/agent/lib/coding-sessions.ts`
-- `src/features/agent/lib/context.ts`
-- `src/features/agent/lib/detect-start-command.test.ts`
-- `src/features/agent/lib/detect-start-command.ts`
-- `src/features/agent/lib/github-scope.ts`
-- `src/features/agent/lib/prompt-budget.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/sandbox-prepare.ts`
-- `src/features/agent/lib/sandbox-preview.test.ts`
-- `src/features/agent/lib/sandbox-preview.ts`
-- `src/features/agent/lib/sandbox/azure-auth.test.ts`
-- `src/features/agent/lib/sandbox/azure.ts`
-- `src/features/agent/lib/sandbox/index.ts`
-- `src/features/agent/lib/sandbox/stub.ts`
-- `src/features/agent/lib/sandbox/types.ts`
-- …and 16 more files
-
 **Latest commits**
 
+- `44ae78e` fix: restore Azure sandbox previews and Open Preview links (2026-09-09)
 - `c2d6216` chore: bump version to 0.2.115 [skip ci] (2026-09-09)
 - `f49ca4b` Merge pull request #313 from Happyesss/main (2026-09-09)
 - `7206523` chore: bump version to 0.2.114 [skip ci] (2026-09-08)
 - `3ae0f08` feat: enhance agent facial animations with spherical eye motion, improved gaze responsiveness, and new crayon underline component. (2026-09-09)
 - `dc0f5c1` chore: bump version to 0.2.113 [skip ci] (2026-09-08)
-- `bdae09e` feat: implement optimistic agent run creation and track typing gaze progress in command input (2026-09-09)
 <!-- docs:latest:end -->
 
 ---
