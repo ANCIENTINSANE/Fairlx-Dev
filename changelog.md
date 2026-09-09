@@ -4,34 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `scripts/database-initialization/collections/agent-runs.ts`
-- `src/app/globals.css`
-- `src/features/agent/components/agent-app-shell.tsx`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/chat-source-panel.tsx`
-- `src/features/agent/components/file-icon.test.ts`
-- `src/features/agent/components/file-icon.tsx`
-- `src/features/agent/components/implementation-plan-card.tsx`
-- `src/features/agent/components/inline-code.test.ts`
-- `src/features/agent/components/inline-code.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/lib/github-artifacts.test.ts`
-- `src/features/agent/lib/github-artifacts.ts`
-- `src/features/agent/lib/implementation-plan.test.ts`
-- `src/features/agent/lib/implementation-plan.ts`
-- `src/features/agent/lib/limits.ts`
-- `src/features/agent/lib/runs.ts`
-- `src/features/agent/lib/tools.ts`
-- `tailwind.config.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-09 | `e998198` | refactor: overhaul implementation plan handling with robust clamping, merging logic, and improved persistence limits | Happyesss |
 | 2026-09-09 | `103a794` | chore: bump version to 0.2.116 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `fbb5b1e` | Merge pull request #314 from ANCIENTINSANE/main | Shashank Kumar Rathour |
 | 2026-09-09 | `44ae78e` | fix: restore Azure sandbox previews and Open Preview links | ANCIENTINSANE |
@@ -114,6 +91,5 @@ Files in this commit:
 | 2026-09-01 | `b37fa04` | chore: bump version to 0.2.86 [skip ci] | github-actions[bot] |
 | 2026-09-02 | `e791b19` | feat: add workspace member removal, implement intent compiler for work item queries, and introduce agent-side member/work-item table components. | Happyesss |
 | 2026-09-01 | `9f76456` | chore: bump version to 0.2.85 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `a3a5d2e` | feat: add Grok 4.6 support, introduce run deletion confirmation, and refine MCP work item pagination and polling logic. | Happyesss |
 
-Last generated: 2026-09-09T16:30:50.359Z
+Last generated: 2026-09-09T16:30:54.753Z

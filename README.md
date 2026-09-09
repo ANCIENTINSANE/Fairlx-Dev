@@ -18,34 +18,13 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-09T16:30:50.373Z
+**Last updated:** 2026-09-09T16:30:54.766Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `scripts/database-initialization/collections/agent-runs.ts`
-- `src/app/globals.css`
-- `src/features/agent/components/agent-app-shell.tsx`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/chat-source-panel.tsx`
-- `src/features/agent/components/file-icon.test.ts`
-- `src/features/agent/components/file-icon.tsx`
-- `src/features/agent/components/implementation-plan-card.tsx`
-- `src/features/agent/components/inline-code.test.ts`
-- `src/features/agent/components/inline-code.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/lib/github-artifacts.test.ts`
-- `src/features/agent/lib/github-artifacts.ts`
-- `src/features/agent/lib/implementation-plan.test.ts`
-- `src/features/agent/lib/implementation-plan.ts`
-- `src/features/agent/lib/limits.ts`
-- `src/features/agent/lib/runs.ts`
-- `src/features/agent/lib/tools.ts`
-- `tailwind.config.ts`
-
 **Latest commits**
 
+- `e998198` refactor: overhaul implementation plan handling with robust clamping, merging logic, and improved persistence limits (2026-09-09)
 - `103a794` chore: bump version to 0.2.116 [skip ci] (2026-09-09)
 - `fbb5b1e` Merge pull request #314 from ANCIENTINSANE/main (2026-09-09)
 - `44ae78e` fix: restore Azure sandbox previews and Open Preview links (2026-09-09)
