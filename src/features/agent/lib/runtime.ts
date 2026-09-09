@@ -67,6 +67,7 @@ import { AGENT_CHAT_TIMEOUT_MS, formatAgentTurnError, isContextLengthError, mode
 import { sanitizeAssistantVisible } from "./visible-content";
 import { extractBoardProjectFromTool } from "./project-launch";
 import { specialistById } from "./graph";
+import { userContentForChatCompletions } from "./attach-images";
 import { buildSpecialistUserMessage, extractAttachedFiles, parentPromptFromMessages, subjectsFromFiles } from "./attachments";
 import { hasGithubAccount, hasProjectGithubRepo, projectGithubRepos } from "./github-scope";
 import { githubLinkRepo } from "../plugins/github";
@@ -390,7 +391,7 @@ export function specialistChatTarget(
 
 type OpenAiMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content?: string | null;
+  content?: string | null | Array<Record<string, unknown>>;
   tool_calls?: Array<{
     id: string;
     item_id?: string;
@@ -433,7 +434,7 @@ function toOpenAiMessages(
           name: message.toolName,
         };
       }
-      return { role: "user", content: message.content };
+      return { role: "user", content: userContentForChatCompletions(message.content) };
     });
   if (options?.seedTraining && !mapped.some((message) => message.role === "user")) {
     mapped.push({ role: "user", content: TRAINING_OPEN_SEED });
@@ -851,11 +852,7 @@ export async function runAgentTurn(params: {
         {
           hasGithubRepo: hasProjectGithubRepo(context, run.projectId),
           hasGithubAccount: hasGithubAccount(context),
-          hasProject: Boolean(
-            run.projectId ||
-              harness.settings.defaultProjectId ||
-              context.projects.some((item) => !run.workspaceId || item.workspaceId === run.workspaceId),
-          ),
+          hasProject: Boolean(run.projectId),
         },
       );
   const tools =
@@ -1382,6 +1379,7 @@ export async function runAgentTurn(params: {
           runId: run.id,
         },
       ];
+    await persistMergedEvents(events);
     const pendingWrites: AgentToolCall[] = [];
     const specialistRun: AgentRun = {
       ...run,

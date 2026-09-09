@@ -164,6 +164,16 @@ async function projectCreate(
       boardType: optionalString(args, "boardType") ?? "SCRUM",
       status: "ACTIVE",
     });
+    try {
+      await runtime.onProjectCreated?.({
+        projectId: String(project.$id),
+        workspaceId,
+        userId: auth.actorUserId,
+        name,
+      });
+    } catch {
+      // Project row exists; owner seed can be retried from the UI.
+    }
     await audit(runtime, {
       workspaceId,
       projectId: project.$id,
@@ -500,6 +510,7 @@ async function workItemUpdate(
   }
   if (args.storyPoints !== undefined) patch.storyPoints = args.storyPoints;
   if (args.dueDate !== undefined) patch.dueDate = args.dueDate ? String(args.dueDate) : null;
+  if (args.startDate !== undefined) patch.startDate = args.startDate ? String(args.startDate) : null;
   if (args.epicId !== undefined) {
     patch.epicId = await resolveEpicId(
       runtime,

@@ -136,6 +136,32 @@ describe("fairlx_work_item_update", () => {
     });
   });
 
+  it("sets startDate and dueDate so a timeline bar can move", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      workItems: [
+        {
+          $id: "wi_1",
+          key: "SCHO-1",
+          title: "Responsive header",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          status: "TODO",
+        },
+      ],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_update",
+      { workItemId: "SCHO-1", startDate: "2026-09-14", dueDate: "2026-09-18" },
+      runtime,
+      auth,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(workItems[0]?.startDate).toBe("2026-09-14");
+    expect(workItems[0]?.dueDate).toBe("2026-09-18");
+  });
+
   it("stores workspace membership ids when creating with a name or email string", async () => {
     const { runtime, workItems } = workItemRuntime({
       members: [

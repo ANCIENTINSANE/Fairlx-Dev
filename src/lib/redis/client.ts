@@ -27,8 +27,7 @@ export function getRedisClient(): Redis | null {
             password: process.env.REDIS_PASSWORD || undefined,
             maxRetriesPerRequest: 3,
             retryStrategy(times) {
-                if (times > 10) return null; // Stop retrying after 10 attempts
-                return Math.min(times * 100, 3000); // Exponential backoff, max 3s
+                return Math.min(times * 100, 3000);
             },
             enableOfflineQueue: false, // Don't queue commands when disconnected
             connectTimeout: 5000,

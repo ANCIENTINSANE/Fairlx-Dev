@@ -1,4 +1,5 @@
 import type { AgentRun, AgentRunMode } from "../types";
+import { hasFullAttachedImages } from "./attach-images";
 import { displayUserContent } from "./session-context";
 
 export function newAgentRunId(): string {
@@ -13,7 +14,8 @@ export function buildOptimisticAgentRun(input: {
   mode?: AgentRunMode;
 }): AgentRun {
   const createdAt = new Date().toISOString();
-  const visible = displayUserContent(input.prompt) || input.prompt;
+  const visible =
+    displayUserContent(input.prompt) || (hasFullAttachedImages(input.prompt) ? "Image" : input.prompt);
   const title = visible.replace(/\s+/g, " ").slice(0, 80);
   return {
     id: input.id,

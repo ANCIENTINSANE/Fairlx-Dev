@@ -418,6 +418,7 @@ function TaskBar({
             isSelected && "ring-2 ring-blue-500 ring-offset-1 z-10",
             isDone && "opacity-70",
             isAssigned && "border-l-rose-500 border-dashed",
+            !item.hasExplicitDates && "opacity-80 border-dashed",
             "hover:shadow-lg hover:z-20 hover:scale-[1.02]"
           )}
           style={{
@@ -505,7 +506,9 @@ function TaskBar({
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            {item.startDate && format(new Date(item.startDate), "MMM d")} - {item.dueDate && format(new Date(item.dueDate), "MMM d, yyyy")}
+            {item.startDate && item.dueDate
+              ? `${format(new Date(item.startDate), "MMM d")} - ${format(new Date(item.dueDate), "MMM d, yyyy")}${item.hasExplicitDates ? "" : " (sprint)"}`
+              : "Unscheduled — drag to set start and due dates"}
           </div>
           {/* Filter null assignees to handle deleted users or permission-masked relations */}
           {(() => {

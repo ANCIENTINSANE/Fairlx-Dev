@@ -454,7 +454,7 @@ const app = new Hono()
         prompt: json.prompt,
         mode: harness.settings.mode,
         workspaceId: json.workspaceId || harness.settings.defaultWorkspaceId,
-        projectId: json.projectId || harness.settings.defaultProjectId,
+        projectId: json.projectId ?? harness.settings.defaultProjectId,
         id: json.id,
       });
       scheduleAgentTurn({ databases, user, run });

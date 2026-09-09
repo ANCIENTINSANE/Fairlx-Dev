@@ -37,6 +37,7 @@ export const CORE_FAIRLX_TOOLS = [
   "fairlx_project_get",
   "fairlx_project_create",
   "fairlx_project_members_list",
+  "page_ui",
 ];
 
 export const SELECT_MAX_TOOLS = 40;

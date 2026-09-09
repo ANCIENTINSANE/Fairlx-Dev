@@ -21,6 +21,7 @@ const EditTaskModal = dynamic(() => import("@/features/tasks/components/edit-tas
 const TaskDetailsModalWrapper = dynamic(() => import("@/features/tasks/components/task-details-modal-wrapper").then(mod => mod.TaskDetailsModalWrapper), { ssr: false });
 const TaskPreviewModalWrapper = dynamic(() => import("@/features/tasks/components/task-preview-modal").then(mod => mod.TaskPreviewModalWrapper), { ssr: false });
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
+import { AgentPageProvider } from "@/features/agent/components/agent-page-context";
 
 import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
@@ -49,6 +50,7 @@ const DashboardContent = ({ children }: DashboardLayoutProps) => {
   const isMainDashboard = /\/workspaces\/[^/]+$/.test(pathname || "");
 
   return (
+    <AgentPageProvider>
     <div className={`min-h-screen ${isMainDashboard ? 'bg-background' : ''}`}>
       <Suspense fallback={null}>
         <CreateWorkspaceModal />
@@ -95,6 +97,7 @@ const DashboardContent = ({ children }: DashboardLayoutProps) => {
         <AgentFloatingChat />
       </Suspense>
     </div>
+    </AgentPageProvider>
   );
 };
 

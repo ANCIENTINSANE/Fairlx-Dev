@@ -10,19 +10,36 @@ export async function withIdempotency<T>(
     return fn();
   }
   const eventKey = `mcp:${tool}:${idempotencyKey}`;
-  const existing = await runtime.getIdempotencyResult(eventKey);
-  if (existing !== null && existing !== undefined) {
-    return existing as T;
+  try {
+    const existing = await runtime.getIdempotencyResult(eventKey);
+    if (existing !== null && existing !== undefined) {
+      return existing as T;
+    }
+  } catch {
+    // Redis/Appwrite idempotency store is optional. Create anyway.
   }
-  const locked = await runtime.acquireIdempotencyLock(eventKey, { tool });
+  let locked = true;
+  try {
+    locked = await runtime.acquireIdempotencyLock(eventKey, { tool });
+  } catch {
+    locked = true;
+  }
   if (!locked) {
-    const again = await runtime.getIdempotencyResult(eventKey);
-    if (again !== null && again !== undefined) {
-      return again as T;
+    try {
+      const again = await runtime.getIdempotencyResult(eventKey);
+      if (again !== null && again !== undefined) {
+        return again as T;
+      }
+    } catch {
+      // fall through to a lock-held error
     }
     throw new Error("Idempotency lock held for this key; retry shortly");
   }
   const result = await fn();
-  await runtime.recordIdempotency(eventKey, result);
+  try {
+    await runtime.recordIdempotency(eventKey, result);
+  } catch {
+    // The write already succeeded — do not fail the tool because Redis closed.
+  }
   return result;
 }

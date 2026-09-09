@@ -680,6 +680,12 @@ export const AGENT_TOOL_CATALOG = [
     icon: "fa-solid fa-hourglass-half",
     description: "Check a long-running agent job such as a security scan.",
   },
+  {
+    id: "page_ui",
+    name: "Page UI",
+    icon: "fa-solid fa-window-restore",
+    description: "Change the open Fairlx page view: tab, zoom, filters, selection, or in-app navigation.",
+  },
 ] as const;
 
 export const DEFAULT_ENABLED_TOOLS = AGENT_TOOL_CATALOG.map((tool) => tool.id);
@@ -728,6 +734,7 @@ export const NEW_AGENT_TOOL_IDS = [
   "security_review",
   "agent_job_status",
   "web_fetch",
+  "page_ui",
 ] as const;
 
 export const STARTER_SKILLS: Omit<AgentSkill, "id" | "createdAt">[] = [

@@ -320,7 +320,7 @@ function previewRun(params: {
     status: "idle",
     mode: params.mode,
     workspaceId: params.workspaceId || params.harness?.settings.defaultWorkspaceId,
-    projectId: params.projectId || params.harness?.settings.defaultProjectId,
+    projectId: (params.projectId ?? params.harness?.settings.defaultProjectId) || undefined,
     messages: [],
     events: [],
     createdAt: new Date(0).toISOString(),
@@ -398,9 +398,7 @@ function systemPromptForPreview(params: {
     context.workspaces.find((item) => item.id === run.workspaceId) ??
     context.workspaces.find((item) => item.id === params.harness?.settings.defaultWorkspaceId) ??
     context.workspaces[0];
-  const project =
-    context.projects.find((item) => item.id === run.projectId) ??
-    context.projects.find((item) => item.id === params.harness?.settings.defaultProjectId);
+  const project = context.projects.find((item) => item.id === run.projectId);
   const role = workspace?.role ? ` Role: ${workspace.role}.` : "";
   const organization =
     (workspace?.organizationId

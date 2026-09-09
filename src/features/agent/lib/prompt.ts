@@ -2,7 +2,9 @@ import type { AgentContext, AgentHarness, AgentRun, AgentSpecialistId, McpConfig
 import { compilePersonaPrompt, inferPersonaRole } from "@fairlx/multi-agent";
 import { AGENT_DEFINITIONS } from "./brain";
 import { AGENT_SPECIALISTS, specialistById } from "./graph";
+import { stripAttachedImages } from "./attach-images";
 import { extractAttachedFiles, subjectsFromFiles, subjectsToc, stripAttachedFiles } from "./attachments";
+import { stripPageContext } from "./page-context";
 import { matchingAutomations, rankKnowledge } from "./search";
 import { isPersonalSessionMode, SESSION_MODE_INSTRUCTIONS } from "./session-context";
 import { firstName } from "./agent-ui";
@@ -27,7 +29,11 @@ export function userInstructionBrief(
 ): string {
   const texts = messages
     .filter((message) => message.role === "user")
-    .map((message) => stripAttachedFiles(message.content).replace(/\s+/g, " ").trim())
+    .map((message) =>
+      stripAttachedImages(stripPageContext(stripAttachedFiles(message.content)), true)
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
     .filter(Boolean);
   if (!texts.length) return "";
   const numbered = texts.map((text, index) => {
@@ -53,15 +59,15 @@ export function buildSystemPrompt(params: {
 }): string {
   const { harness, context, run } = params;
   const lastUser = [...run.messages].reverse().find((message) => message.role === "user");
-  const query = lastUser?.content || run.prompt || "";
+  const query = stripAttachedImages(stripPageContext(lastUser?.content || run.prompt || ""));
   const specialist = specialistById(params.specialist || "orchestrator");
   const workspace =
     context.workspaces.find((item) => item.id === run.workspaceId) ??
     context.workspaces.find((item) => item.id === harness.settings.defaultWorkspaceId) ??
     context.workspaces[0];
-  const project =
-    context.projects.find((item) => item.id === run.projectId) ??
-    context.projects.find((item) => item.id === harness.settings.defaultProjectId);
+  const project = run.projectId
+    ? context.projects.find((item) => item.id === run.projectId)
+    : undefined;
   const knowledge = rankKnowledge(query, harness, 3);
   const automations = matchingAutomations(harness, query).slice(0, 3);
   const role = workspace?.role ? ` Role: ${workspace.role}.` : "";
@@ -148,7 +154,11 @@ export function buildSystemPrompt(params: {
   }
   const userTexts = run.messages
     .filter((message) => message.role === "user")
-    .map((message) => stripAttachedFiles(message.content).replace(/\s+/g, " ").trim())
+    .map((message) =>
+      stripAttachedImages(stripPageContext(stripAttachedFiles(message.content)), true)
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
     .filter(Boolean);
   if (!userTexts.length && query) userTexts.push(query.replace(/\s+/g, " ").trim());
   lines.push("", formatDeleteIntentContext(userTexts));

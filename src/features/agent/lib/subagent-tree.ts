@@ -143,7 +143,25 @@ function instanceLabel(params: { subject?: string; task: string; title: string }
 }
 
 function runIsLive(status?: AgentRun["status"]): boolean {
-  return status === "running" || status === "awaiting_confirmation" || status === "awaiting_plugin";
+  return (
+    status === "running" ||
+    status === "awaiting_confirmation" ||
+    status === "awaiting_plugin" ||
+    status === "awaiting_question"
+  );
+}
+
+/** Headline counts include the orchestrator so a working run is never "0 live". */
+export function crewHeadlineCounts(crew: Pick<AgentCrew, "live" | "total" | "orchestratorStatus">): {
+  live: number;
+  launched: number;
+} {
+  const orchLive = crew.orchestratorStatus === "working" ? 1 : 0;
+  const orchLaunched = crew.orchestratorStatus === "idle" ? 0 : 1;
+  return {
+    live: crew.live + orchLive,
+    launched: crew.total + orchLaunched,
+  };
 }
 
 function runIsTerminal(status?: AgentRun["status"]): boolean {

@@ -33,6 +33,9 @@ import {
   useStopAgentRun,
 } from "../api/use-agent-runs";
 import { useAgentMutationSync } from "../hooks/use-agent-mutation-sync";
+import { useAgentPageUiSync } from "../hooks/use-agent-page-ui-sync";
+import { attachPageContext } from "../lib/page-context";
+import { useAgentPageContextBlock } from "./agent-page-context";
 import { firstName, greetingForNow } from "../lib/agent-ui";
 import type { AgentRun } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
@@ -96,6 +99,9 @@ function AgentFloatingChatInner() {
 
   const { data: run, isLoading, isError } = useGetAgentRun(runId ?? undefined);
   useAgentMutationSync(run);
+  useAgentPageUiSync(run);
+  const pageContext = useAgentPageContextBlock();
+  const sendWithPage = (content: string) => attachPageContext(content, pageContext);
   const sendMessage = useSendAgentMessage();
   const confirmRun = useConfirmAgentRun();
   const denyRun = useDenyAgentRun();
@@ -266,11 +272,11 @@ function AgentFloatingChatInner() {
                 isDenying={denyRun.isPending}
                 onSendEdit={(content) => {
                   stickToBottomRef.current = true;
-                  sendMessage.mutate({ param: { runId: run.id }, json: { content } });
+                  sendMessage.mutate({ param: { runId: run.id }, json: { content: sendWithPage(content) } });
                 }}
                 onPickChoice={(choice) => {
                   stickToBottomRef.current = true;
-                  sendMessage.mutate({ param: { runId: run.id }, json: { content: choice } });
+                  sendMessage.mutate({ param: { runId: run.id }, json: { content: sendWithPage(choice) } });
                 }}
                 onConfirm={() => confirmRun.mutate({ runId: run.id })}
                 onDeny={() => denyRun.mutate({ runId: run.id })}

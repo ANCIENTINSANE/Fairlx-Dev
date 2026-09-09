@@ -18,6 +18,7 @@ import {
   X,
   Settings,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -27,7 +28,7 @@ import { useGetAgentHarness } from "../api/use-agent-harness";
 import { useGetAgentMcpConfig } from "../api/use-agent-mcp-config";
 import { isInternalMcpServer } from "../constants";
 import { chipKey } from "../lib/session-context";
-import { chipFromFile } from "../lib/attach-files";
+import { AGENT_FILE_ACCEPT, chipsFromFiles } from "../lib/attach-files";
 import type { AgentContextChip } from "../types";
 import { useAgentUi } from "./agent-ui-context";
 
@@ -283,25 +284,19 @@ export function AgentPlusMenu({
         <input
           ref={fileRef}
           type="file"
-          accept="image/*,.md,.markdown,.pdf,.txt,.ts,.tsx,.js,.jsx,.json"
+          accept={AGENT_FILE_ACCEPT}
           className="hidden"
           multiple
           onChange={(event) => {
             const files = Array.from(event.target.files ?? []);
             event.target.value = "";
             void (async () => {
-              for (const file of files) {
-                try {
-                  add(await chipFromFile(file));
-                } catch {
-                  add({
-                    kind: file.type.startsWith("image/") ? "image" : "file",
-                    id: `${file.name}-${file.size}-${file.lastModified}`,
-                    label: file.name,
-                    meta: "unreadable",
-                  });
-                }
-              }
+              const { chips: added, errors } = await chipsFromFiles(
+                files,
+                chips.filter((chip) => chip.kind === "image").length,
+              );
+              for (const message of errors) toast.error(message);
+              for (const chip of added) add(chip);
             })();
           }}
         />
@@ -369,11 +364,15 @@ export function ContextChips({
   return (
     <div className="flex flex-wrap gap-1.5 px-3 pt-3">
       {chips.map((chip) => (
-        <span
-          key={chipKey(chip)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[11px] text-foreground font-medium shadow-sm"
-        >
-          <span className="truncate max-w-[160px]">{chip.label}</span>
+          <span
+            key={chipKey(chip)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[11px] text-foreground font-medium shadow-sm"
+          >
+            {chip.kind === "image" && chip.content?.startsWith("data:image/") ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={chip.content} alt="" className="size-5 rounded object-cover" />
+            ) : null}
+            <span className="truncate max-w-[160px]">{chip.label}</span>
           <button type="button" onClick={() => onRemove(chip)} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="size-3" />
           </button>

@@ -182,6 +182,13 @@ export interface McpRuntime {
   }>;
   /** Drop member/permission caches after a workspace role change. */
   onMembershipChanged?: (info: { userId: string; workspaceId: string }) => Promise<void>;
+  /** Seed owner roles and drop project list caches after MCP creates a project. */
+  onProjectCreated?: (info: {
+    projectId: string;
+    workspaceId: string;
+    userId: string;
+    name: string;
+  }) => Promise<void>;
   /** Drop project-access caches after a team or team-membership change. */
   onProjectTeamChanged?: (info: { projectId: string; userIds: string[] }) => Promise<void>;
   /**

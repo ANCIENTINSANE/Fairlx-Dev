@@ -52,6 +52,7 @@ import {
   pickLiveOrgAuditLogDocument,
 } from "@/features/organizations/lib/audit-log-schema";
 import { generateWorkItemKey } from "@/features/sprints/lib/generate-work-item-key";
+import { seedProjectRolesAndAssignOwner } from "@/features/projects/lib/utils";
 import { validateStatusTransition } from "@/features/workflows/lib/validate-status-transition";
 import { createAdminClient } from "@/lib/appwrite";
 import { batchGetUsers } from "@/lib/batch-users";
@@ -125,21 +126,35 @@ const COLLECTIONS: McpCollections = {
 const IDEMPOTENCY_TTL_SECONDS = 60 * 60 * 24;
 
 function wrapRedis(client: NonNullable<ReturnType<typeof getRedisClient>>): McpRedis {
+  const swallow = async <T>(run: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      console.warn("[mcp redis]", error instanceof Error ? error.message : error);
+      return fallback;
+    }
+  };
   return {
-    get: (key) => client.get(key),
+    get: (key) => swallow(() => client.get(key), null),
     set: async (key, value, ttlSeconds) => {
-      if (typeof ttlSeconds === "number") {
-        await client.set(key, value, "EX", ttlSeconds);
-        return;
-      }
-      await client.set(key, value);
+      await swallow(async () => {
+        if (typeof ttlSeconds === "number") {
+          await client.set(key, value, "EX", ttlSeconds);
+          return;
+        }
+        await client.set(key, value);
+      }, undefined);
     },
     del: async (key) => {
-      await client.del(key);
+      await swallow(async () => {
+        await client.del(key);
+      }, undefined);
     },
-    incr: (key) => client.incr(key),
+    incr: (key) => swallow(() => client.incr(key), 0),
     expire: async (key, ttlSeconds) => {
-      await client.expire(key, ttlSeconds);
+      await swallow(async () => {
+        await client.expire(key, ttlSeconds);
+      }, undefined);
     },
   };
 }
@@ -303,6 +318,10 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
       }
       const api = new GitHubAPI(resolved.token);
       return api.request(method, path, body);
+    },
+    onProjectCreated: async ({ projectId, workspaceId, userId }) => {
+      await seedProjectRolesAndAssignOwner(databases, projectId, workspaceId, userId);
+      await invalidateCache(CK.projectList(workspaceId), CK.authLifecycle(userId));
     },
     onMembershipChanged: async ({ userId, workspaceId }) => {
       await invalidateCache(

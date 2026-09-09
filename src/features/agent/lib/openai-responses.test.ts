@@ -255,4 +255,28 @@ describe("OpenAI Responses API conversion", () => {
       },
     ]);
   });
+
+  it("maps chat vision parts onto Responses input_image", () => {
+    const payload = toResponsesRequest({
+      model: "grok-4.6",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What's in this screenshot?" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+          ],
+        },
+      ],
+    });
+    expect(payload.input).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "What's in this screenshot?" },
+          { type: "input_image", image_url: "data:image/png;base64,abc" },
+        ],
+      },
+    ]);
+  });
 });

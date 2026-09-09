@@ -38,6 +38,7 @@ const EditTaskModal = dynamic(() => import("@/features/tasks/components/edit-tas
 const TaskDetailsModalWrapper = dynamic(() => import("@/features/tasks/components/task-details-modal-wrapper").then(mod => mod.TaskDetailsModalWrapper).catch(() => (() => null) as React.FC), { ssr: false });
 const TaskPreviewModalWrapper = dynamic(() => import("@/features/tasks/components/task-preview-modal").then(mod => mod.TaskPreviewModalWrapper).catch(() => (() => null) as React.FC), { ssr: false });
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
+import { AgentPageProvider } from "@/features/agent/components/agent-page-context";
 
 import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
@@ -64,6 +65,7 @@ const isWorkflowPage = /^\/workspaces\/[^\/]+\/spaces\/[^\/]+\/workflows\/[^\/]+
     const isMainDashboard = /^\/workspaces\/[^\/]+$/.test(pathname || "");
 
   return (
+    <AgentPageProvider>
     <div className={`min-h-screen ${isMainDashboard ? 'bg-background' : ''}`}>
       <ModalErrorBoundary>
         <Suspense fallback={null}>
@@ -111,6 +113,7 @@ const isWorkflowPage = /^\/workspaces\/[^\/]+\/spaces\/[^\/]+\/workflows\/[^\/]+
         <AgentFloatingChat />
       </Suspense>
     </div>
+    </AgentPageProvider>
   );
 };
 

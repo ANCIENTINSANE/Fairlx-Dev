@@ -28,6 +28,7 @@ import { compilePersonalPrompt, isPersonalPersonaRole } from "./personal-trainin
 import { upsertPersonalAgent } from "./personal-agent-store";
 import { toPublicMcpConfig } from "./public-mcp";
 import { matchingAutomations, searchAgentIndex } from "./search";
+import { parsePageUiAction, pageUiEventTitle } from "./page-ui-action";
 import { compactJsonString, unwrapMcpToolContent } from "./truncate";
 import {
   MAX_PROJECT_DOCS_PER_TURN,
@@ -185,6 +186,11 @@ function compactEventPayload(type: string, payload: unknown): unknown {
     "note",
     "codingAgent",
     "artifacts",
+    "action",
+    "view",
+    "zoom",
+    "filters",
+    "itemId",
   ]) {
     if (source[key] != null) slim[key] = source[key];
   }
@@ -2558,6 +2564,25 @@ export async function executeTool(
           event: event(runId, "error", "List releases failed", payload.error, payload),
         };
       }
+    }
+    case "page_ui": {
+      const parsedAction = parsePageUiAction(parsed);
+      if (!parsedAction.ok) {
+        const payload = { ok: false, error: parsedAction.error };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "page_ui", "Page UI action failed", parsedAction.error, payload),
+        };
+      }
+      const payload = {
+        ok: true,
+        ...parsedAction.value,
+        instruction: "The open Fairlx page will apply this view change. Do not claim it failed.",
+      };
+      return {
+        content: JSON.stringify(payload),
+        event: event(runId, "page_ui", pageUiEventTitle(parsedAction.value), undefined, payload),
+      };
     }
     case "ask_user": {
       const payload = {

@@ -12,6 +12,7 @@ import { crewModelHints } from "../lib/client-defaults";
 import { formatTokenCount, formatUsd } from "../lib/run-usage";
 import {
   buildAgentCrew,
+  crewHeadlineCounts,
   specialistDisplayName,
   type AgentCrew,
   type AgentCrewActivity,
@@ -214,6 +215,7 @@ export function AgentCrewPanel({
   const faceMood = useAgentFaceMood(run);
   const events = run?.events ?? [];
   const crew = buildAgentCrew(events, run?.status, crewModelHints(ai, run));
+  const headline = crewHeadlineCounts(crew);
   const live = crew.orchestratorStatus === "working" || crew.live > 0;
   const orchUsage = usageLine(crew.orchestratorCalls, crew.orchestratorTokens, 0);
   const nestedValue =
@@ -228,11 +230,11 @@ export function AgentCrewPanel({
         {live ? (
           <div className="flex items-center gap-1.5 text-[10px] text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full font-medium tabular-nums">
             <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
-            {crew.live} live · {crew.total} launched
+            {headline.live} live · {headline.launched} launched
           </div>
         ) : (
           <span className="text-[10px] font-medium tabular-nums text-sidebar-foreground/50">
-            {crew.live} live · {crew.total} launched
+            {headline.live} live · {headline.launched} launched
           </span>
         )}
       </div>

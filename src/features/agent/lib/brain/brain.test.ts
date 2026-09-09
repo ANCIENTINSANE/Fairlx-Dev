@@ -38,6 +38,7 @@ describe("selectToolsForTurn", () => {
     expect(names.has("fairlx_sprint_create")).toBe(true);
     expect(names.has("fairlx_sprint_plan")).toBe(true);
     expect(names.has("fairlx_sprint_update")).toBe(true);
+    expect(names.has("page_ui")).toBe(true);
     expect(names.has("fairlx_work_item_delete")).toBe(true);
   });
 

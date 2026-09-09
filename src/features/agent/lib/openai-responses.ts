@@ -40,6 +40,42 @@ function textFromUnknown(value: unknown): string {
   return "";
 }
 
+function userContentForResponses(content: unknown): unknown {
+  if (!Array.isArray(content)) return textFromUnknown(content);
+  const parts: Record<string, unknown>[] = [];
+  for (const item of content) {
+    const record = asRecord(item);
+    if (!record) continue;
+    if (record.type === "image_url") {
+      const image = asRecord(record.image_url);
+      const url =
+        typeof record.image_url === "string"
+          ? record.image_url
+          : typeof image?.url === "string"
+            ? image.url
+            : "";
+      if (url) parts.push({ type: "input_image", image_url: url });
+      continue;
+    }
+    if (record.type === "input_image") {
+      const image = asRecord(record.image_url);
+      const url =
+        typeof record.image_url === "string"
+          ? record.image_url
+          : typeof image?.url === "string"
+            ? image.url
+            : "";
+      if (url) parts.push({ type: "input_image", image_url: url });
+      continue;
+    }
+    const text = textFromUnknown(item);
+    if (text) parts.push({ type: "input_text", text });
+  }
+  if (!parts.length) return "";
+  if (parts.length === 1 && parts[0]?.type === "input_text") return parts[0].text;
+  return parts;
+}
+
 function stringifyArguments(value: unknown): string {
   if (typeof value === "string") return value;
   try {
@@ -154,7 +190,7 @@ export function toResponsesRequest(body: Record<string, unknown>): Record<string
 
   for (const message of rest) {
     if (message.role === "user") {
-      input.push({ role: "user", content: textFromUnknown(message.content) });
+      input.push({ role: "user", content: userContentForResponses(message.content) });
       continue;
     }
     if (message.role === "assistant") {
