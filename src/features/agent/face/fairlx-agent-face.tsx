@@ -34,7 +34,7 @@ function appearanceFromTheme(theme?: string): AgentFaceAppearance {
 
 export function FairlxAgentFace({
   emotion = "idle",
-  gaze = "up",
+  gaze = "neutral",
   gazeProgress = 0.5,
   theme = "theme-fairlx-blue",
   appearance,
@@ -60,6 +60,8 @@ export function FairlxAgentFace({
       floating,
       flat: flat ?? size < 64,
     });
+    engine.setEmotion(emotion, { silent: true });
+    engine.setGazeDirection(gaze, gazeProgress);
     engineRef.current = engine;
     return () => {
       engine.destroy();
@@ -97,6 +99,8 @@ export function FairlxAgentFace({
         theme,
         `mode-${mode}`,
         size < 160 && "is-compact",
+        gaze === "down" && "face-looking-down",
+        gaze === "up" && "face-looking-up",
         className,
       )}
       style={{
@@ -104,6 +108,7 @@ export function FairlxAgentFace({
         height: size,
         ["--face-box" as string]: `${size}px`,
         ["--face-scale" as string]: String(size / 240),
+        ["--gaze-progress" as string]: String(gazeProgress),
       }}
       role="img"
       aria-label={`Fairlx agent face, ${emotion}`}
@@ -116,31 +121,44 @@ export function FairlxAgentFace({
             transformOrigin: "center center",
           }}
         >
-        <div className={cn("fairlx-agent-face", `state-${emotion}`, floating && size >= 180 && "floating-agent")}>
+        <div
+          className={cn(
+            "fairlx-agent-face",
+            `state-${emotion}`,
+            gaze === "down" && "face-looking-down",
+            gaze === "up" && "face-looking-up",
+            floating && size >= 180 && "floating-agent",
+          )}
+        >
+          <div className="agent-sphere-shadow" />
           <div className="agent-chassis">
+            <div className="agent-sphere-volume" />
             <div className="agent-visor">
               <div className="visor-scanlines" />
               <div className="visor-grid" />
               <div className="visor-glare" />
               <div className="agent-orbit-scanner" />
               <div className="agent-particles-layer" />
-              <div className="agent-screen-content">
-                <div className="eyes-container">
-                  <div className="agent-eye agent-eye-left">
-                    <div className="eye-glow-inner" />
-                    <div className="eye-pupil-center" />
-                    <div className="eye-iris-ring" />
-                    <div className="eye-lid-shadow" />
-                  </div>
-                  <div className="agent-eye agent-eye-right">
-                    <div className="eye-glow-inner" />
-                    <div className="eye-pupil-center" />
-                    <div className="eye-iris-ring" />
-                    <div className="eye-lid-shadow" />
+              <div className="agent-face-rig">
+                <div className="agent-screen-content">
+                  <div className="eyes-container">
+                    <div className="agent-eye agent-eye-left">
+                      <div className="eye-glow-inner" />
+                      <div className="eye-pupil-center" />
+                      <div className="eye-iris-ring" />
+                      <div className="eye-lid-shadow" />
+                    </div>
+                    <div className="agent-eye agent-eye-right">
+                      <div className="eye-glow-inner" />
+                      <div className="eye-pupil-center" />
+                      <div className="eye-iris-ring" />
+                      <div className="eye-lid-shadow" />
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+            <div className="agent-sphere-specular" />
           </div>
         </div>
         </div>

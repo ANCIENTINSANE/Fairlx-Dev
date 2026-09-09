@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
 import {
   Loader2,
   Pin,
@@ -66,6 +67,14 @@ import { SessionArtifacts } from "./session-artifacts";
 import { ImplementationPlanCard } from "./implementation-plan-card";
 import { resolveRunImplementationPlan } from "../lib/implementation-plan";
 import { describeCodingPreview } from "../lib/sandbox-preview";
+import { shouldRecoverInterruptedTurn } from "../lib/optimistic-run";
+import { tabTone, type WorkflowSidebarTab } from "../lib/sidebar-theme";
+import {
+  AccentCard,
+  SidebarEmptyState,
+  SidebarIconWell,
+  StatusPill,
+} from "./workflow-sidebar-ui";
 import { useCommentCodingSession, useGetCodingSession, useMergeCodingSession, useStartCodingSession } from "../api/use-coding-session";
 
 const SIDEBAR_MIN = 280;
@@ -75,13 +84,13 @@ const SIDEBAR_COLLAPSED = 44;
 const SIDEBAR_WIDTH_KEY = "fairlx.agent.workflow.sidebarWidth";
 const SIDEBAR_COLLAPSED_KEY = "fairlx.agent.workflow.sidebarCollapsed";
 
-const SIDEBAR_TABS = [
+const SIDEBAR_TABS: ReadonlyArray<readonly [WorkflowSidebarTab, string, LucideIcon]> = [
   ["plan", "Plan", ClipboardList],
   ["context", "Context", Layers],
   ["changes", "Changes", GitBranch],
   ["terminal", "Terminal", SquareTerminal],
   ["preview", "Preview", Eye],
-] as const;
+];
 
 function clampSidebarWidth(value: number) {
   const max = typeof window === "undefined" ? SIDEBAR_MAX : Math.min(SIDEBAR_MAX, window.innerWidth * 0.7);
@@ -206,8 +215,8 @@ function WorkflowSidebar({
 }: {
   run: AgentRun;
   events: AgentToolEvent[];
-  tab: "plan" | "context" | "changes" | "terminal" | "preview";
-  onTab: (tab: "plan" | "context" | "changes" | "terminal" | "preview") => void;
+  tab: WorkflowSidebarTab;
+  onTab: (tab: WorkflowSidebarTab) => void;
 }) {
   const { data: context } = useGetAgentContext();
   const { data: harness } = useGetAgentHarness();
@@ -372,60 +381,70 @@ function WorkflowSidebar({
           >
             <PanelRightOpen className="size-4" />
           </button>
-          {SIDEBAR_TABS.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              type="button"
-              title={id === "changes" && changeFiles.length ? `${label} · ${changeFiles.length}` : label}
-              onClick={() => {
-                onTab(id);
-                setCollapsed(false);
-              }}
-              className={cn(
-                "relative flex size-8 items-center justify-center rounded-md",
-                tab === id
-                  ? "bg-sidebar-accent text-primary"
-                  : "text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground",
-              )}
-            >
-              <Icon className="size-4" />
-              {id === "changes" && changeFiles.length ? (
-                <span className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-primary px-0.5 text-center text-[9px] font-semibold leading-[14px] text-primary-foreground">
-                  {changeFiles.length}
-                </span>
-              ) : null}
-            </button>
-          ))}
+          {SIDEBAR_TABS.map(([id, label, Icon]) => {
+            const tone = tabTone(id);
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                title={id === "changes" && changeFiles.length ? `${label} · ${changeFiles.length}` : label}
+                onClick={() => {
+                  onTab(id);
+                  setCollapsed(false);
+                }}
+                className={cn(
+                  "relative flex size-8 items-center justify-center rounded-lg transition-colors",
+                  active ? cn(tone.bg, tone.text) : "text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground",
+                )}
+              >
+                <Icon className="size-4" />
+                {id === "changes" && changeFiles.length ? (
+                  <span className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-emerald-500 px-0.5 text-center text-[9px] font-semibold leading-[14px] text-white">
+                    {changeFiles.length}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <>
       <div className="flex shrink-0 items-stretch border-b border-sidebar-border bg-sidebar">
         <div className="flex min-w-0 flex-1 overflow-x-auto">
-          {SIDEBAR_TABS.map(([id, label]) => (
+          {SIDEBAR_TABS.map(([id, label, Icon]) => {
+            const tone = tabTone(id);
+            const active = tab === id;
+            return (
           <button
             key={id}
             type="button"
+            title={label}
             onClick={() => onTab(id)}
             className={cn(
-              "inline-flex min-w-[3.5rem] flex-1 items-center justify-center gap-1 border-b-2 px-1 py-3 text-[11px] font-semibold transition-colors",
-              tab === id
-                ? "border-primary bg-sidebar-accent/50 text-primary"
-                : "border-transparent text-muted-foreground hover:bg-sidebar-accent/30 hover:text-foreground"
+              "relative inline-flex min-w-[3.75rem] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2.5 text-[11px] font-semibold transition-colors",
+              active ? tone.text : "text-muted-foreground hover:bg-sidebar-accent/40 hover:text-foreground",
+              active && tone.bg,
             )}
           >
-            {label}
-            {id === "changes" && changeFiles.length ? (
-              <span
-                className={cn(
-                  "inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums",
-                  tab === id ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
-                )}
-              >
-                {changeFiles.length}
-              </span>
-            ) : null}
+            <Icon className="size-3.5" />
+            <span className="inline-flex items-center gap-0.5">
+              {label}
+              {id === "changes" && changeFiles.length ? (
+                <span
+                  className={cn(
+                    "inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-semibold tabular-nums",
+                    active ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {changeFiles.length}
+                </span>
+              ) : null}
+            </span>
+            {active ? <span className={cn("absolute inset-x-2 bottom-0 h-0.5 rounded-full", tone.bar)} /> : null}
           </button>
-          ))}
+            );
+          })}
         </div>
         <button
           type="button"
@@ -448,9 +467,9 @@ function WorkflowSidebar({
             {implementationPlan ? (
               <ImplementationPlanCard plan={implementationPlan} />
             ) : (
-              <p className="text-xs text-muted-foreground px-1">
+              <SidebarEmptyState icon={ClipboardList} tone="blue" title="No plan yet">
                 The agent submits an implementation plan here before coding. Accept it to start the Azure session.
-              </p>
+              </SidebarEmptyState>
             )}
           </div>
         ) : null}
@@ -485,7 +504,7 @@ function WorkflowSidebar({
                 <button
                   type="button"
                   onClick={() => setActivityOpen((value) => !value)}
-                  className="flex items-center gap-1 text-xs font-semibold text-foreground uppercase tracking-wider hover:text-foreground/80"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider hover:text-sidebar-foreground/70 transition-colors"
                 >
                   {activityOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
                   Live Activity
@@ -496,7 +515,7 @@ function WorkflowSidebar({
                     Live
                   </div>
                 ) : (
-                  <span className="text-xs text-muted-foreground capitalize font-medium">{run.status}</span>
+                  <span className="text-xs text-muted-foreground capitalize font-medium">{run.status.replace(/_/g, " ")}</span>
                 )}
               </div>
               {live.length === 0 ? (
@@ -517,7 +536,7 @@ function WorkflowSidebar({
                               : failed
                                 ? "bg-destructive"
                                 : thinking
-                                  ? "bg-violet-400/80"
+                                  ? "bg-primary/50"
                                   : "bg-muted-foreground/50"
                           )}
                         />
@@ -574,15 +593,23 @@ function WorkflowSidebar({
                 />
               </div>
             ) : (
-              <p className="px-3 py-4 text-xs text-muted-foreground">
+              <div className="p-4">
+              <SidebarEmptyState
+                icon={GitBranch}
+                tone="emerald"
+                title={repo ? "No changes yet" : "Connect GitHub"}
+              >
                 {repo
                   ? "No pull requests yet. After the sandbox pushes fairlx/{key}, the in-app diff appears here."
-                  : "Connect your GitHub account to edit code."}
-              </p>
+                  : "Connect your GitHub account to edit code and review diffs in this panel."}
+              </SidebarEmptyState>
+              </div>
             )}
-            <div className="shrink-0 border-t border-sidebar-border p-2">
-              <SessionArtifacts session={session} />
-            </div>
+            {session?.artifacts?.length || session?.meta?.artifacts?.length ? (
+              <div className="shrink-0 border-t border-sidebar-border p-2">
+                <SessionArtifacts session={session} />
+              </div>
+            ) : null}
             {prLinks.length ? (
               <div className="shrink-0 space-y-1 border-t border-sidebar-border p-2">
                 {prLinks.map((item) => (
@@ -591,8 +618,9 @@ function WorkflowSidebar({
                     href={item.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="block truncate rounded-md px-2 py-1.5 text-[11px] text-primary hover:bg-sidebar-accent"
+                    className="flex items-center gap-1.5 truncate rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 py-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15"
                   >
+                    <ExternalLink className="size-3 shrink-0" />
                     {item.label}
                   </a>
                 ))}
@@ -603,7 +631,7 @@ function WorkflowSidebar({
                 href={githubUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex shrink-0 items-center gap-1.5 border-t border-sidebar-border px-3 py-2 text-xs font-medium text-primary hover:underline"
+                className="inline-flex shrink-0 items-center gap-1.5 border-t border-sidebar-border px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:underline"
               >
                 <GitBranch className="size-3.5" /> Open {repo.owner}/{repo.repositoryName}
               </a>
@@ -614,17 +642,34 @@ function WorkflowSidebar({
         {tab === "terminal" ? (
           <div className="space-y-2">
             {terminals.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-1">
+              <SidebarEmptyState icon={SquareTerminal} tone="amber" title="No terminal output">
                 {session?.sandboxId
                   ? "No sandbox output yet. The agent’s terminal and coding_session_exec results appear here."
                   : "No recorded commands. Start a coding session so commands run in Azure, not on the Fairlx host."}
-              </p>
+              </SidebarEmptyState>
             ) : (
               terminals.map((event) => (
-                <div key={event.id} className="rounded-lg border border-sidebar-border bg-card p-3 font-mono text-[11px] text-foreground">
-                  <div className="text-muted-foreground text-[10px] mb-1">{clockTime(event.createdAt, true)}</div>
-                  <div className="font-semibold">{event.title}</div>
-                  {event.detail ? <div className="text-muted-foreground mt-1 whitespace-pre-wrap">{event.detail}</div> : null}
+                <div
+                  key={event.id}
+                  className="overflow-hidden rounded-xl border border-amber-500/20 bg-zinc-950 text-[11px] text-zinc-100 shadow-sm"
+                >
+                  <div className="flex items-center gap-2 border-b border-white/10 bg-zinc-900 px-3 py-1.5">
+                    <span className="flex items-center gap-1">
+                      <span className="size-2 rounded-full bg-rose-400/90" />
+                      <span className="size-2 rounded-full bg-amber-400/90" />
+                      <span className="size-2 rounded-full bg-emerald-400/90" />
+                    </span>
+                    <SquareTerminal className="size-3 text-amber-300" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-zinc-200">{event.title}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-zinc-500">{clockTime(event.createdAt, true)}</span>
+                  </div>
+                  {event.detail ? (
+                    <pre className="custom-scrollbar max-h-56 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed text-emerald-300/90">
+                      {event.detail}
+                    </pre>
+                  ) : (
+                    <p className="px-3 py-2 text-zinc-500">No output captured.</p>
+                  )}
                 </div>
               ))
             )}
@@ -634,42 +679,79 @@ function WorkflowSidebar({
         {tab === "preview" ? (
           <div className="space-y-3">
             {session ? (
-              <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/30 p-3 space-y-2">
-                <p className="text-xs font-medium text-foreground">
-                  Sandbox app preview · {session.status.replace(/_/g, " ")}
-                  {previewMeta.driver !== "none" ? ` · ${previewMeta.driver}` : ""}
-                  {previewMeta.live ? " · live" : previewMeta.stub ? " · not live" : ""}
-                </p>
+              <AccentCard tone={previewMeta.live ? "cyan" : previewMeta.stub ? "amber" : "sky"}>
+                <div className="space-y-2 p-3">
+                  <div className="flex items-start gap-2">
+                    <SidebarIconWell icon={Eye} tone={previewMeta.live ? "cyan" : previewMeta.stub ? "amber" : "sky"} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[12px] font-semibold text-foreground">Sandbox preview</p>
+                        <StatusPill
+                          kind={
+                            previewMeta.live
+                              ? "live"
+                              : previewMeta.stub
+                                ? "warn"
+                                : previewMeta.preparing || session.status === "preparing" || session.status === "queued"
+                                  ? "info"
+                                  : "idle"
+                          }
+                        >
+                          {previewMeta.live
+                            ? "live"
+                            : previewMeta.stub
+                              ? "not live"
+                              : session.status.replace(/_/g, " ")}
+                        </StatusPill>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {previewMeta.driver !== "none" ? `${previewMeta.driver} · ` : ""}
+                        {session.status.replace(/_/g, " ")}
+                      </p>
+                    </div>
+                  </div>
                 {session.codingAgent ? (
                   <p className="text-[11px] text-muted-foreground">
                     Coder: {session.codingAgent === "claude_code" ? "Claude Code in sandbox" : session.codingAgent === "codex" ? "Codex in sandbox" : "Fairlx specialists (CLI credentials missing)"}
                   </p>
                 ) : null}
                 {previewMeta.preparing || session.status === "preparing" || session.status === "queued" ? (
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-700 dark:text-sky-300">
                     <Loader2 className="size-3.5 animate-spin" />
                     {previewMeta.note || "Preparing clone, install, and dev server…"}
                   </div>
                 ) : null}
                 {previewMeta.stub ? (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-300">{previewMeta.note}</p>
+                  <p className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">{previewMeta.note}</p>
                 ) : null}
                 {previewMeta.live && previewMeta.url ? (
                   <>
                     <p className="text-[11px] text-muted-foreground">
                       In-app browser for the Azure sandbox app (not github.dev).
                     </p>
-                    <iframe
-                      title="Sandbox app preview"
-                      src={previewMeta.url}
-                      className="w-full min-h-[28rem] rounded-lg border border-sidebar-border bg-background"
-                    />
+                    <div className="overflow-hidden rounded-xl border border-cyan-500/25 bg-zinc-950">
+                      <div className="flex items-center gap-2 border-b border-white/10 bg-zinc-900 px-2.5 py-1.5">
+                        <span className="flex items-center gap-1">
+                          <span className="size-2 rounded-full bg-rose-400/90" />
+                          <span className="size-2 rounded-full bg-amber-400/90" />
+                          <span className="size-2 rounded-full bg-emerald-400/90" />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate rounded-md bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-300">
+                          {previewMeta.url}
+                        </span>
+                      </div>
+                      <iframe
+                        title="Sandbox app preview"
+                        src={previewMeta.url}
+                        className="w-full min-h-[28rem] bg-background"
+                      />
+                    </div>
                     <div className="flex items-center gap-2">
                       <a
                         href={previewMeta.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="min-w-0 flex-1 truncate text-[11px] text-primary"
+                        className="min-w-0 flex-1 truncate text-[11px] font-medium text-cyan-700 dark:text-cyan-300"
                       >
                         {previewMeta.url}
                       </a>
@@ -690,37 +772,43 @@ function WorkflowSidebar({
                     </div>
                   </>
                 ) : null}
-                <SessionArtifacts session={session} />
-              </div>
+                <SessionArtifacts session={session} embedded />
+                </div>
+              </AccentCard>
             ) : (
-              <p className="text-xs text-muted-foreground px-1">
-                No coding session sandbox for this chat yet. After you Accept the implementation plan, Fairlx clones the repo in Azure, installs, starts the app, and the live preview appears here.
-              </p>
+              <SidebarEmptyState icon={Eye} tone="cyan" title="No sandbox yet">
+                After you Accept the implementation plan, Fairlx clones the repo in Azure, installs, starts the app, and the live preview appears here.
+              </SidebarEmptyState>
             )}
             {githubUrl ? (
               <>
-                <p className="text-xs text-muted-foreground px-1">
+                <p className="px-1 text-[11px] text-muted-foreground">
                   Linked GitHub repository (source remote, not the running preview).
                 </p>
                 <a
                   href={githubUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center justify-between rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3 text-xs font-medium text-primary hover:bg-sidebar-accent transition-colors"
+                  className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] p-3 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
                 >
-                  <span>Open Repository</span>
+                  <span className="inline-flex items-center gap-2">
+                    <GitBranch className="size-3.5" />
+                    Open Repository
+                  </span>
                   <ExternalLink className="size-3.5" />
                 </a>
               </>
             ) : project ? (
               <Link
                 href={`/workspaces/${project.workspaceId}/projects/${project.id}/github`}
-                className="block rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-300 font-medium"
+                className="block rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-medium text-amber-800 dark:text-amber-300"
               >
                 Connect GitHub so Fairlx can clone the repo in Azure.
               </Link>
             ) : (
-              <p className="text-xs text-muted-foreground px-1">Select a project to preview the sandbox app.</p>
+              <p className="rounded-xl border border-dashed border-border bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground">
+                Select a project to preview the sandbox app.
+              </p>
             )}
           </div>
         ) : null}
@@ -753,7 +841,7 @@ function WorkflowViewInner() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
-  const [tab, setTab] = useState<"plan" | "context" | "changes" | "terminal" | "preview">("context");
+  const [tab, setTab] = useState<WorkflowSidebarTab>("context");
   const [DeleteDialog, confirmDelete] = useConfirm(
     "Delete Run",
     "Are you sure you want to delete this chat run? This action cannot be undone.",
@@ -770,7 +858,7 @@ function WorkflowViewInner() {
     continuedRef.current = run.id;
     // Recover a refresh mid-turn. Accept/Deny starts its own turn — do not
     // continue when this chat loaded already waiting for approval.
-    if (run.status === "running") continueRun.mutate({ runId: run.id });
+    if (shouldRecoverInterruptedTurn(run)) continueRun.mutate({ runId: run.id });
   }, [run, continueRun]);
 
   useEffect(() => {
@@ -842,7 +930,7 @@ function WorkflowViewInner() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading && !run) {
     return (
       <div className="relative h-full min-h-0 bg-background flex flex-col items-center justify-center text-sm text-muted-foreground pb-32">
         <Loader2 className="size-6 animate-spin text-primary mb-2" />
@@ -1051,7 +1139,7 @@ function WorkflowViewInner() {
 
 export function WorkflowView() {
   return (
-    <div className="h-full min-h-0">
+    <div className="h-full min-h-0 animate-in fade-in duration-200">
       <Suspense
         fallback={
           <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading workflow…</div>

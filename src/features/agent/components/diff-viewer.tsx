@@ -312,13 +312,13 @@ export function DiffViewer({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-sidebar-border px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-emerald-500/15 bg-emerald-500/[0.04] px-3 py-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
-            <span className="font-medium text-foreground">Uncommitted</span>
-            <span className="tabular-nums text-emerald-600">+{totals.additions}</span>
-            <span className="tabular-nums text-red-500">-{totals.deletions}</span>
-            <span className="inline-flex items-center gap-1 text-muted-foreground">
+            <span className="font-semibold text-foreground">Uncommitted</span>
+            <span className="tabular-nums font-medium text-emerald-600 dark:text-emerald-400">+{totals.additions}</span>
+            <span className="tabular-nums font-medium text-red-500">-{totals.deletions}</span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300">
               <GitBranch className="size-3" />
               {branch || "main"}
             </span>

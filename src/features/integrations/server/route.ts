@@ -965,11 +965,12 @@ const app = new Hono()
 
 app.post("/teams/webhook", async (c) => {
   const { databases: adminDb } = await createAdminClient();
-  const body = await c.req.json<{
+  type TeamsWebhookBody = {
     type?: string;
     text?: string;
     channelData?: { tenant?: { id?: string } };
-  }>().catch(() => ({} as { text?: string }));
+  };
+  const body = await c.req.json<TeamsWebhookBody>().catch(() => ({} as TeamsWebhookBody));
   if (body.type === "ping") return c.json({ ok: true });
   const text = String(body.text || "");
   const tenantId = body.channelData?.tenant?.id;
@@ -1011,11 +1012,12 @@ app.get("/whatsapp/webhook", async (c) => {
 
 app.post("/whatsapp/webhook", async (c) => {
   const { databases: adminDb } = await createAdminClient();
-  const body = await c.req.json<{
+  type WhatsappWebhookBody = {
     entry?: Array<{
       changes?: Array<{ value?: { messages?: Array<{ text?: { body?: string } }>; metadata?: { phone_number_id?: string } } }>;
     }>;
-  }>().catch(() => ({}));
+  };
+  const body = await c.req.json<WhatsappWebhookBody>().catch(() => ({} as WhatsappWebhookBody));
   const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body || "";
   const phoneId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id || "";
   if (!message) return c.json({ ok: true });

@@ -109,7 +109,7 @@ const config: Config = {
 	plugins: [
 		tailwindcssAnimate,
 		function ({ addVariant }: { addVariant: Function }) {
-			addVariant('pitch-dark', '&:is(.pitch-dark *)');
+			addVariant('pitch-dark', ['&:is(.pitch-dark *)', '.pitch-dark &']);
 		},
 	],
 };

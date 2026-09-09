@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, Loader2, MessagesSquare, Sparkles, Wand2 } from "lucide-react";
 
@@ -93,6 +93,7 @@ export function PersonalAgentSetup({
   const [streamPercent, setStreamPercent] = useState(0);
   const [stage, setStage] = useState("Reading your workspace");
   const [finished, setFinished] = useState(false);
+  const floorRef = useRef(0);
 
   const progress = personal?.progress ?? { answered: 0, inferred: 0, total: 13, percent: 0 };
   const trained = profileIsTrained(personal?.profile);
@@ -100,7 +101,25 @@ export function PersonalAgentSetup({
   const pending = selfTrain.isPending;
   const busy = start.isPending || pending;
   const livePercent = finished ? 100 : Math.min(streamPercent, 99);
-  const barPercent = pending ? Math.max(livePercent, 4) : Math.min(progress.percent, trained ? 100 : 99);
+  const barPercent = pending || finished ? Math.max(livePercent, pending ? 4 : 0) : Math.min(progress.percent, trained ? 100 : 99);
+  const showBar = pending || inProgress || finished;
+
+  useEffect(() => {
+    if (!pending) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      const elapsed = Date.now() - started;
+      const estimated = Math.round(4 + (1 - Math.exp(-elapsed / 16000)) * 88);
+      setStreamPercent((prev) => Math.min(99, Math.max(prev, floorRef.current, estimated)));
+    }, 160);
+    return () => window.clearInterval(timer);
+  }, [pending]);
+
+  useEffect(() => {
+    if (!trained || !finished) return;
+    const timer = window.setTimeout(() => setFinished(false), 700);
+    return () => window.clearTimeout(timer);
+  }, [trained, finished]);
 
   const openTraining = () => {
     if (personal?.activeTrainingRunId) {
@@ -115,11 +134,14 @@ export function PersonalAgentSetup({
   const runSelfTrain = () => {
     setFinished(false);
     setStreamPercent(4);
+    floorRef.current = 4;
     setStage("Reading your workspace");
     selfTrain.mutate({
       onProgress: (event) => {
         if (typeof event.percent === "number") {
-          setStreamPercent(event.done ? 100 : Math.min(event.percent, 99));
+          const next = event.done ? 100 : Math.min(event.percent, 99);
+          floorRef.current = Math.max(floorRef.current, next);
+          setStreamPercent((prev) => Math.max(prev, next));
         }
         if (event.stage) setStage(event.stage);
         if (event.done) setFinished(true);
@@ -145,17 +167,17 @@ export function PersonalAgentSetup({
         </div>
       )}
 
-      {pending || inProgress ? (
+      {showBar ? (
         <div className="rounded-xl border border-border/70 bg-muted/30 px-3.5 py-3 space-y-2">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-[11px] text-muted-foreground truncate">
-              {pending ? stage : `${progress.answered} of ${progress.total} topics covered`}
+              {pending || finished ? stage : `${progress.answered} of ${progress.total} topics covered`}
             </p>
-            <span className="text-[11px] tabular-nums font-semibold text-foreground">{Math.min(barPercent, 100)}%</span>
+            <span className="text-[11px] tabular-nums font-semibold text-foreground">{Math.min(Math.round(barPercent), 100)}%</span>
           </div>
           <div className="h-1.5 rounded-full bg-background/80 overflow-hidden">
             <div
-              className="h-full rounded-full bg-foreground/80 transition-[width] duration-300 ease-out"
+              className="h-full rounded-full bg-foreground/80 transition-[width] duration-700 ease-out"
               style={{ width: `${Math.min(100, Math.max(barPercent, 3))}%` }}
             />
           </div>

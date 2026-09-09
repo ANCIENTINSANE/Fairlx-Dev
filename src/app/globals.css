@@ -406,6 +406,40 @@ body {
   stroke: hsl(var(--border));
 }
 
-.react-flow__minimap { background: hsl(var(--background)) !important; }
-.react-flow__minimap-mask { fill: hsl(var(--muted)) !important; fill-opacity: 0.65; }
-.react-flow__minimap .react-flow__minimap-node { fill: hsl(var(--muted-foreground)); fill-opacity: 0.25; stroke: hsl(var(--border)); }
+/* ── Connect Repository Button Theme Styles ──────────────────────────
+   Light Mode: Black & White
+   Dark Mode: Blue & White
+   Pitch Dark Mode ("Pista"): Dark & White
+   ──────────────────────────────────────────────────────────────────── */
+.btn-connect-repo {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+
+.btn-connect-repo:hover {
+  background-color: #262626 !important;
+  color: #ffffff !important;
+}
+
+.dark .btn-connect-repo {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+
+.dark .btn-connect-repo:hover {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+.pitch-dark .btn-connect-repo {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+.pitch-dark .btn-connect-repo:hover {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}

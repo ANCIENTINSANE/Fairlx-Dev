@@ -18,18 +18,18 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-08T20:47:00.500Z
+**Last updated:** 2026-09-08T23:27:47.292Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
 **Latest commits**
 
+- `3ae0f08` feat: enhance agent facial animations with spherical eye motion, improved gaze responsiveness, and new crayon underline component. (2026-09-09)
+- `dc0f5c1` chore: bump version to 0.2.113 [skip ci] (2026-09-08)
+- `bdae09e` feat: implement optimistic agent run creation and track typing gaze progress in command input (2026-09-09)
+- `746030f` chore: bump version to 0.2.112 [skip ci] (2026-09-08)
+- `bae2612` Merge pull request #312 from ANCIENTINSANE/main (2026-09-09)
 - `cf26f12` feat: modernize AI task UX and resolve critical runtime/schema errors (2026-09-09)
-- `d496951` chore: bump version to 0.2.111 [skip ci] (2026-09-07)
-- `29fbc0f` Merge pull request #311 from Happyesss/main (2026-09-08)
-- `2bfcffb` chore: bump version to 0.2.110 [skip ci] (2026-09-07)
-- `2131661` chore: bump version to 0.2.109 [skip ci] (2026-09-07)
-- `6281509` feat: implement agent personal stand-in system with voice training, approval workflows, and visual face animations (2026-09-08)
 <!-- docs:latest:end -->
 
 ---

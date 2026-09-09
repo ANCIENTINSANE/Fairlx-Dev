@@ -43,6 +43,33 @@ describe("createRun attribute fallback", () => {
     expect(run.title).toBe("Test Run");
   });
 
+  it("uses a client-supplied document id so the chat can open immediately", async () => {
+    const mockCreateDocument = vi.fn().mockResolvedValueOnce({
+      $id: "run_client_abc123",
+      $createdAt: "2026-09-03T00:00:00.000Z",
+      $updatedAt: "2026-09-03T00:00:00.000Z",
+      userId: "user-1",
+      title: "Hello world",
+      prompt: "Hello world",
+      status: "running",
+      mode: "agent",
+      messagesJson: "[]",
+      eventsJson: "[]",
+    });
+    const mockDatabases = {
+      createDocument: mockCreateDocument,
+    } as unknown as Databases;
+
+    await createRun(mockDatabases, {
+      userId: "user-1",
+      prompt: "Hello world",
+      mode: "agent",
+      id: "run_client_abc123",
+    });
+
+    expect(mockCreateDocument.mock.calls[0][2]).toBe("run_client_abc123");
+  });
+
   it("re-throws unexpected errors", async () => {
     const mockCreateDocument = vi
       .fn()

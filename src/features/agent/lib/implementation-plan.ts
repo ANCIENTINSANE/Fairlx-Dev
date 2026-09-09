@@ -143,7 +143,7 @@ export function runHasAcceptedPlan(run: {
   if (planStatusFromUnknown(run.implementationPlan) === "accepted") return true;
   if (planIsAccepted(parseImplementationPlan(run.implementationPlan))) return true;
   const events = run.events ?? [];
-  if (events.some((event) => event.type === "coding_session_start" && event.type !== "error")) {
+  if (events.some((event) => event.type === "coding_session_start")) {
     const start = [...events].reverse().find((event) => event.type === "coding_session_start");
     if (start && !asRecord(start.payload)?.error) return true;
   }

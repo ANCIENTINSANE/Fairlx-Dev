@@ -1306,9 +1306,10 @@ async function githubRepoList(
     source: "fairlx_project" as const,
   }));
   const query = typeof args.query === "string" ? args.query : undefined;
-  const account = runtime.listGithubAccountRepos
-    ? await runtime.listGithubAccountRepos({ userId: auth.actorUserId, query })
-    : { connected: false, repositories: [] as Array<{ fullName: string; source: "github_account" }> };
+  const account: Awaited<ReturnType<NonNullable<typeof runtime.listGithubAccountRepos>>> =
+    runtime.listGithubAccountRepos
+      ? await runtime.listGithubAccountRepos({ userId: auth.actorUserId, query })
+      : { connected: false, repositories: [] };
   const githubRepositories = account.repositories;
   const repositories = [...projectRepositories, ...githubRepositories];
   return toolResult({

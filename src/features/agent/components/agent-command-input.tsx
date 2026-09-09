@@ -8,6 +8,7 @@ import {
   Mic,
   X,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -15,10 +16,13 @@ import { cn } from "@/lib/utils";
 import { useGetAgentContext } from "../api/use-agent-context";
 import { useGetAgentHarness } from "../api/use-agent-harness";
 import { useGetPersonalAgent } from "../api/use-personal-agent";
-import { useCreateAgentRun, useStopAgentRun } from "../api/use-agent-runs";
+import { agentRunQueryKey, useCreateAgentRun, useStopAgentRun } from "../api/use-agent-runs";
 import { useTranscribeAudio } from "../api/use-transcribe-audio";
+import { AGENT_RUNS_QUERY_KEY } from "../constants";
+import { buildOptimisticAgentRun, navigateToAgentRun, newAgentRunId } from "../lib/optimistic-run";
 import { chipKey, composeUserPrompt, isPersonalSessionMode } from "../lib/session-context";
 import { profileIsTrained } from "../lib/personal-agent-status";
+import { typingGazeProgress } from "../lib/typing-gaze";
 import { countWorkspaceProjects, getQuickActions } from "../lib/quick-actions";
 import { MAX_VOICE_MS, audioFilenameForMime, pickRecorderMimeType, voiceInputSupported } from "../lib/voice-input";
 import type { AgentContextChip, AgentRun, AgentSessionMode } from "../types";
@@ -76,6 +80,7 @@ export function AgentCommandInput({
   onCreated?: (run: AgentRun) => void;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: harness } = useGetAgentHarness();
   const { data: context } = useGetAgentContext();
   const { data: personal } = useGetPersonalAgent();
@@ -88,6 +93,7 @@ export function AgentCommandInput({
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
+  const [gazeProgress, setGazeProgress] = useState(0.12);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(workspaceId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectId ?? null);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
@@ -96,8 +102,36 @@ export function AgentCommandInput({
   const chunksRef = useRef<Blob[]>([]);
   const maxTimerRef = useRef<number | null>(null);
   const unmountedRef = useRef(false);
+  const updateTypingGaze = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const style = window.getComputedStyle(el);
+    setGazeProgress(
+      typingGazeProgress({
+        value: el.value,
+        caret: el.selectionEnd ?? el.value.length,
+        widthPx: el.clientWidth,
+        fontSizePx: parseFloat(style.fontSize) || 16,
+        paddingXPx: (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0),
+        element: el,
+      }),
+    );
+  };
   const minHeight = compact ? 40 : 56;
   const resetHeight = compact ? "40px" : "56px";
+
+  useEffect(() => {
+    const handleResize = () => {
+      updateTypingGaze();
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (variant !== "create") return;
+    router.prefetch("/agent/workflow");
+  }, [router, variant]);
 
   useEffect(() => {
     setSelectedWorkspaceId(workspaceId ?? null);
@@ -286,24 +320,46 @@ export function AgentCommandInput({
       ? selectedProjectId || run?.projectId || projectId || harness?.settings.defaultProjectId
       : undefined;
 
+    const runId = newAgentRunId();
+    const optimistic = buildOptimisticAgentRun({
+      id: runId,
+      prompt: content,
+      workspaceId: targetWorkspaceId,
+      projectId: targetProjectId,
+      mode: harness?.settings.mode,
+    });
+    queryClient.setQueryData(agentRunQueryKey(runId), optimistic);
+    queryClient.setQueryData(AGENT_RUNS_QUERY_KEY, (current: AgentRun[] | undefined) => {
+      if (!Array.isArray(current)) return [optimistic];
+      return [optimistic, ...current.filter((item) => item.id !== runId)];
+    });
+    setPrompt("");
+    setChips([]);
+    if (textareaRef.current) textareaRef.current.style.height = resetHeight;
+
+    if (onCreated) {
+      onCreated(optimistic);
+    } else {
+      navigateToAgentRun(router, runId);
+    }
+
     createRun.mutate(
       {
         json: {
+          id: runId,
           prompt: content,
           workspaceId: targetWorkspaceId,
           projectId: targetProjectId,
         },
       },
       {
-        onSuccess: (result) => {
-          setPrompt("");
-          setChips([]);
-          if (textareaRef.current) textareaRef.current.style.height = resetHeight;
-          if (onCreated) {
-            onCreated(result.data);
-            return;
-          }
-          router.push(`/agent/workflow?runId=${result.data.id}`);
+        onError: () => {
+          queryClient.removeQueries({ queryKey: agentRunQueryKey(runId) });
+          queryClient.setQueryData(AGENT_RUNS_QUERY_KEY, (current: AgentRun[] | undefined) => {
+            if (!Array.isArray(current)) return current;
+            return current.filter((item) => item.id !== runId);
+          });
+          if (!onCreated) router.replace("/agent/dashboard");
         },
       },
     );
@@ -317,6 +373,7 @@ export function AgentCommandInput({
         run={run}
         composerTyping={composerFocused || prompt.length > 0}
         composerListening={isListening}
+        composerGazeProgress={gazeProgress}
         defaultWorkspaceId={workspaceId}
         defaultProjectId={projectId}
         onScopeChange={(wsId, projId) => {
@@ -352,9 +409,17 @@ export function AgentCommandInput({
               onChange={(event) => {
                 setPrompt(event.target.value);
                 autosize(event.currentTarget, minHeight);
+                updateTypingGaze();
+                requestAnimationFrame(updateTypingGaze);
               }}
-              onFocus={() => setComposerFocused(true)}
+              onFocus={() => {
+                setComposerFocused(true);
+                requestAnimationFrame(updateTypingGaze);
+              }}
               onBlur={() => setComposerFocused(false)}
+              onClick={updateTypingGaze}
+              onKeyUp={updateTypingGaze}
+              onSelect={updateTypingGaze}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();

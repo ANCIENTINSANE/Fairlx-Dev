@@ -210,7 +210,7 @@ export function compactWorkItemListPayload(payload: Record<string, unknown>, max
     }
     return JSON.stringify(next);
   };
-  let working = [...items];
+  const working = [...items];
   let json = build(working, original.length - working.length);
   if (json.length <= max) return json;
   while (working.length > 1) {

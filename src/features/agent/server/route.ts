@@ -182,6 +182,7 @@ const createRunSchema = z.object({
   prompt: z.string().trim().min(1).max(AGENT_PROMPT_HTTP_MAX),
   workspaceId: z.string().optional(),
   projectId: z.string().optional(),
+  id: z.string().max(36).optional(),
 });
 
 const sendMessageSchema = z.object({
@@ -454,6 +455,7 @@ const app = new Hono()
         mode: harness.settings.mode,
         workspaceId: json.workspaceId || harness.settings.defaultWorkspaceId,
         projectId: json.projectId || harness.settings.defaultProjectId,
+        id: json.id,
       });
       scheduleAgentTurn({ databases, user, run });
       return c.json({ data: run });
@@ -1357,40 +1359,49 @@ const app = new Hono()
   .post("/personal/self-train", sessionMiddleware, async (c) => {
     const user = sessionUser(c);
     const { databases } = await createAdminClient();
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = writable.getWriter();
     const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      async start(controller) {
-        const emit = (event: Record<string, unknown>) => {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-        };
-        try {
-          await runPersonalSelfTrain({
-            databases,
-            user,
-            emit,
-          });
-        } catch (error) {
-          const encrypted = error instanceof AgentEncryptionRequiredError;
-          emit({
-            error: encrypted
+    const emit = async (event: Record<string, unknown>) => {
+      try {
+        await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      } catch {
+        // Client disconnected.
+      }
+    };
+    void (async () => {
+      try {
+        await runPersonalSelfTrain({
+          databases,
+          user,
+          emit,
+        });
+      } catch (error) {
+        const encrypted = error instanceof AgentEncryptionRequiredError;
+        await emit({
+          error: encrypted
+            ? error.message
+            : error instanceof Error
               ? error.message
-              : error instanceof Error
-                ? error.message
-                : "Failed to self-train the personal agent.",
-            percent: 0,
-          });
-          console.error("[agent] failed to self-train personal agent", error);
-        } finally {
-          controller.close();
+              : "Failed to self-train the personal agent.",
+          percent: 0,
+        });
+        console.error("[agent] failed to self-train personal agent", error);
+      } finally {
+        try {
+          await writer.close();
+        } catch {
+          // already closed
         }
-      },
-    });
-    return new Response(stream, {
+      }
+    })();
+    return new Response(readable, {
       headers: {
-        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
-        "X-Accel-Buffering": "no",
         Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   })

@@ -7,6 +7,8 @@ export const MOUTH_PATHS: Record<AgentEmotion, string> = {
   thinking: "M 24 18 Q 52 14 80 18",
   listening: "M 16 16 Q 34 10 52 16 Q 70 22 88 16",
   focused: "M 24 18 L 80 18",
+  searching: "M 22 16 Q 52 12 82 16",
+  reading: "M 24 18 Q 52 16 80 20",
   error: "M 16 22 L 34 14 L 52 22 L 70 14 L 88 22",
   sleep: "M 28 18 L 76 18",
   wink: "M 18 20 Q 52 24 86 12",

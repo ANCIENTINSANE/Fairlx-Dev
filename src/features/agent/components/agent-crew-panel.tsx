@@ -3,7 +3,11 @@
 import { Bot, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { AgentAiConfigPublic, AgentRun } from "../types";
+import type { AgentAiConfigPublic, AgentRun, AgentSessionMode } from "../types";
+import { useGetAgentHarness } from "../api/use-agent-harness";
+import { isPersonalSessionMode } from "../lib/session-context";
+import { AgentFace, useAgentFaceMood } from "./agent-face";
+import { CrayonUnderline } from "./crayon-underline";
 import { crewModelHints } from "../lib/client-defaults";
 import { formatTokenCount, formatUsd } from "../lib/run-usage";
 import {
@@ -176,9 +180,9 @@ function TypeGroup({
 
 function StatRow({ label, value, live }: { label: string; value: string; live?: boolean }) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <span className="text-muted-foreground shrink-0">{label}</span>
-      <span className={cn("text-right font-medium leading-4 break-words", live ? "text-primary" : "text-foreground")}>
+    <div className="flex items-start justify-between gap-3 px-3 py-2">
+      <span className="text-sidebar-foreground/55 shrink-0">{label}</span>
+      <span className={cn("text-right font-medium leading-4 break-words", live ? "text-primary" : "text-sidebar-foreground")}>
         {value}
       </span>
     </div>
@@ -196,7 +200,18 @@ function orchestratorCopy(crew: AgentCrew): string {
   return crew.orchestratorStatus === "done" ? "Turn finished" : "Waiting for a run";
 }
 
-export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfigPublic }) {
+export function AgentCrewPanel({
+  run,
+  ai,
+  sessionMode,
+}: {
+  run?: AgentRun;
+  ai?: AgentAiConfigPublic;
+  sessionMode?: AgentSessionMode;
+}) {
+  const { data: harness } = useGetAgentHarness();
+  const isPersonal = isPersonalSessionMode(sessionMode ?? harness?.settings.sessionMode);
+  const faceMood = useAgentFaceMood(run);
   const events = run?.events ?? [];
   const crew = buildAgentCrew(events, run?.status, crewModelHints(ai, run));
   const live = crew.orchestratorStatus === "working" || crew.live > 0;
@@ -208,44 +223,60 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2 px-0.5">
-        <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Agents</div>
-        <span
-          className={cn(
-            "text-[10px] font-medium tabular-nums shrink-0",
-            live ? "text-primary" : "text-muted-foreground",
-          )}
-        >
-          {crew.live} live · {crew.total} launched
-        </span>
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="text-[11px] tracking-wider uppercase font-semibold text-sidebar-foreground/50">Agents</div>
+        {live ? (
+          <div className="flex items-center gap-1.5 text-[10px] text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full font-medium tabular-nums">
+            <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
+            {crew.live} live · {crew.total} launched
+          </div>
+        ) : (
+          <span className="text-[10px] font-medium tabular-nums text-sidebar-foreground/50">
+            {crew.live} live · {crew.total} launched
+          </span>
+        )}
       </div>
 
-      <div className="rounded-xl border border-border/80 bg-card/60 p-3 text-[11px] space-y-2">
-        <StatRow label="Orchestrator model" value={crew.orchestratorModelName} live={crew.orchestratorStatus === "working"} />
+      <div className="overflow-hidden rounded-lg border border-sidebar-border bg-sidebar-accent/30 text-[11px] divide-y divide-sidebar-border">
+        <StatRow
+          label={isPersonal ? "Personal Agent model" : "Orchestrator model"}
+          value={crew.orchestratorModelName}
+          live={crew.orchestratorStatus === "working"}
+        />
         <StatRow label="Worker model" value={crew.workerModelName} />
         <StatRow
-          label="Under orchestrator"
+          label={isPersonal ? "Under personal agent" : "Under orchestrator"}
           value={`${crew.directLive} live / ${crew.directTotal}`}
           live={crew.directLive > 0}
         />
         <StatRow label="Nested sub-agents" value={nestedValue} live={crew.nestedLive > 0} />
-        <StatRow
-          label="Parallel slots"
-          value={`${crew.live}/${crew.parallelCap}`}
-          live={crew.live > 0}
-        />
+        <div>
+          <StatRow
+            label="Parallel slots"
+            value={`${crew.live}/${crew.parallelCap}`}
+            live={crew.live > 0}
+          />
+          <div className="px-3 pb-2.5">
+            <div className="h-1 overflow-hidden rounded-full bg-sidebar-border">
+              <div
+                className="h-full rounded-full bg-primary/70 transition-all"
+                style={{ width: `${Math.min(100, (crew.live / Math.max(1, crew.parallelCap)) * 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       {crew.types.length ? (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 px-0.5">
           {crew.types.map((type) => (
             <span
               key={type.specialist}
               className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium",
                 type.live > 0
-                  ? "border-primary/30 bg-primary/10 text-primary"
-                  : "border-border bg-muted/40 text-muted-foreground",
+                  ? "border-primary/25 bg-primary/10 text-primary"
+                  : "border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground/60",
               )}
             >
               {type.name}
@@ -257,14 +288,20 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-border/80 bg-card/60 p-3 overflow-hidden">
+      <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/30 p-3 overflow-hidden">
         <div className="flex items-start gap-2.5 min-w-0">
-          <div className="size-6 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
-            <Bot className="size-3.5" />
-          </div>
+          {isPersonal ? (
+            <AgentFace mood={faceMood} size={26} className="mt-0.5 shrink-0" />
+          ) : (
+            <div className="size-6 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+              <Bot className="size-3.5" />
+            </div>
+          )}
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[12px] font-semibold text-foreground truncate">Orchestrator</span>
+              <span className="text-[12px] font-semibold text-foreground truncate">
+                {isPersonal ? "Personal Agent" : "Orchestrator"}
+              </span>
               <StatusDot status={crew.orchestratorStatus} />
               {crew.orchestratorStatus === "working" ? (
                 <Loader2 className="size-3 animate-spin text-primary shrink-0" />
@@ -289,27 +326,35 @@ export function AgentCrewPanel({ run, ai }: { run?: AgentRun; ai?: AgentAiConfig
           </div>
         ) : (
           <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
-            Sub-agents appear here when the orchestrator delegates. Workers use {crew.workerModelName}.
+            Sub-agents appear here when the {isPersonal ? "personal agent" : "orchestrator"} delegates. Workers use {crew.workerModelName}.
           </p>
         )}
       </div>
 
       <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+        <div className="mb-1.5 px-1 text-[11px] tracking-wider uppercase font-semibold text-sidebar-foreground/50">
           Specialist roster
         </div>
-        <div className="space-y-2">
+        <div className="overflow-hidden rounded-lg border border-sidebar-border bg-sidebar-accent/30 divide-y divide-sidebar-border">
           {crew.roster.map((item) => (
-            <div key={item.specialist} className="flex items-start gap-2 min-w-0">
+            <div key={item.specialist} className="flex items-start gap-2.5 px-3 py-2 min-w-0">
               <StatusDot status={item.live > 0 ? "working" : item.total > 0 ? "done" : "idle"} className="mt-1" />
-              <div className="min-w-0 flex-1 space-y-0.5">
+              <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="text-[11px] font-medium text-foreground truncate">{item.name}</span>
-                  <span className="ml-auto text-[10px] tabular-nums text-muted-foreground shrink-0">
+                  <span className="relative inline-block max-w-full pb-0.5">
+                    <span className="text-[12px] font-medium text-foreground truncate block">{item.name}</span>
+                    <CrayonUnderline specialist={item.specialist} />
+                  </span>
+                  <span
+                    className={cn(
+                      "ml-auto text-[10px] tabular-nums shrink-0",
+                      item.live > 0 ? "text-primary font-medium" : "text-sidebar-foreground/50",
+                    )}
+                  >
                     {item.live > 0 ? `${item.live} live` : item.total > 0 ? `${item.total} this turn` : "idle"}
                   </span>
                 </div>
-                <p className="text-[10px] leading-4 text-muted-foreground line-clamp-2">
+                <p className="text-[10px] leading-4 text-sidebar-foreground/55 line-clamp-2">
                   {item.modelName || crew.workerModelName} · {item.role}
                 </p>
               </div>

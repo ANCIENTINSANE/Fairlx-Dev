@@ -8,6 +8,7 @@ import { isTrainingRun } from "./personal-training";
 import { displayUserContent } from "./session-context";
 import { parseJson, stringifyBounded, truncateString } from "./truncate";
 import { parseImplementationPlan, planAcceptanceStub, compactImplementationPlan } from "./implementation-plan";
+import { isAgentRunId } from "./run-id";
 
 type RunDocument = {
   $id: string;
@@ -155,6 +156,7 @@ export async function createRun(
     kind?: "chat" | "training" | "coding_session";
     title?: string;
     autonomousCoding?: boolean;
+    id?: string;
   },
 ): Promise<AgentRun> {
   const fullPrompt = input.prompt.trim();
@@ -199,9 +201,10 @@ export async function createRun(
   };
 
   let doc;
+  const documentId = input.id && isAgentRunId(input.id) ? input.id : ID.unique();
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      doc = await databases.createDocument(DATABASE_ID, AGENT_RUNS_ID, ID.unique(), { ...payload });
+      doc = await databases.createDocument(DATABASE_ID, AGENT_RUNS_ID, documentId, { ...payload });
       break;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

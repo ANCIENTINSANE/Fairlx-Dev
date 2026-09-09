@@ -5,7 +5,7 @@ type Vec2 = { x: number; y: number };
 
 export class FairlxAgentFaceEngine {
   currentEmotion: AgentEmotion = "idle";
-  gazeDirection: AgentGazeDirection = "up";
+  gazeDirection: AgentGazeDirection = "neutral";
   isTrackingEnabled = true;
   isAutoBlinkEnabled = true;
   isCuriousWanderEnabled = true;
@@ -100,20 +100,20 @@ export class FairlxAgentFaceEngine {
       let eyeY = this.targetEyeOffset.y;
 
       const isUserTracking = this.isTrackingEnabled && (Date.now() - this.lastUserInteractionTime < 1400);
+      const cssOwnsGaze =
+        !isUserTracking &&
+        this.gazeDirection !== "down" &&
+        this.currentEmotion !== "sleep";
 
-      if (this.currentEmotion === "thinking") {
-        const t = Date.now() * 0.0018;
-        eyeY = -14 + Math.sin(t * 0.7) * 2;
-        eyeX = 4 + Math.cos(t * 0.5) * 3 + this.targetEyeOffset.x * 0.2;
-      } else if (this.gazeDirection === "down") {
-        eyeY = 14;
-        eyeX = this.typingGazeX * 0.6 + this.targetEyeOffset.x * 0.25;
-      } else if (!isUserTracking && this.isCuriousWanderEnabled && this.currentEmotion !== "sleep") {
-        eyeX = this.wanderEyeOffset.x;
-        eyeY = this.wanderEyeOffset.y + (this.gazeDirection === "up" ? -6 : 0);
-      } else if (this.gazeDirection === "up") {
+      if (this.gazeDirection === "down") {
+        eyeY = 28;
+        eyeX = this.typingGazeX + this.targetEyeOffset.x * 0.15;
+      } else if (!cssOwnsGaze && this.gazeDirection === "up") {
         eyeY = -12;
         eyeX = this.targetEyeOffset.x * 0.35;
+      } else if (!cssOwnsGaze) {
+        eyeX = this.targetEyeOffset.x;
+        eyeY = this.targetEyeOffset.y;
       }
 
       this.eyeOffset.x += (eyeX - this.eyeOffset.x) * this.lerpFactor;
@@ -124,13 +124,21 @@ export class FairlxAgentFaceEngine {
         this.faceEl.style.transform = `scale(${this.headScale}) translateY(${floatY.toFixed(2)}px)`;
       }
       if (this.eyesContainer) {
-        this.eyesContainer.style.transform = `translate3d(${this.eyeOffset.x.toFixed(2)}px, ${this.eyeOffset.y.toFixed(2)}px, 18px)`;
+        if (cssOwnsGaze) {
+          this.eyesContainer.style.transform = "";
+        } else {
+          this.eyesContainer.style.transform = `translate3d(${this.eyeOffset.x.toFixed(2)}px, ${this.eyeOffset.y.toFixed(2)}px, 18px)`;
+        }
       }
       if (this.mouthArea) {
         this.mouthArea.style.transform = `translate3d(${(this.eyeOffset.x * 0.7).toFixed(2)}px, ${(this.eyeOffset.y * 0.7).toFixed(2)}px, 15px)`;
       }
       if (this.glareEl) {
-        this.glareEl.style.transform = `translate3d(${(-this.eyeOffset.x * 1.5).toFixed(1)}px, ${(-this.eyeOffset.y * 1.5).toFixed(1)}px, 0px)`;
+        if (cssOwnsGaze) {
+          this.glareEl.style.transform = "";
+        } else {
+          this.glareEl.style.transform = `translate3d(${(-this.eyeOffset.x * 1.5).toFixed(1)}px, ${(-this.eyeOffset.y * 1.5).toFixed(1)}px, 0px)`;
+        }
       }
       this.raf = requestAnimationFrame(tick);
     };
@@ -140,11 +148,17 @@ export class FairlxAgentFaceEngine {
   setGazeDirection(direction: AgentGazeDirection, progress = 0.5) {
     this.gazeDirection = direction;
     this.container.classList.remove("face-looking-down", "face-looking-up");
+    this.faceEl?.classList.remove("face-looking-down", "face-looking-up");
+    this.container.style.setProperty("--gaze-progress", String(progress));
+    this.faceEl?.style.setProperty("--gaze-progress", String(progress));
     if (direction === "down") {
       this.container.classList.add("face-looking-down");
-      this.typingGazeX = (progress - 0.5) * 8;
+      this.faceEl?.classList.add("face-looking-down");
+      this.wanderEyeOffset = { x: 0, y: 0 };
+      this.typingGazeX = (progress - 0.5) * 28;
     } else if (direction === "up") {
       this.container.classList.add("face-looking-up");
+      this.faceEl?.classList.add("face-looking-up");
       this.typingGazeX = 0;
     } else {
       this.typingGazeX = 0;
@@ -154,9 +168,13 @@ export class FairlxAgentFaceEngine {
   setEmotion(emotion: AgentEmotion, options?: { silent?: boolean }) {
     if (!isAgentEmotion(emotion)) return;
     if (this.currentEmotion === "speaking" && emotion !== "speaking") this.stopSpeechAnimation();
-    AGENT_EMOTIONS.forEach((item) => this.container.classList.remove(`state-${item}`));
+    AGENT_EMOTIONS.forEach((item) => {
+      this.container.classList.remove(`state-${item}`);
+      this.faceEl?.classList.remove(`state-${item}`);
+    });
     this.currentEmotion = emotion;
     this.container.classList.add(`state-${emotion}`);
+    this.faceEl?.classList.add(`state-${emotion}`);
     if (this.mouthPath && MOUTH_PATHS[emotion]) this.mouthPath.setAttribute("d", MOUTH_PATHS[emotion]);
     if (options?.silent) {
       if (emotion !== "thinking") this.stopParticleStream();
@@ -179,6 +197,8 @@ export class FairlxAgentFaceEngine {
         break;
       case "happy":
       case "focused":
+      case "searching":
+      case "reading":
       case "error":
         this.stopParticleStream();
         break;
@@ -273,7 +293,7 @@ export class FairlxAgentFaceEngine {
   private pickCuriousGaze() {
     if (this.destroyed || !this.isCuriousWanderEnabled) return;
     // When writing in chat box or sleeping, stay locked / calm
-    if (this.gazeDirection === "down" || this.currentEmotion === "sleep") {
+    if (this.gazeDirection === "down" || this.currentEmotion === "sleep" || this.currentEmotion === "idle") {
       this.wanderEyeOffset = { x: 0, y: 0 };
       return;
     }

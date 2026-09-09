@@ -5,6 +5,8 @@ export const AGENT_EMOTIONS = [
   "speaking",
   "happy",
   "focused",
+  "searching",
+  "reading",
   "error",
   "sleep",
   "wink",

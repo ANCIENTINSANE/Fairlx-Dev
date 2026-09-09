@@ -8,6 +8,11 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-09 | `3ae0f08` | feat: enhance agent facial animations with spherical eye motion, improved gaze responsiveness, and new crayon underline component. | Happyesss |
+| 2026-09-08 | `dc0f5c1` | chore: bump version to 0.2.113 [skip ci] | github-actions[bot] |
+| 2026-09-09 | `bdae09e` | feat: implement optimistic agent run creation and track typing gaze progress in command input | Happyesss |
+| 2026-09-08 | `746030f` | chore: bump version to 0.2.112 [skip ci] | github-actions[bot] |
+| 2026-09-09 | `bae2612` | Merge pull request #312 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-09 | `cf26f12` | feat: modernize AI task UX and resolve critical runtime/schema errors | ANCIENTINSANE |
 | 2026-09-07 | `d496951` | chore: bump version to 0.2.111 [skip ci] | github-actions[bot] |
 | 2026-09-08 | `29fbc0f` | Merge pull request #311 from Happyesss/main | Shashank Kumar Rathour |
@@ -88,12 +93,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-01 | `af9d275` | refactor: implement adaptive message truncation logic with priority for assistant content and add comprehensive test suite for tool loops and state management | Happyesss |
 | 2026-08-31 | `bce5065` | chore: bump version to 0.2.81 [skip ci] | github-actions[bot] |
 | 2026-09-01 | `c10f872` | Merge pull request #294 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-08-31 | `c2d53c1` | chore: bump version to 0.2.80 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `c3c8fda` | feat: add workspace member management and user profile lookup to MCP runtime | Happyesss |
-| 2026-08-31 | `9b686e2` | chore: bump version to 0.2.79 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `fd92b85` | feat: add project selection to workflow view and exclude internal servers from external MCP counts | Happyesss |
-| 2026-08-31 | `ae4218a` | chore: bump version to 0.2.78 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `8a1701e` | refactor: update agent dashboard UI components to use standardized design system tokens and typography | Happyesss |
-| 2026-08-31 | `a91edfc` | chore: bump version to 0.2.77 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-08T20:47:00.441Z
+Last generated: 2026-09-08T23:27:47.280Z
