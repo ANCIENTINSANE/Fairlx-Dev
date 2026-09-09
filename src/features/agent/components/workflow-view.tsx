@@ -56,7 +56,7 @@ import { useAgentMutationSync } from "../hooks/use-agent-mutation-sync";
 import { clockTime, relativeTime } from "../lib/agent-ui";
 import { extractBoardProject, withWorkspaceFallback } from "../lib/project-launch";
 import { looksLikeLlmUsageEvent } from "../lib/run-usage";
-import type { AgentRun, AgentToolEvent } from "../types";
+import type { AgentRun, AgentToolEvent, CodingSession } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
 import { AgentCommandInput } from "./agent-command-input";
 import { AgentCrewPanel } from "./agent-crew-panel";
@@ -76,6 +76,13 @@ import {
   StatusPill,
 } from "./workflow-sidebar-ui";
 import { useCommentCodingSession, useGetCodingSession, useMergeCodingSession, useStartCodingSession } from "../api/use-coding-session";
+import { toast } from "sonner";
+
+/** Most recent error recorded on the coding session (Azure RBAC, clone, install…). */
+function lastSessionError(session: CodingSession): string {
+  const errors = (session.events ?? []).filter((event) => event.type === "error" && event.detail);
+  return errors[errors.length - 1]?.detail ?? "";
+}
 
 const SIDEBAR_MIN = 280;
 const SIDEBAR_MAX = 760;
@@ -715,7 +722,7 @@ function WorkflowSidebar({
                     Coder: {session.codingAgent === "claude_code" ? "Claude Code in sandbox" : session.codingAgent === "codex" ? "Codex in sandbox" : "Fairlx specialists (CLI credentials missing)"}
                   </p>
                 ) : null}
-                {previewMeta.preparing || session.status === "preparing" || session.status === "queued" ? (
+                {session.status !== "failed" && (previewMeta.preparing || session.status === "preparing" || session.status === "queued") ? (
                   <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-700 dark:text-sky-300">
                     <Loader2 className="size-3.5 animate-spin" />
                     {previewMeta.note || "Preparing clone, install, and dev server…"}
@@ -723,6 +730,35 @@ function WorkflowSidebar({
                 ) : null}
                 {previewMeta.stub ? (
                   <p className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">{previewMeta.note}</p>
+                ) : null}
+                {session.status === "failed" ? (
+                  <div className="space-y-2 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-[11px] text-rose-800 dark:text-rose-200">
+                    <p className="font-semibold">Sandbox could not start</p>
+                    <p className="whitespace-pre-wrap break-words leading-relaxed">
+                      {lastSessionError(session) || "The Azure sandbox failed before the app started."}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="secondary"
+                        disabled={startSession.isPending}
+                        onClick={() =>
+                          startSession.mutate({ workItemId: session.workItemId, projectId: session.projectId, runId: run.id })
+                        }
+                      >
+                        {startSession.isPending ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
+                        Retry in Azure
+                      </Button>
+                      <span className="text-[10px] opacity-80">Fairlx re-checks Azure access live before retrying.</span>
+                    </div>
+                  </div>
+                ) : null}
+                {!previewMeta.live && previewMeta.url && session.status !== "failed" ? (
+                  <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-800 dark:text-sky-200">
+                    <span className="min-w-0 flex-1 truncate font-mono text-[10px]">{previewMeta.url}</span>
+                    <span className="shrink-0">public URL reserved · app still starting</span>
+                  </div>
                 ) : null}
                 {previewMeta.live && previewMeta.url ? (
                   <>
@@ -736,9 +772,15 @@ function WorkflowSidebar({
                           <span className="size-2 rounded-full bg-amber-400/90" />
                           <span className="size-2 rounded-full bg-emerald-400/90" />
                         </span>
-                        <span className="min-w-0 flex-1 truncate rounded-md bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-300">
+                        <a
+                          href={previewMeta.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open preview in a new tab"
+                          className="min-w-0 flex-1 truncate rounded-md bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-300 hover:text-white hover:underline"
+                        >
                           {previewMeta.url}
-                        </span>
+                        </a>
                       </div>
                       <iframe
                         title="Sandbox app preview"
@@ -750,11 +792,16 @@ function WorkflowSidebar({
                       <a
                         href={previewMeta.url}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         className="min-w-0 flex-1 truncate text-[11px] font-medium text-cyan-700 dark:text-cyan-300"
                       >
                         {previewMeta.url}
                       </a>
+                      <Button type="button" size="xs" variant="secondary" asChild>
+                        <a href={previewMeta.url} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="size-3" /> Open
+                        </a>
+                      </Button>
                       <Button
                         type="button"
                         size="xs"
@@ -762,14 +809,18 @@ function WorkflowSidebar({
                         onClick={async () => {
                           try {
                             await navigator.clipboard.writeText(previewMeta.url);
+                            toast.success("Preview link copied. Anyone with the link can open it while the sandbox runs.");
                           } catch {
                             /* ignore */
                           }
                         }}
                       >
-                        <Copy className="size-3" /> Copy link
+                        <Copy className="size-3" /> Copy share link
                       </Button>
                     </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Public Azure sandbox URL — shareable without a Fairlx login while the sandbox is running.
+                    </p>
                   </>
                 ) : null}
                 <SessionArtifacts session={session} embedded />

@@ -7,6 +7,8 @@ export type DetectedStartCommand = {
   runtime: "node" | "python" | "go" | "unknown";
   port: number;
   source: "override" | "package.json" | "python" | "go" | "fallback";
+  /** Repo-relative directory when the app lives under packages/ or apps/ instead of the repo root. */
+  appDir?: string;
 };
 
 const DEFAULT_PORT = 3000;
@@ -86,10 +88,56 @@ function nodeRunScript(manager: PackageManager, script: "dev" | "start" | "previ
   return `npm run ${script}`;
 }
 
-function nodeStartFromScripts(manager: PackageManager, scripts: Record<string, string>, port: number): string | undefined {
+/** Port a package.json script pins itself (e.g. `vite --port 5173`, `next dev -p 4000`). */
+export function scriptPinnedPort(script: string): number | undefined {
+  const match = script.match(/(?:^|\s)(?:-p|--port|--listen)(?:\s+|=)(\d{2,5})\b/);
+  if (!match) return undefined;
+  const port = Number(match[1]);
+  return Number.isFinite(port) && port > 0 ? port : undefined;
+}
+
+/**
+ * Flags to forward through the package-manager runner (`npm run dev -- <flags>`) so the
+ * framework binds 0.0.0.0 on the expected port. PORT/HOST env alone is ignored by Vite.
+ */
+export function passthroughListenFlags(script: string, port: number): string {
+  const body = script.trim();
+  const hasPort = scriptPinnedPort(body) !== undefined;
+  if (/next\s+dev/.test(body)) {
+    const host = /\s-H\s|--hostname/.test(body) ? "" : " -H 0.0.0.0";
+    return `${hasPort ? "" : ` -p ${port}`}${host}`.trim();
+  }
+  if (/\bvite\b|\bastro\s+dev\b|\bnuxt\s+dev\b|\bnuxi\s+dev\b|\bremix\s+vite:dev\b|\bwebpack\s+serve\b|\bwebpack-dev-server\b/.test(body)) {
+    const host = /--host/.test(body) ? "" : " --host 0.0.0.0";
+    return `${hasPort ? "" : ` --port ${port}`}${host}`.trim();
+  }
+  if (/\breact-scripts\s+start\b|\bng\s+serve\b/.test(body)) {
+    if (/\bng\s+serve\b/.test(body)) return `${hasPort ? "" : `--port ${port} `}--host 0.0.0.0`.trim();
+    return "";
+  }
+  return "";
+}
+
+function nodeStartFromScripts(manager: PackageManager, scripts: Record<string, string>, port: number): {
+  command: string;
+  port: number;
+} | undefined {
   const runner = scripts.dev ? "dev" : scripts.start ? "start" : scripts.preview ? "preview" : scripts.serve ? "serve" : undefined;
   if (!runner) return undefined;
-  return injectListenPort(nodeRunScript(manager, runner), port);
+  const body = scripts[runner] || "";
+  const pinned = scriptPinnedPort(body);
+  const effectivePort = pinned ?? port;
+  const flags = passthroughListenFlags(body, effectivePort);
+  const base = nodeRunScript(manager, runner);
+  const command = flags ? `${base} -- ${flags}` : base;
+  return { command: `HOST=0.0.0.0 PORT=${effectivePort} ${command}`, port: effectivePort };
+}
+
+/** Env prefix so Vite (>=5.4.12/6.0.9) and Next accept requests arriving via the public preview host. */
+export function previewHostEnvPrefix(previewHost?: string): string {
+  const host = (previewHost || "").trim().replace(/^https?:\/\//, "").replace(/[/:].*$/, "");
+  if (!host || /[^A-Za-z0-9.-]/.test(host)) return "";
+  return `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=${host} DANGEROUSLY_DISABLE_HOST_CHECK=true `;
 }
 
 function pythonStart(files: { "manage.py"?: boolean; requirements?: string; pyproject?: string }, port: number): string {
@@ -100,6 +148,29 @@ function pythonStart(files: { "manage.py"?: boolean; requirements?: string; pypr
   }
   if (/\bflask\b/.test(blob)) return `flask run --host 0.0.0.0 --port ${port}`;
   return `python -m http.server ${port} --bind 0.0.0.0`;
+}
+
+export function rankNestedPackageJsonPaths(paths: string[]): string[] {
+  const nested = paths
+    .map((path) => path.replace(/\\/g, "/").trim())
+    .filter((path) => {
+      if (!path || path.includes("/node_modules/")) return false;
+      const rel = path.replace(/^\/workspace\//, "");
+      return rel !== "package.json" && /package\.json$/i.test(path);
+    });
+  const score = (path: string) => {
+    if (/\/(packages|apps)\/(landing-page|web|frontend|app|ui|www)\//i.test(path)) return 0;
+    if (/\/(packages|apps)\//i.test(path)) return 1;
+    return 2;
+  };
+  return [...new Set(nested)].sort((a, b) => score(a) - score(b) || a.length - b.length);
+}
+
+export function appDirFromWorkspacePackageJson(path: string): string | undefined {
+  const normalized = path.replace(/\\/g, "/");
+  const rel = normalized.replace(/^\/workspace\//, "");
+  if (!rel.endsWith("/package.json") || rel === "package.json") return undefined;
+  return rel.slice(0, -"/package.json".length);
 }
 
 export function detectStartCommand(input: {
@@ -115,13 +186,20 @@ export function detectStartCommand(input: {
     "requirements.txt"?: string;
     "go.mod"?: boolean;
     "manage.py"?: boolean;
+    appDir?: string;
   };
   exposePort?: number;
   prepareScript?: string;
   startCommand?: string;
+  previewHost?: string;
 }): DetectedStartCommand {
   const port = Number.isFinite(input.exposePort) && (input.exposePort || 0) > 0 ? Number(input.exposePort) : DEFAULT_PORT;
+  const hostEnv = previewHostEnvPrefix(input.previewHost);
   const files = input.files ?? {};
+  const appDir =
+    typeof files.appDir === "string" && files.appDir.trim()
+      ? files.appDir.replace(/^\/+|\/+$/g, "")
+      : undefined;
   const manager = detectPackageManager({
     "pnpm-lock.yaml": Boolean(files["pnpm-lock.yaml"]),
     "yarn.lock": Boolean(files["yarn.lock"]),
@@ -145,27 +223,33 @@ export function detectStartCommand(input: {
             ? "poetry install"
             : "pip install -r requirements.txt || pip install -e ."
           : nodeInstallCommand(manager === "unknown" ? "npm" : manager);
+    const overridePort = scriptPinnedPort(input.startCommand) ?? port;
     return {
       packageManager: manager,
       installCommand: install,
-      startCommand: injectListenPort(input.startCommand.trim(), port),
+      startCommand: `${hostEnv}${injectListenPort(input.startCommand.trim(), overridePort)}`,
       runtime: manager === "go" ? "go" : manager === "pip" || manager === "poetry" ? "python" : "node",
-      port,
+      port: overridePort,
       source: "override",
+      appDir,
     };
   }
 
   const scripts = parsePackageJsonScripts(files["package.json"]);
   if (Object.keys(scripts).length) {
     const resolvedManager = manager === "unknown" ? "npm" : manager;
-    const start = nodeStartFromScripts(resolvedManager, scripts, port) || injectListenPort(nodeRunScript(resolvedManager, "dev"), port);
+    const start = nodeStartFromScripts(resolvedManager, scripts, port) ?? {
+      command: injectListenPort(nodeRunScript(resolvedManager, "dev"), port),
+      port,
+    };
     return {
       packageManager: resolvedManager,
       installCommand: input.prepareScript?.trim() || nodeInstallCommand(resolvedManager),
-      startCommand: start,
+      startCommand: `${hostEnv}${start.command}`,
       runtime: "node",
-      port,
+      port: start.port,
       source: "package.json",
+      appDir,
     };
   }
 
@@ -177,6 +261,7 @@ export function detectStartCommand(input: {
       runtime: "go",
       port,
       source: "go",
+      appDir,
     };
   }
 
@@ -197,22 +282,29 @@ export function detectStartCommand(input: {
       runtime: "python",
       port,
       source: "python",
+      appDir,
     };
   }
 
   return {
     packageManager: "unknown",
     installCommand: input.prepareScript?.trim() || "npm install",
-    startCommand: injectListenPort("npm run dev", port),
+    startCommand: `${hostEnv}${injectListenPort("npm run dev", port)}`,
     runtime: "unknown",
     port,
     source: "fallback",
+    appDir,
   };
 }
 
+/**
+ * Start the dev server detached from the exec call. No `exec` prefix: start commands begin
+ * with `VAR=value` assignments, and `exec VAR=value cmd` would try to run a program named
+ * `VAR=value`.
+ */
 export function backgroundStartShell(startCommand: string, logPath = "/tmp/fairlx-dev.log"): string {
-  const wrapped = JSON.stringify(`exec ${startCommand}`);
-  return `nohup sh -c ${wrapped} > ${logPath} 2>&1 & echo $!`;
+  const wrapped = JSON.stringify(startCommand);
+  return `nohup sh -c ${wrapped} > ${logPath} 2>&1 < /dev/null & echo $!`;
 }
 
 export function healthCheckShell(port: number, attempts = 16, sleepSeconds = 2): string {

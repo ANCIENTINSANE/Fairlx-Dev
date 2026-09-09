@@ -26,6 +26,10 @@ export class StubSandboxDriver implements SandboxDriver {
     return { id, driver: "stub" };
   }
 
+  async exists(sandboxId: string): Promise<boolean> {
+    return boxes.has(sandboxId);
+  }
+
   async exec(sandboxId: string, command: string, cwd?: string): Promise<SandboxExecResult> {
     const sandbox = box(sandboxId);
     const safe = redactSecrets(command);
@@ -34,6 +38,13 @@ export class StubSandboxDriver implements SandboxDriver {
     if (/\bgit clone\b/.test(lower)) {
       sandbox.files.set("/workspace/.git/HEAD", "ref: refs/heads/main");
       return { stdout: redactSecrets("Cloned into /workspace (stub)."), stderr: "", exitCode: 0 };
+    }
+    if (/\btest -d\b/.test(lower) && /\/workspace\/\.git/.test(lower)) {
+      return {
+        stdout: sandbox.files.has("/workspace/.git/HEAD") ? "yes" : "no",
+        stderr: "",
+        exitCode: 0,
+      };
     }
     if (/\bgit checkout -b\b/.test(lower) || /\bgit switch -c\b/.test(lower)) {
       return { stdout: "Switched to a new branch (stub).", stderr: "", exitCode: 0 };

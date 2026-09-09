@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 import { useGetAgentContext } from "../api/use-agent-context";
 import { useGetAgentHarness } from "../api/use-agent-harness";
+import { useGetCodingSession } from "../api/use-coding-session";
 import { splitAssistantChoices } from "../lib/assistant-choices";
 import { parseAskUserFromMessage, normalizeAskUserOptions } from "../lib/ask-user";
 import { splitMarkdownMemberTable, type AgentMember } from "../lib/member-table";
@@ -62,7 +63,12 @@ import { splitMarkdownWorkItemTable, type AgentWorkItem } from "../lib/work-item
 import { findPendingConfirmation, isWriteToolCall } from "../lib/write-guard";
 import { findPendingPlugin, isGithubCapability } from "../plugins/catalog";
 import { githubArtifactsFromEvents, githubArtifactsFromSteps, type GithubArtifact } from "../lib/github-artifacts";
-import { isStubPreviewUrl } from "../lib/sandbox-preview";
+import {
+  isStubPreviewUrl,
+  repairAzurePreviewUrl,
+  rewriteAzurePreviewMarkdown,
+  type AzurePreviewCanonical,
+} from "../lib/sandbox-preview";
 import { hasGithubAccount, isLinkedGithubRepo } from "../lib/github-scope";
 import type { AgentChatMessage, AgentRun, AgentToolEvent } from "../types";
 import { AgentMemberTable } from "./agent-member-table";
@@ -121,14 +127,24 @@ function ProjectKanbanCta({
   );
 }
 
-function GithubArtifactCtas({ artifacts }: { artifacts: GithubArtifact[] }) {
+function GithubArtifactCtas({
+  artifacts,
+  previewCanonical,
+}: {
+  artifacts: GithubArtifact[];
+  previewCanonical?: AzurePreviewCanonical;
+}) {
   if (!artifacts.length) return null;
   return (
     <div className="flex flex-col gap-2">
       {artifacts.map((artifact) => (
         <a
           key={artifact.id}
-          href={artifact.href}
+          href={
+            artifact.kind === "preview"
+              ? repairAzurePreviewUrl(artifact.href, previewCanonical)
+              : artifact.href
+          }
           target="_blank"
           rel="noopener noreferrer"
           className="group relative inline-flex w-full max-w-sm sm:max-w-md items-center gap-3 overflow-hidden rounded-xl border border-border/80 bg-card/90 p-2.5 pr-3 text-left shadow-2xs transition-all duration-200 hover:border-primary/40 hover:bg-card hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -326,7 +342,15 @@ function CodeBlock({
   );
 }
 
-function MarkdownRich({ content, fileLinks }: { content: string; fileLinks?: Map<string, string> }) {
+function MarkdownRich({
+  content,
+  fileLinks,
+  previewCanonical,
+}: {
+  content: string;
+  fileLinks?: Map<string, string>;
+  previewCanonical?: AzurePreviewCanonical;
+}) {
   return (
     <div className="prose prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed text-sm">
       <ReactMarkdown
@@ -382,9 +406,10 @@ function MarkdownRich({ content, fileLinks }: { content: string; fileLinks?: Map
             );
           },
           a({ href, children }) {
+            const resolved = repairAzurePreviewUrl(href, previewCanonical);
             return (
               <a
-                href={href}
+                href={resolved || href}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline font-medium"
@@ -421,6 +446,7 @@ function MarkdownContent({
   workspaceId,
   projectId,
   fileLinks,
+  previewCanonical,
 }: {
   content: string;
   workItems?: Map<string, AgentWorkItem>;
@@ -428,75 +454,49 @@ function MarkdownContent({
   workspaceId?: string;
   projectId?: string;
   fileLinks?: Map<string, string>;
+  previewCanonical?: AzurePreviewCanonical;
 }) {
-  const workParsed = splitMarkdownWorkItemTable(content);
+  const source = rewriteAzurePreviewMarkdown(content, previewCanonical);
+  const nested = {
+    workItems,
+    members,
+    workspaceId,
+    projectId,
+    fileLinks,
+    previewCanonical,
+  };
+  const workParsed = splitMarkdownWorkItemTable(source);
   if (workParsed) {
     return (
       <div>
-        {workParsed.before ? (
-          <MarkdownContent
-            content={workParsed.before}
-            workItems={workItems}
-            members={members}
-            workspaceId={workspaceId}
-            projectId={projectId}
-            fileLinks={fileLinks}
-          />
-        ) : null}
+        {workParsed.before ? <MarkdownContent content={workParsed.before} {...nested} /> : null}
         <AgentWorkItemTable
           rows={workParsed.rows}
           lookup={workItems}
           workspaceId={workspaceId}
           projectId={projectId}
         />
-        {workParsed.after ? (
-          <MarkdownContent
-            content={workParsed.after}
-            workItems={workItems}
-            members={members}
-            workspaceId={workspaceId}
-            projectId={projectId}
-            fileLinks={fileLinks}
-          />
-        ) : null}
+        {workParsed.after ? <MarkdownContent content={workParsed.after} {...nested} /> : null}
       </div>
     );
   }
 
-  const memberParsed = splitMarkdownMemberTable(content);
+  const memberParsed = splitMarkdownMemberTable(source);
   if (memberParsed) {
     return (
       <div>
-        {memberParsed.before ? (
-          <MarkdownContent
-            content={memberParsed.before}
-            workItems={workItems}
-            members={members}
-            workspaceId={workspaceId}
-            projectId={projectId}
-            fileLinks={fileLinks}
-          />
-        ) : null}
+        {memberParsed.before ? <MarkdownContent content={memberParsed.before} {...nested} /> : null}
         <AgentMemberTable
           rows={memberParsed.rows}
           lookup={members}
           workspaceId={workspaceId}
         />
-        {memberParsed.after ? (
-          <MarkdownContent
-            content={memberParsed.after}
-            workItems={workItems}
-            members={members}
-            workspaceId={workspaceId}
-            projectId={projectId}
-            fileLinks={fileLinks}
-          />
-        ) : null}
+        {memberParsed.after ? <MarkdownContent content={memberParsed.after} {...nested} /> : null}
       </div>
     );
   }
 
-  return <MarkdownRich content={content} fileLinks={fileLinks} />;
+  return <MarkdownRich content={source} fileLinks={fileLinks} previewCanonical={previewCanonical} />;
 }
 
 function TruncationNote({ content }: { content?: string | null }) {
@@ -518,6 +518,7 @@ function AgentBubble({
   onPickChoice,
   fileLinks,
   compact,
+  previewCanonical,
 }: {
   message: AgentChatMessage;
   workItems?: Map<string, AgentWorkItem>;
@@ -528,6 +529,7 @@ function AgentBubble({
   onPickChoice?: (choice: string) => void;
   fileLinks?: Map<string, string>;
   compact?: boolean;
+  previewCanonical?: AzurePreviewCanonical;
 }) {
   const visible = sanitizeAssistantVisible(message.content);
   const asked = parseAskUserFromMessage(message);
@@ -548,6 +550,7 @@ function AgentBubble({
           workspaceId={workspaceId}
           projectId={projectId}
           fileLinks={fileLinks}
+          previewCanonical={previewCanonical}
         />
       ) : null}
       {choices.length || (allowCustom && asked) ? (
@@ -927,6 +930,7 @@ function StepsCard({
   members,
   workspaceId,
   projectId,
+  previewCanonical,
 }: {
   lead?: AgentChatMessage;
   steps: TranscriptStep[];
@@ -936,6 +940,7 @@ function StepsCard({
   members?: Map<string, AgentMember>;
   workspaceId?: string;
   projectId?: string;
+  previewCanonical?: AzurePreviewCanonical;
 }) {
   const [open, setOpen] = useState(Boolean(running || awaiting));
   const last = steps[steps.length - 1];
@@ -964,6 +969,7 @@ function StepsCard({
           workspaceId={workspaceId}
           projectId={projectId}
           fileLinks={fileLinks}
+          previewCanonical={previewCanonical}
         />
       ) : null}
       <TruncationNote content={lead?.content} />
@@ -1190,6 +1196,17 @@ export function AgentChatThread({
   const pendingPlugin = findPendingPlugin(events);
   const effectiveProjectId = run.projectId || harness?.settings.defaultProjectId;
   const project = context?.projects.find((item) => item.id === effectiveProjectId);
+  const { data: sessionPayload } = useGetCodingSession({
+    runId: run.id,
+    projectId: effectiveProjectId,
+  });
+  const previewCanonical = useMemo<AzurePreviewCanonical>(
+    () => ({
+      previewUrl: sessionPayload?.session?.previewUrl,
+      sandboxId: sessionPayload?.session?.sandboxId,
+    }),
+    [sessionPayload?.session?.previewUrl, sessionPayload?.session?.sandboxId],
+  );
   const linkedRepo = (context?.githubRepos ?? []).find(
     (item) => item.projectId === project?.id && isLinkedGithubRepo(item),
   );
@@ -1288,6 +1305,7 @@ export function AgentChatThread({
                       onPickChoice={onPickChoice}
                       fileLinks={turnFileLinks}
                       compact={compact}
+                      previewCanonical={previewCanonical}
                     />
                     {cta}
                   </div>
@@ -1306,6 +1324,7 @@ export function AgentChatThread({
                       members={members}
                       workspaceId={run.workspaceId}
                       projectId={run.projectId}
+                      previewCanonical={previewCanonical}
                     />
                     {cta}
                   </div>
@@ -1313,7 +1332,7 @@ export function AgentChatThread({
               }
               return null;
             })}
-            <GithubArtifactCtas artifacts={turnArtifacts} />
+            <GithubArtifactCtas artifacts={turnArtifacts} previewCanonical={previewCanonical} />
 
             {turn.usage.some((event) => event.type === "llm_usage" || event.type === "context_meter") ? (
               <AgentTurnUsageCard events={turn.usage} live={Boolean(isLast && turnRunning)} />

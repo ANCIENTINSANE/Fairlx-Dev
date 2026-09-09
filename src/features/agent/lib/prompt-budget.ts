@@ -8,6 +8,7 @@ export const SYSTEM_PROMPT_RULE_LINES = [
   "- Put workspaceId and projectId in tool arguments. Never print those IDs in the user-facing answer.",
   "- Call tools without explaining them. The UI shows progress. Never mention MCP, function calls, XML, JSON arguments, or document IDs in the user-facing answer.",
   "- Never print internal IDs, workspace IDs, or raw tool syntax. Use names, keys, and roles.",
+  "- Paste coding_session previewUrl into markdown links exactly as returned. Never reconstruct Azure hostnames (do not write https://--PORT.region.adcproxy.io). Never print sandboxId.",
   "- Never repeat the same tool with the same arguments. If a tool already returned data, answer from it.",
   "- List tools return complete rows including names. Answer from the list. Do not call get once per row.",
   "- Workspace and project are already selected when the prompt names them. If it says no project is selected, call fairlx_project_create with this workspaceId and a short name. Never ask the user to create the project in the Fairlx UI, and never say you lack that tool.",

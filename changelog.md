@@ -4,10 +4,54 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `.env.example`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/agent/lib/coding-session-start.ts`
+- `src/features/agent/lib/coding-sessions.ts`
+- `src/features/agent/lib/context.ts`
+- `src/features/agent/lib/detect-start-command.test.ts`
+- `src/features/agent/lib/detect-start-command.ts`
+- `src/features/agent/lib/github-scope.ts`
+- `src/features/agent/lib/prompt-budget.ts`
+- `src/features/agent/lib/prompt.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/sandbox-prepare.ts`
+- `src/features/agent/lib/sandbox-preview.test.ts`
+- `src/features/agent/lib/sandbox-preview.ts`
+- `src/features/agent/lib/sandbox/azure-auth.test.ts`
+- `src/features/agent/lib/sandbox/azure.ts`
+- `src/features/agent/lib/sandbox/index.ts`
+- `src/features/agent/lib/sandbox/stub.ts`
+- `src/features/agent/lib/sandbox/types.ts`
+- `src/features/agent/lib/sandbox/workspace.test.ts`
+- `src/features/agent/lib/sandbox/workspace.ts`
+- `src/features/agent/lib/tool-schemas.ts`
+- `src/features/agent/lib/tools.ts`
+- `src/features/agent/lib/turn-errors.test.ts`
+- `src/features/agent/lib/turn-errors.ts`
+- `src/features/agent/lib/visible-content.test.ts`
+- `src/features/agent/lib/visible-content.ts`
+- `src/features/agent/plugins/catalog.test.ts`
+- `src/features/agent/plugins/github-helpers.ts`
+- `src/features/agent/plugins/github.ts`
+- `src/features/agent/server/route.ts`
+- `src/features/agent/types.ts`
+- `src/features/github-integration/__tests__/github-accounts.test.ts`
+- `src/features/github-integration/lib/github-accounts.ts`
+- `src/features/github-integration/lib/github-api.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-09 | `c2d6216` | chore: bump version to 0.2.115 [skip ci] | github-actions[bot] |
+| 2026-09-09 | `f49ca4b` | Merge pull request #313 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-08 | `7206523` | chore: bump version to 0.2.114 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `3ae0f08` | feat: enhance agent facial animations with spherical eye motion, improved gaze responsiveness, and new crayon underline component. | Happyesss |
 | 2026-09-08 | `dc0f5c1` | chore: bump version to 0.2.113 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `bdae09e` | feat: implement optimistic agent run creation and track typing gaze progress in command input | Happyesss |
@@ -89,9 +133,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-01 | `05ee50e` | feat: add collapsible navigation sections to agent app shell and remove unused model picker and mode switcher | Happyesss |
 | 2026-09-01 | `950b4f7` | chore: bump version to 0.2.83 [skip ci] | github-actions[bot] |
 | 2026-09-01 | `ebccefa` | Merge pull request #295 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-01 | `41cd28d` | chore: bump version to 0.2.82 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `af9d275` | refactor: implement adaptive message truncation logic with priority for assistant content and add comprehensive test suite for tool loops and state management | Happyesss |
-| 2026-08-31 | `bce5065` | chore: bump version to 0.2.81 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `c10f872` | Merge pull request #294 from Happyesss/main | Shashank Kumar Rathour |
 
-Last generated: 2026-09-08T23:27:47.280Z
+Last generated: 2026-09-09T14:59:33.048Z

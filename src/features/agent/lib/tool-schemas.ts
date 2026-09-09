@@ -62,7 +62,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   coding_session_status: {
     description:
-      "Get coding session status, sandboxId, preview URL (previewLive vs stub), coding agent, artifacts, PR, and job progress. Call this directly — do not wrap it in mcp_call.",
+      "Get coding session status, sandboxId, preview URL (previewLive vs stub), coding agent, artifacts, PR, and job progress. Paste previewUrl into markdown links verbatim — do not rebuild the Azure hostname. Call this directly — do not wrap it in mcp_call.",
     parameters: {
       type: "object",
       properties: {
@@ -606,19 +606,22 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   github_list_files: {
     description:
-      "List files in a GitHub repository. Omit repoId to use this project's Fairlx-attached repo. repoId may be a Fairlx id or owner/repo from github_list_repos. Use paths from the listing; do not guess.",
+      "List files in a GitHub repository. Omit path for the repo root. Omit branch to use the coding session branch (fairlx/{key}) when a sandbox is bound — do not assume main. Unpushed sandbox work is in /workspace via coding_session_exec, not GitHub.",
     parameters: {
       type: "object",
       properties: {
         path: { type: "string", description: "Directory to list. Omit for the repo root." },
         repoId: { type: "string", description: "Fairlx repo id or owner/repo. Omit to use the linked project repo." },
-        branch: { type: "string" },
+        branch: {
+          type: "string",
+          description: "Git branch. Omit to use the coding session head branch when a sandbox is bound, otherwise the repo default.",
+        },
       },
     },
   },
   github_read_file: {
     description:
-      "Read a file from a linked GitHub repository. Path must come from github_list_files. Missing files return an error — continue the audit; do not stop.",
+      "Read a file from a linked GitHub repository. Path must come from github_list_files. Omit branch to use the coding session branch when a sandbox is bound. Missing files are a skip, not a stop. For unpushed work, coding_session_exec in /workspace.",
     parameters: {
       type: "object",
       properties: {

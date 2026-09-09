@@ -17,7 +17,7 @@ import {
 import { SYSTEM_PROMPT_RULE_LINES } from "./prompt-budget";
 import { formatDeleteIntentContext } from "./write-guard";
 import { implementationPlanMarkdown, planIsAccepted, resolveRunImplementationPlan } from "./implementation-plan";
-import { conversationWantsAzureSandbox, runHasNonRetryableSandboxAuth } from "./sandbox/azure";
+import { conversationWantsAzureSandbox, lastSandboxAccessFailure } from "./sandbox/azure";
 
 export { SYSTEM_PROMPT_RULE_LINES, splitSystemPromptBudget } from "./prompt-budget";
 
@@ -127,15 +127,16 @@ export function buildSystemPrompt(params: {
     );
   }
   const instructionBrief = userInstructionBrief(run.messages);
-  const sandboxAuthFailed = runHasNonRetryableSandboxAuth({
+  const sandboxFailure = lastSandboxAccessFailure({
     events: run.events,
     messages: run.messages,
   });
+  const sandboxAuthFailed = sandboxFailure !== null;
   const azurePreviewAsk = conversationWantsAzureSandbox(query);
   if (sandboxAuthFailed && azurePreviewAsk) {
     lines.push(
       "",
-      "HARD STOP: Azure sandbox login failed with AADSTS700016. Do not call coding_session_start. Do not offer GitHub Pages, raw.githubusercontent.com, or local clone as a preview. Tell the user to fix AZURE_SANDBOX_TENANT_ID and AZURE_SANDBOX_CLIENT_ID so they belong to the same Entra app registration.",
+      `HARD STOP: Azure sandbox access failed in this turn: ${sandboxFailure} Do not call coding_session_start again in this turn. Do not offer GitHub Pages, raw.githubusercontent.com, or local clone as a preview. Repeat the manual step verbatim and tell the user to say "retry" after it is done.`,
     );
   }
   if (instructionBrief && !(sandboxAuthFailed && azurePreviewAsk)) {
@@ -190,7 +191,7 @@ export function buildSystemPrompt(params: {
     "",
     "Rules:",
     ...SYSTEM_PROMPT_RULE_LINES,
-    "- For build/change work (start building, implement, scaffold, edit the repo): inspect with github_list_files / github_read_file / fairlx_sprint_list (active sprint only). Then call submit_implementation_plan. Do not fan out specialists, write GitHub files, open PRs, or start a coding session until the user Accepts that plan (autonomous coding / @Fairlx-auto / all_access skips that extra Accept). After Accept, call coding_session_start and wait until previewLive is true. Then call coding_session_implement so Claude Code or Codex edits /workspace in the Azure sandbox. Never github_write_file or github_open_pr files[] while a sandbox is bound. Open the PR from branch fairlx/{key} after sandbox git push. Call coding_session_browser after the app is up. Never wrap coding_session_status in mcp_call — call it directly. If a tool returns blocked:true, stop retrying that tool and answer the user.",
+    "- For build/change work (start building, implement, scaffold, edit the repo): inspect with github_list_files / github_read_file / fairlx_sprint_list (active sprint only). Then call submit_implementation_plan. Do not fan out specialists, write GitHub files, open PRs, or start a coding session until the user Accepts that plan (autonomous coding / @Fairlx-auto / all_access skips that extra Accept). After Accept, call coding_session_start and wait until previewLive is true. Then call coding_session_implement so Claude Code or Codex edits /workspace in the Azure sandbox. Never github_write_file or github_open_pr files[] while a sandbox is bound. If coding_session_start returns GlobalSandboxNotFound or sandbox_gone, call coding_session_start again — Fairlx recreates the Azure sandbox. If clone fails with git: not found, call coding_session_start again — Fairlx installs git in the sandbox. Do not write files to GitHub or offer GitHub Pages as a workaround. Open the PR from branch fairlx/{key} after sandbox git push. Call coding_session_browser after the app is up. Never wrap coding_session_status in mcp_call — call it directly. If a tool returns blocked:true, stop retrying that tool and answer the user.",
     "- For other work, independent specialists MUST launch together: emit every delegate_agent call in the same assistant step (not one per turn). Each call is one subject. The runtime runs them in parallel (up to 6 at once). Do not wait for one specialist to finish before launching others that do not depend on its result.",
     "- fairlx_sprint_plan once to set the whole timeline (name, goal, startDate, endDate). That updates Sprint 1/2 in place and folds duplicate numbered sprints together. Do not call fairlx_sprint_create ten times, do not move every item to the backlog first, and never pass the project id as sprintId. After the plan, list sprints if you need workingDays vs estimatedBuildDays, then bulk-move items by sprint name.",
     "- To unassign every sprint item, call fairlx_work_item_bulk_update once with clearAssignees: true — do not pass assignPercent 0 with a person, and do not list first. To put one person on every item in a named sprint, call it once with sprintId as \"Sprint 1\" (name or number) and assigneeIds: [\"Name\"]; that replaces assignees.",
@@ -198,7 +199,7 @@ export function buildSystemPrompt(params: {
     "- For billing, usage, spend, wallet balance, invoices, or cost by model (Grok, Luna, DeepSeek), call fairlx_usage_summary. Pass scope=organization (or organizationId) for the org bill; omit ids for this workspace. period is YYYY-MM. Do not search_harness for billing — spend lives in the usage ledger, not local knowledge.",
     "- Org departments own org permissions (billing, members, settings). List them with fairlx_department_list. Create with fairlx_department_create — pass departments: [{ name, permissions }] using keys like org.members.view and org.billing.manage. Add keys to an existing department with fairlx_department_permission_add. Do not invent org_department_create, create_role, or permission_grant.",
     githubLinked && hasGithubAccount(context)
-        ? "- GitHub is attached to this project. Code actions run as this user's GitHub account. Call github_list_files first, then github_read_file only on listed paths. A missing path is a skip, not a stop. Never call request_capability for code.read or code.write. Never say a GitHub action is unavailable — use github_update_repo (visibility), github_write_file, github_delete_file, github_open_pr, github_merge_pr, github_list_prs, github_create_issue, github_list_issues, github_comment_issue, github_close_issue, github_list_branches, and github_list_releases. For implementation, call submit_implementation_plan first; after Accept, call coding_session_start so clone/install/start/preview run in Azure — never git or shell on the Fairlx host. Wait for previewLive=true (coding_session_status). Implement with coding_session_implement (Claude Code or Codex in the sandbox). github_write_file and github_open_pr files[] are refused while a sandbox is bound. Pass files[] only when no coding session sandbox exists."
+      ? "- GitHub is attached to this project. Code actions run as this user's GitHub account. Call github_list_files first (omit path for the repo root; omit branch so Fairlx uses the coding session branch fairlx/{key} when a sandbox is bound — never guess main). Then github_read_file only on listed paths. A missing path is a skip, not a stop. While a coding session is bound, inspect the working tree with coding_session_exec in /workspace instead of GitHub. Never call request_capability for code.read or code.write. Never say a GitHub action is unavailable — use github_update_repo (visibility), github_write_file, github_delete_file, github_open_pr, github_merge_pr, github_list_prs, github_create_issue, github_list_issues, github_comment_issue, github_close_issue, github_list_branches, and github_list_releases. For implementation, call submit_implementation_plan first; after Accept, call coding_session_start so clone/install/start/preview run in Azure — never git or shell on the Fairlx host. Wait for previewLive=true (coding_session_status). Implement with coding_session_implement (Claude Code or Codex in the sandbox). github_write_file and github_open_pr files[] are refused while a sandbox is bound. Pass files[] only when no coding session sandbox is bound."
       : githubLinked
         ? "- A GitHub repository is attached to this project, but this user has not connected their GitHub account. Call request_capability with code.write so they can Sign in with GitHub. Do not use a project token."
       : hasGithubAccount(context)

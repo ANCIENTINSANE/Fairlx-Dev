@@ -4,6 +4,7 @@ import {
   appendSessionEvent,
   createCodingSession,
   findActiveCodingSessionForWorkItem,
+  findCodingSessionByRun,
   updateCodingSession,
   withSessionMeta,
 } from "./coding-sessions";
@@ -12,7 +13,16 @@ import { loadProjectSecretValues, redactSecretMap } from "./project-secrets";
 import { captureSandboxPreview } from "./sandbox-browser";
 import { resolveSandboxCodingAgent } from "./sandbox-coding-agent";
 import { prepareSandboxApp } from "./sandbox-prepare";
-import { getSandboxDriver, redactSecrets } from "./sandbox";
+import { getSandboxDriver, redactSecrets, sandboxIsAlive } from "./sandbox";
+import { azureSandboxFailureCode, isAzureSandboxAccessError } from "./sandbox/azure";
+import {
+  cloneIntoWorkspaceShell,
+  createSandboxBranchShell,
+  isSandboxGoneError,
+  parseSandboxSourceMode,
+  parseSandboxYes,
+  sandboxHasSourceShell,
+} from "./sandbox/workspace";
 import { agentDebugLog } from "./sandbox/debug-log";
 import { describeCodingPreview } from "./sandbox-preview";
 import { resolveGithubRepo } from "../plugins/github";
@@ -48,6 +58,24 @@ async function finishPreview(params: {
   const driver = getSandboxDriver();
   const extraSecretValues = Object.values(params.secrets);
   let events = params.events;
+
+  // Reserve the public URL before starting the app so dev servers with host checks (Vite
+  // allowedHosts, Next allowedDevOrigins) can be told which hostname the proxy will send.
+  let previewUrl: string | undefined;
+  let previewHost: string | undefined;
+  if (driver.kind === "azure" || driver.kind === "stub") {
+    try {
+      previewUrl = await driver.exposePort(params.sandboxId, params.exposePort);
+      previewHost = new URL(previewUrl).hostname;
+    } catch (error) {
+      events = appendSessionEvent(
+        events,
+        "preview",
+        error instanceof Error ? error.message : "Failed to expose preview port",
+      );
+    }
+  }
+
   events = appendSessionEvent(events, "install", "Detecting toolchain and installing dependencies");
   const prepared = await prepareSandboxApp({
     driver,
@@ -56,34 +84,40 @@ async function finishPreview(params: {
     prepareScript: params.environment?.prepareScript,
     startCommand: params.environment?.startCommand,
     extraSecretValues,
+    previewHost,
   });
   events = appendSessionEvent(
     events,
     "install",
     redactSecretMap(prepared.install.stdout || prepared.install.stderr, params.secrets).slice(0, 1500),
-    { packageManager: prepared.detected.packageManager, startCommand: prepared.detected.startCommand },
+    {
+      packageManager: prepared.detected.packageManager,
+      startCommand: prepared.detected.startCommand,
+      appDir: prepared.detected.appDir,
+      exitCode: prepared.install.exitCode,
+    },
   );
   events = appendSessionEvent(events, "dev_server", prepared.previewLive ? "Dev server healthy" : "Dev server start recorded", {
     startCommand: prepared.detected.startCommand,
+    appDir: prepared.detected.appDir,
     previewLive: prepared.previewLive,
     health: prepared.health.stdout.slice(0, 800),
   });
 
-  let previewUrl: string | undefined;
   let previewLive = prepared.previewLive;
   if (driver.kind === "azure") {
-    try {
-      previewUrl = await driver.exposePort(params.sandboxId, prepared.detected.port);
-    } catch (error) {
-      events = appendSessionEvent(
-        events,
-        "preview",
-        error instanceof Error ? error.message : "Failed to expose preview port",
-      );
+    if (previewUrl && prepared.detected.port !== params.exposePort) {
+      // The app pinned a different port in its own scripts; expose that one too.
+      try {
+        previewUrl = await driver.exposePort(params.sandboxId, prepared.detected.port);
+      } catch (error) {
+        events = appendSessionEvent(
+          events,
+          "preview",
+          error instanceof Error ? error.message : "Failed to expose preview port",
+        );
+      }
     }
-  } else if (driver.kind === "stub") {
-    previewUrl = await driver.exposePort(params.sandboxId, prepared.detected.port);
-    previewLive = false;
   } else {
     previewLive = false;
   }
@@ -155,75 +189,135 @@ export async function startOrResumeCodingSession(params: {
   const driver = getSandboxDriver();
   const autoMode = Boolean(params.autoMode || params.harness.settings.autonomousCoding || params.harness.settings.permissionType === "all_access");
 
-  const existing = await findActiveCodingSessionForWorkItem(params.databases, item?.id || params.workItemId);
+  const existingByRun = params.runId ? await findCodingSessionByRun(params.databases, params.runId) : null;
+  const existingWorkItem = await findActiveCodingSessionForWorkItem(params.databases, item?.id || params.workItemId);
+  let existing =
+    existingByRun?.sandboxId && existingByRun.status !== "merged" && existingByRun.status !== "stopped"
+      ? existingByRun
+      : existingWorkItem;
+  let reuseSandboxId: string | undefined;
+
   if (existing?.sandboxId) {
-    const needsPrepare = existing.previewLive !== true;
-    if (needsPrepare) {
-      const finished = await finishPreview({
-        databases: params.databases,
-        sessionId: existing.id,
-        events: existing.events,
-        sandboxId: existing.sandboxId,
-        exposePort,
-        environment: environment ?? undefined,
-        secrets,
-        codingAgent,
-        autoMode,
-      });
-      await updateCodingSession(params.databases, existing.id, {
-        status: "running",
-        previewUrl: finished.previewUrl,
-        runId: params.runId,
-        events: finished.events,
-        meta: finished.meta,
-        previewLive: finished.previewLive,
-        driver: finished.driver as CodingSessionMeta["driver"],
-        codingAgent: finished.meta.codingAgent,
-        artifacts: finished.meta.artifacts,
-      });
-      const preview = describeCodingPreview({
-        previewUrl: finished.previewUrl,
-        driver: finished.driver,
-        status: "running",
-        sandboxId: existing.sandboxId,
-        previewLive: finished.previewLive,
-      });
-      return {
-        sessionId: existing.id,
-        status: "running",
-        sandboxId: existing.sandboxId,
-        previewUrl: preview.live ? finished.previewUrl : undefined,
-        previewLive: preview.live,
-        previewStub: preview.stub,
-        resumed: true,
-        headBranch: existing.headBranch,
-        driver: finished.driver,
-        codingAgent: codingAgent.id,
-        codingAgentReason: codingAgent.reason,
-        note: preview.note,
+    const alive = await sandboxIsAlive(driver, existing.sandboxId);
+    if (!alive) {
+      existing = {
+        ...existing,
+        sandboxId: undefined,
+        previewUrl: undefined,
+        previewLive: false,
+        events: appendSessionEvent(
+          existing.events,
+          "preparing",
+          "Previous Azure sandbox was deleted. Creating a new sandbox.",
+        ),
       };
+      await updateCodingSession(params.databases, existing.id, {
+        sandboxId: "",
+        previewUrl: "",
+        previewLive: false,
+        status: "preparing",
+        events: existing.events,
+      });
+    } else {
+      try {
+        const checkout = await driver.exec(existing.sandboxId, sandboxHasSourceShell(), "/workspace");
+        if (!parseSandboxYes(checkout.stdout)) {
+          // The VM is up but the repo never landed (earlier clone failed). Reuse it and clone again.
+          reuseSandboxId = existing.sandboxId;
+        } else {
+          const needsPrepare = existing.previewLive !== true;
+          if (needsPrepare) {
+            const finished = await finishPreview({
+              databases: params.databases,
+              sessionId: existing.id,
+              events: existing.events,
+              sandboxId: existing.sandboxId,
+              exposePort,
+              environment: environment ?? undefined,
+              secrets,
+              codingAgent,
+              autoMode,
+            });
+            await updateCodingSession(params.databases, existing.id, {
+              status: "running",
+              previewUrl: finished.previewUrl,
+              runId: params.runId,
+              events: finished.events,
+              meta: finished.meta,
+              previewLive: finished.previewLive,
+              driver: finished.driver as CodingSessionMeta["driver"],
+              codingAgent: finished.meta.codingAgent,
+              artifacts: finished.meta.artifacts,
+            });
+            const preview = describeCodingPreview({
+              previewUrl: finished.previewUrl,
+              driver: finished.driver,
+              status: "running",
+              sandboxId: existing.sandboxId,
+              previewLive: finished.previewLive,
+            });
+            return {
+              sessionId: existing.id,
+              status: "running",
+              sandboxId: existing.sandboxId,
+              previewUrl: preview.live ? finished.previewUrl : undefined,
+              previewLive: preview.live,
+              previewStub: preview.stub,
+              resumed: true,
+              headBranch: existing.headBranch,
+              driver: finished.driver,
+              codingAgent: codingAgent.id,
+              codingAgentReason: codingAgent.reason,
+              note: preview.note,
+            };
+          }
+          const preview = describeCodingPreview({
+            previewUrl: existing.previewUrl,
+            driver: existing.driver || driver.kind,
+            status: existing.status,
+            sandboxId: existing.sandboxId,
+            previewLive: existing.previewLive,
+          });
+          return {
+            sessionId: existing.id,
+            status: existing.status,
+            sandboxId: existing.sandboxId,
+            previewUrl: preview.live ? existing.previewUrl : undefined,
+            previewLive: preview.live,
+            previewStub: preview.stub,
+            resumed: true,
+            headBranch: existing.headBranch,
+            driver: preview.driver,
+            codingAgent: existing.codingAgent,
+            codingAgentReason: existing.codingAgentReason,
+            note: preview.note,
+          };
+        }
+      } catch (error) {
+        if (!isSandboxGoneError(error)) {
+          const message = error instanceof Error ? error.message : "Sandbox resume failed";
+          return { error: message, retryable: !isAzureSandboxAccessError(message) };
+        }
+        existing = {
+          ...existing,
+          sandboxId: undefined,
+          previewUrl: undefined,
+          previewLive: false,
+          events: appendSessionEvent(
+            existing.events,
+            "preparing",
+            "Previous Azure sandbox was deleted. Creating a new sandbox.",
+          ),
+        };
+        await updateCodingSession(params.databases, existing.id, {
+          sandboxId: "",
+          previewUrl: "",
+          previewLive: false,
+          status: "preparing",
+          events: existing.events,
+        });
+      }
     }
-    const preview = describeCodingPreview({
-      previewUrl: existing.previewUrl,
-      driver: existing.driver || driver.kind,
-      status: existing.status,
-      sandboxId: existing.sandboxId,
-      previewLive: existing.previewLive,
-    });
-    return {
-      sessionId: existing.id,
-      status: existing.status,
-      sandboxId: existing.sandboxId,
-      previewUrl: preview.live ? existing.previewUrl : undefined,
-      previewLive: preview.live,
-      previewStub: preview.stub,
-      resumed: true,
-      headBranch: existing.headBranch,
-      driver: preview.driver,
-      codingAgent: existing.codingAgent,
-      codingAgentReason: existing.codingAgentReason,
-      note: preview.note,
-    };
   }
 
   const resolved = await resolveGithubRepo({
@@ -257,60 +351,103 @@ export async function startOrResumeCodingSession(params: {
     return { error: "Could not persist the coding session. Provision agent_coding_sessions." };
   }
 
-  await updateCodingSession(params.databases, session.id, {
-    status: "preparing",
-    runId: params.runId,
-    events: appendSessionEvent(session.events, "preparing", "Creating Azure sandbox"),
-    meta: { driver: driver.kind, previewLive: false, codingAgent: codingAgent.id, codingAgentReason: codingAgent.reason },
-  });
-
-  // #region agent log
-  agentDebugLog({
-    hypothesisId: "E",
-    location: "coding-session-start.ts:beforeCreate",
-    message: "about to create sandbox",
-    data: { driverKind: driver.kind, repoId: resolved.repoId, headBranch },
-    runId: "post-fix",
-  });
-  // #endregion
   let box: SandboxInfo;
-  try {
-    box = await driver.create({
-      labels: { fairlxWorkItem: key, fairlxRun: params.runId },
-      env: sandboxEnv(secrets, codingAgent.env),
+  if (reuseSandboxId) {
+    box = { id: reuseSandboxId, driver: driver.kind };
+    await updateCodingSession(params.databases, session.id, {
+      status: "preparing",
+      sandboxId: box.id,
+      runId: params.runId,
+      events: appendSessionEvent(session.events, "preparing", "Retrying clone into the existing Azure sandbox"),
+      meta: { driver: driver.kind, previewLive: false, codingAgent: codingAgent.id, codingAgentReason: codingAgent.reason },
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Azure sandbox create failed";
+  } else {
+    await updateCodingSession(params.databases, session.id, {
+      status: "preparing",
+      runId: params.runId,
+      events: appendSessionEvent(session.events, "preparing", "Creating Azure sandbox"),
+      meta: { driver: driver.kind, previewLive: false, codingAgent: codingAgent.id, codingAgentReason: codingAgent.reason },
+    });
+
     // #region agent log
     agentDebugLog({
-      hypothesisId: "A",
-      location: "coding-session-start.ts:createCatch",
-      message: "sandbox create failed",
-      data: {
-        aadsts: message.match(/AADSTS\d+/)?.[0] || null,
-        is700016: /AADSTS700016/.test(message),
-        retryable: !/AADSTS700016/.test(message),
-      },
+      hypothesisId: "E",
+      location: "coding-session-start.ts:beforeCreate",
+      message: "about to create sandbox",
+      data: { driverKind: driver.kind, repoId: resolved.repoId, headBranch },
       runId: "post-fix",
     });
     // #endregion
+    try {
+      box = await driver.create({
+        labels: { fairlxWorkItem: key, fairlxRun: params.runId },
+        env: sandboxEnv(secrets, codingAgent.env),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Azure sandbox create failed";
+      // #region agent log
+      agentDebugLog({
+        hypothesisId: "A",
+        location: "coding-session-start.ts:createCatch",
+        message: "sandbox create failed",
+        data: {
+          aadsts: message.match(/AADSTS\d+/)?.[0] || null,
+          is700016: /AADSTS700016/.test(message),
+          retryable: !/AADSTS700016/.test(message),
+        },
+        runId: "post-fix",
+      });
+      // #endregion
+      await updateCodingSession(params.databases, session.id, {
+        status: "failed",
+        events: appendSessionEvent(session.events, "error", message),
+      });
+      return {
+        error: message,
+        retryable: !isAzureSandboxAccessError(message),
+        code: azureSandboxFailureCode(message) || undefined,
+      };
+    }
     await updateCodingSession(params.databases, session.id, {
-      status: "failed",
-      events: appendSessionEvent(session.events, "error", message),
+      status: "preparing",
+      sandboxId: box.id,
+      events: appendSessionEvent(session.events, "preparing", "Created Azure sandbox, cloning into /workspace"),
     });
-    return { error: message, retryable: !/AADSTS700016/.test(message), code: message.match(/AADSTS\d+/)?.[0] };
   }
   const token = resolved.api.getAccessToken();
   const cloneUrl = `https://x-access-token:${token}@github.com/${resolved.owner}/${resolved.repo}.git`;
-  const clone = await driver.exec(
-    box.id,
-    `git clone --depth 1 --branch ${params.baseBranch || resolved.branch} ${cloneUrl} /workspace`,
-  );
-  const branch = await driver.exec(box.id, `git checkout -b ${headBranch}`, "/workspace");
+  const cloneBranch = params.baseBranch || resolved.branch;
+  let clone: { stdout: string; stderr: string; exitCode: number };
+  let branch: { stdout: string; stderr: string; exitCode: number };
+  try {
+    clone = await driver.exec(box.id, cloneIntoWorkspaceShell(cloneUrl, cloneBranch));
+    if (clone.exitCode !== 0) {
+      const detail = redactSecrets(clone.stderr || clone.stdout || "git clone failed");
+      await updateCodingSession(params.databases, session.id, {
+        status: "failed",
+        sandboxId: box.id,
+        events: appendSessionEvent(session.events, "error", `Clone into /workspace failed: ${detail}`),
+      });
+      return { error: `Clone into /workspace failed: ${detail}`, retryable: true };
+    }
+    branch = await driver.exec(box.id, createSandboxBranchShell(headBranch), "/workspace");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sandbox clone failed";
+    await updateCodingSession(params.databases, session.id, {
+      status: "failed",
+      sandboxId: box.id,
+      events: appendSessionEvent(session.events, "error", message),
+    });
+    return { error: message, retryable: !isAzureSandboxAccessError(message) };
+  }
+  const sourceMode = parseSandboxSourceMode(clone.stdout);
   const events = appendSessionEvent(
-    appendSessionEvent(session.events, "clone", redactSecrets(clone.stdout || clone.stderr)),
+    appendSessionEvent(session.events, "clone", redactSecrets(clone.stdout || clone.stderr).slice(0, 1200), {
+      sourceMode,
+      gitAvailable: sourceMode === "git",
+    }),
     "branch",
-    branch.stdout,
+    branch.stdout.slice(0, 400),
     { driver: driver.kind, sandboxId: box.id },
   );
 

@@ -47,7 +47,7 @@ import { attachedSearchPayload, extractAttachedFiles } from "./attachments";
 import { hasGithubAccount, hasProjectGithubRepo } from "./github-scope";
 import { catalogForCapability, hasCapability, isGithubCapability, missingCapabilities } from "../plugins/catalog";
 import { sendMailViaPlugin } from "../plugins/mail";
-import { githubPauseCapability, parseGithubAttachRequest, parsePrFiles } from "../plugins/github-helpers";
+import { githubPauseCapability, parseGithubAttachRequest, parsePrFiles, githubSessionInspectBranch, githubSandboxInspectHint } from "../plugins/github-helpers";
 import {
   githubAccountStatus,
   githubCloseIssue,
@@ -86,12 +86,14 @@ import {
 } from "./coding-sessions";
 import { startOrResumeCodingSession, pushCodingSessionBranch } from "./coding-session-start";
 import { compactImplementationPlan, parseImplementationPlan } from "./implementation-plan";
-import { getSandboxDriver, redactSecrets, sandboxDriverKind } from "./sandbox";
+import { getSandboxDriver, redactSecrets, sandboxDriverKind, sandboxIsAlive } from "./sandbox";
 import { agentDebugLog } from "./sandbox/debug-log";
 import {
-  blockedSandboxAuthResult,
-  isNonRetryableAzureAuthError,
+  azureSandboxFailureCode,
+  isAzureSandboxAccessError,
+  probeAzureSandboxAccess,
 } from "./sandbox/azure";
+import { isSandboxGoneError, sandboxSessionFailurePresentation } from "./sandbox/workspace";
 import { describeCodingPreview } from "./sandbox-preview";
 import { captureSandboxPreview } from "./sandbox-browser";
 import { resolveSandboxCodingAgent, sandboxImplementShell } from "./sandbox-coding-agent";
@@ -1291,6 +1293,10 @@ export async function executeTool(
     }
     case "github_list_files": {
       try {
+        const session = ctx.databases ? await findCodingSessionByRun(ctx.databases, runId) : null;
+        const sessionBranch = githubSessionInspectBranch(session);
+        const branch = asString(parsed.branch) || sessionBranch || undefined;
+        const sandboxBound = Boolean(session?.sandboxId) && session?.status !== "merged" && session?.status !== "failed";
         const result = await githubListFiles({
           databases: ctx.databases,
           context,
@@ -1298,15 +1304,27 @@ export async function executeTool(
           path: asString(parsed.path) || undefined,
           repoId: asString(parsed.repoId) || undefined,
           projectId: ctx.projectId,
-          branch: asString(parsed.branch) || undefined,
+          branch,
         });
-        const failed = "error" in result;
+        if ("missing" in result && result.missing && sandboxBound) {
+          const hint = githubSandboxInspectHint({
+            sandboxBound: true,
+            branch: "branch" in result && typeof result.branch === "string" ? result.branch : branch || "main",
+            path: asString(parsed.path) || "/",
+          });
+          if (hint) Object.assign(result, { hint });
+        }
+        const failed = "error" in result && !("missing" in result && result.missing);
         return {
           content: JSON.stringify(result),
           event: event(
             runId,
             failed ? "error" : "github_list_files",
-            failed ? "List repo files failed" : "Listed repo files",
+            failed
+              ? "List repo files failed"
+              : "missing" in result && result.missing
+                ? `No files at ${asString(parsed.path) || "/"} on ${branch || "default"}`
+                : "Listed repo files",
             failed ? result.error : undefined,
             result,
           ),
@@ -1327,6 +1345,10 @@ export async function executeTool(
     case "github_read_file": {
       const path = asString(parsed.path);
       try {
+        const session = ctx.databases ? await findCodingSessionByRun(ctx.databases, runId) : null;
+        const sessionBranch = githubSessionInspectBranch(session);
+        const branch = asString(parsed.branch) || sessionBranch || undefined;
+        const sandboxBound = Boolean(session?.sandboxId) && session?.status !== "merged" && session?.status !== "failed";
         const result = await githubReadFile({
           databases: ctx.databases,
           context,
@@ -1334,9 +1356,17 @@ export async function executeTool(
           path,
           repoId: asString(parsed.repoId) || undefined,
           projectId: ctx.projectId,
-          branch: asString(parsed.branch) || undefined,
+          branch,
         });
-        const failed = "error" in result;
+        if ("missing" in result && result.missing && sandboxBound) {
+          const hint = githubSandboxInspectHint({
+            sandboxBound: true,
+            branch: "branch" in result && typeof result.branch === "string" ? result.branch : branch || "main",
+            path: path || "/",
+          });
+          if (hint) Object.assign(result, { hint });
+        }
+        const failed = "error" in result && !("missing" in result && result.missing);
         return {
           content: JSON.stringify(result),
           event: event(
@@ -1365,7 +1395,47 @@ export async function executeTool(
       try {
         if (ctx.databases) {
           const session = await findCodingSessionByRun(ctx.databases, runId);
-          if (session?.sandboxId) {
+          if (session && session.status !== "merged") {
+            const alive = await sandboxIsAlive(getSandboxDriver(), session.sandboxId);
+            if (!alive) {
+              const restarted = await startOrResumeCodingSession({
+                databases: ctx.databases,
+                userId: ctx.userId,
+                runId,
+                context,
+                harness,
+                plugins: ctx.plugins ?? harness.plugins,
+                workItemId: session.workItemId,
+                projectId: ctx.projectId || session.projectId,
+                repoId: session.repoId,
+                baseBranch: session.baseBranch,
+                autoMode: ctx.harness?.settings.autonomousCoding === true || ctx.permissionType === "all_access",
+              });
+              if ("error" in restarted) {
+                const present = sandboxSessionFailurePresentation(restarted.error);
+                const payload = {
+                  error: String(restarted.error),
+                  hint: present.hint,
+                  retryable: true,
+                  code: present.code,
+                };
+                return {
+                  content: JSON.stringify(payload),
+                  event: event(runId, "error", present.title, payload.error, payload),
+                };
+              }
+              const payload = {
+                error:
+                  "A new Azure sandbox is running. Write files with coding_session_exec or coding_session_implement in /workspace. Do not github_write_file.",
+                sessionId: restarted.sessionId,
+                sandboxId: restarted.sandboxId,
+                recreated: true,
+              };
+              return {
+                content: JSON.stringify(payload),
+                event: event(runId, "coding_session_start", "Sandbox recreated", undefined, payload),
+              };
+            }
             const payload = {
               error:
                 "A coding session sandbox is running. Write files with coding_session_exec in /workspace, then open a PR from that branch. Do not use github_write_file while the sandbox is bound.",
@@ -1628,7 +1698,7 @@ export async function executeTool(
       }
       const priorJob = await findLatestJobForRun(ctx.databases, ctx.userId, runId, "coding_session");
       const priorAuthFail = Boolean(
-        priorJob?.status === "failed" && isNonRetryableAzureAuthError(priorJob.error || ""),
+        priorJob?.status === "failed" && isAzureSandboxAccessError(priorJob.error || ""),
       );
       // #region agent log
       agentDebugLog({
@@ -1643,15 +1713,25 @@ export async function executeTool(
         },
       });
       // #endregion
-      if (priorAuthFail) {
-        const payload = JSON.parse(blockedSandboxAuthResult({ id: "gate", name: "coding_session_start", arguments: "{}" })) as Record<
-          string,
-          unknown
-        >;
-        return {
-          content: JSON.stringify({ ...payload, jobId: priorJob?.id }),
-          event: event(runId, "error", "Azure sandbox auth failed", String(payload.error), payload),
-        };
+      if (priorAuthFail && sandboxDriverKind() === "azure") {
+        // The last attempt in this run hit a tenant/role problem. Re-check Azure live so a fix
+        // (new env, new role assignment) is honoured immediately, and a still-broken setup
+        // returns the exact manual step instead of burning another sandbox create.
+        const probe = await probeAzureSandboxAccess();
+        if (!probe.ok) {
+          const payload = {
+            error: probe.error,
+            jobId: priorJob?.id,
+            retryable: false,
+            blocked: true,
+            code: azureSandboxFailureCode(probe.error) || "AZURE_SANDBOX_ACCESS",
+            hint: "Tell the user the manual step above verbatim. Do not call coding_session_start again in this turn; they can say retry once Azure is fixed.",
+          };
+          return {
+            content: JSON.stringify(payload),
+            event: event(runId, "error", "Azure sandbox access failed", payload.error, payload),
+          };
+        }
       }
       const workItemId = asString(parsed.workItemId);
       const plugins = ctx.plugins ?? harness.plugins;
@@ -1706,11 +1786,17 @@ export async function executeTool(
         }
         if (finished?.status === "failed") {
           const err = finished.error || "Coding session job failed";
+          const access = isAzureSandboxAccessError(err);
           const payload = {
             error: err,
             jobId: job.id,
-            retryable: !/AADSTS700016/.test(err),
-            code: err.match(/AADSTS\d+/)?.[0] || undefined,
+            retryable: !access,
+            code: azureSandboxFailureCode(err) || undefined,
+            ...(access
+              ? {
+                  hint: "Azure access problem, not a code problem. Give the user the manual step verbatim, do not retry coding_session_start in this turn, and do not fall back to direct GitHub writes or GitHub Pages as a preview.",
+                }
+              : { hint: "Transient sandbox failure. Retry coding_session_start once; if it fails again, report the error." }),
           };
           return {
             content: JSON.stringify(payload),
@@ -1808,6 +1894,53 @@ export async function executeTool(
           event: event(runId, "coding_session_exec", command, result.stdout.slice(0, 400), payload),
         };
       } catch (error) {
+        if (isSandboxGoneError(error)) {
+          const restarted = await startOrResumeCodingSession({
+            databases: ctx.databases,
+            userId: ctx.userId,
+            runId,
+            context,
+            harness,
+            plugins: ctx.plugins ?? harness.plugins,
+            workItemId: session.workItemId,
+            projectId: ctx.projectId || session.projectId,
+            repoId: session.repoId,
+            baseBranch: session.baseBranch,
+            autoMode: ctx.harness?.settings.autonomousCoding === true || ctx.permissionType === "all_access",
+          });
+          if ("error" in restarted || !restarted.sandboxId) {
+            const err = "error" in restarted ? String(restarted.error) : error instanceof Error ? error.message : "Sandbox gone";
+            const present = sandboxSessionFailurePresentation(err);
+            const payload = {
+              error: err,
+              retryable: true,
+              code: present.code,
+              hint: present.hint,
+            };
+            return {
+              content: JSON.stringify(payload),
+              event: event(runId, "error", present.title, payload.error, payload),
+            };
+          }
+          const result = await getSandboxDriver().exec(
+            String(restarted.sandboxId),
+            command,
+            asString(parsed.cwd) || "/workspace",
+          );
+          const payload = {
+            sessionId: restarted.sessionId,
+            sandboxId: restarted.sandboxId,
+            recreated: true,
+            command: redactSecrets(command),
+            stdout: result.stdout.slice(0, 8000),
+            stderr: result.stderr.slice(0, 2000),
+            exitCode: result.exitCode,
+          };
+          return {
+            content: JSON.stringify(payload),
+            event: event(runId, "coding_session_exec", command, result.stdout.slice(0, 400), payload),
+          };
+        }
         const payload = { error: error instanceof Error ? error.message : "Sandbox exec failed" };
         return {
           content: JSON.stringify(payload),
@@ -1923,7 +2056,47 @@ export async function executeTool(
       const session =
         (asString(parsed.sessionId) ? await getCodingSession(ctx.databases, asString(parsed.sessionId)) : null) ??
         (await findCodingSessionByRun(ctx.databases, runId));
-      if (!session?.sandboxId) {
+      let sandboxId = session?.sandboxId;
+      if (!sandboxId || !(await sandboxIsAlive(getSandboxDriver(), sandboxId))) {
+        const workItemId = session?.workItemId || asString(parsed.workItemId);
+        if (!workItemId) {
+          const payload = { error: "No sandbox is bound. Call coding_session_start first." };
+          return {
+            content: JSON.stringify(payload),
+            event: event(runId, "error", "No coding session sandbox", payload.error, payload),
+          };
+        }
+        const restarted = await startOrResumeCodingSession({
+          databases: ctx.databases,
+          userId: ctx.userId,
+          runId,
+          context,
+          harness,
+          plugins: ctx.plugins ?? harness.plugins,
+          workItemId,
+          projectId: ctx.projectId || session?.projectId,
+          repoId: session?.repoId,
+          autoMode: ctx.harness?.settings.autonomousCoding === true || ctx.permissionType === "all_access",
+        });
+        if ("error" in restarted || !restarted.sandboxId) {
+          const err = "error" in restarted ? String(restarted.error) : "No sandbox is bound. Call coding_session_start first.";
+          const present = sandboxSessionFailurePresentation(err);
+          const payload = {
+            error: err,
+            retryable: true,
+            code: present.code,
+            hint: present.hint,
+          };
+          return {
+            content: JSON.stringify(payload),
+            event: event(runId, "error", present.title, payload.error, payload),
+          };
+        }
+        sandboxId = String(restarted.sandboxId);
+      }
+      const boundSession =
+        session ?? (await findCodingSessionByRun(ctx.databases, runId));
+      if (!boundSession) {
         const payload = { error: "No sandbox is bound. Call coding_session_start first." };
         return {
           content: JSON.stringify(payload),
@@ -1940,7 +2113,7 @@ export async function executeTool(
           error: agent.reason,
           fallback: "specialists",
           codingAgent: agent.id,
-          sessionId: session.id,
+          sessionId: boundSession.id,
           note: "Fairlx specialists may coding_session_exec in /workspace. They must not github_write_file while this sandbox is bound.",
         };
         return {
@@ -1950,11 +2123,11 @@ export async function executeTool(
       }
       try {
         const command = sandboxImplementShell(agent, prompt);
-        const result = await getSandboxDriver().exec(session.sandboxId, command, "/workspace");
+        const result = await getSandboxDriver().exec(sandboxId, command, "/workspace");
         const secretValues = Object.values(agent.env);
-        await updateCodingSession(ctx.databases, session.id, {
+        await updateCodingSession(ctx.databases, boundSession.id, {
           events: appendSessionEvent(
-            session.events,
+            boundSession.events,
             "implement",
             redactSecrets(result.stdout.slice(0, 800), secretValues),
             {
@@ -1962,10 +2135,10 @@ export async function executeTool(
               exitCode: result.exitCode,
             },
           ),
-          meta: { ...session.meta, codingAgent: agent.id, codingAgentReason: agent.reason },
+          meta: { ...boundSession.meta, codingAgent: agent.id, codingAgentReason: agent.reason },
         });
         const payload = {
-          sessionId: session.id,
+          sessionId: boundSession.id,
           codingAgent: agent.id,
           stdout: redactSecrets(result.stdout, secretValues).slice(0, 8000),
           stderr: redactSecrets(result.stderr, secretValues).slice(0, 2000),
@@ -1982,6 +2155,19 @@ export async function executeTool(
           ),
         };
       } catch (error) {
+        if (isSandboxGoneError(error)) {
+          const payload = {
+            error: error instanceof Error ? error.message : "Sandbox gone",
+            codingAgent: agent.id,
+            retryable: true,
+            code: "sandbox_gone",
+            hint: "Call coding_session_start. Fairlx will create a new sandbox. Do not github_write_file.",
+          };
+          return {
+            content: JSON.stringify(payload),
+            event: event(runId, "error", "Sandbox was deleted", payload.error, payload),
+          };
+        }
         const payload = {
           error: error instanceof Error ? error.message : "Sandbox coding agent failed",
           codingAgent: agent.id,

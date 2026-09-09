@@ -140,11 +140,27 @@ interface GitHubCommit {
   }>;
 }
 
+export class GitHubAuthError extends Error {
+  readonly code = "github_auth_required" as const;
+  readonly status = 401;
+
+  constructor(message = "GitHub returned 401 Unauthorized. The stored token is invalid or expired.") {
+    super(message);
+    this.name = "GitHubAuthError";
+  }
+}
+
+export function isGithubAuthError(error: unknown): boolean {
+  if (error instanceof GitHubAuthError) return true;
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /unauthorized|bad credentials|token.*expired|invalid.*token/i.test(message);
+}
+
 export class GitHubAPI {
   private token: string;
 
   constructor(token?: string) {
-    this.token = token || process.env.GH_PERSONAL_TOKEN || "";
+    this.token = token || process.env.GH_PERSONAL_TOKEN || process.env.GH_TOKEN || "";
   }
 
   getAccessToken(): string {
@@ -153,21 +169,31 @@ export class GitHubAPI {
 
   private getHeaders() {
     const headers: Record<string, string> = {
-      Accept: "application/vnd.github.v3+json",
+      Accept: "application/vnd.github+json",
       "User-Agent": "Fairlx-App",
+      "X-GitHub-Api-Version": "2022-11-28",
     };
-    
+
     if (this.token) {
-      headers.Authorization = `token ${this.token}`;
+      headers.Authorization = `Bearer ${this.token}`;
     }
-    
+
     return headers;
+  }
+
+  private throwIfUnauthorized(response: Response, action: string) {
+    if (response.status === 401) {
+      throw new GitHubAuthError(`GitHub ${action} returned 401 Unauthorized. The stored token is invalid or expired.`);
+    }
   }
 
   private async fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
     try {
       const response = await fetch(url, options);
-      
+      if (response.status === 401) {
+        throw new GitHubAuthError(`GitHub returned 401 Unauthorized. The stored token is invalid or expired.`);
+      }
+
       // Retry on 429 (Rate Limit), 403 (could be secondary rate limit), or 5xx
       if ((response.status === 429 || response.status === 403 || response.status >= 500) && retries > 0) {
         // If it's a 403, we should check if it's actually a rate limit
@@ -184,6 +210,7 @@ export class GitHubAPI {
       
       return response;
     } catch (error) {
+      if (error instanceof GitHubAuthError) throw error;
       if (retries > 0) {
         // Retry on connection errors
         await new Promise(r => setTimeout(r, 1000 * (4 - retries)));
@@ -377,6 +404,7 @@ export class GitHubAPI {
     const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`;
     
     const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+    this.throwIfUnauthorized(response, "contents");
 
     if (response.ok) {
       const data = await response.json();
@@ -1004,6 +1032,7 @@ export class GitHubAPI {
   }>> {
     const url = `${GITHUB_API_BASE}/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`;
     const response = await this.fetchWithRetry(url, { headers: this.getHeaders() });
+    this.throwIfUnauthorized(response, "list repositories");
     if (!response.ok) {
       throw new Error(`Failed to list repositories: ${response.statusText}`);
     }

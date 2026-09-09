@@ -1,10 +1,11 @@
 import { Query, type Databases } from "node-appwrite";
 
 import { DATABASE_ID, GITHUB_REPOS_ID } from "@/config";
-import { GitHubAPI } from "@/features/github-integration/lib/github-api";
+import { GitHubAPI, isGithubAuthError } from "@/features/github-integration/lib/github-api";
 import {
   isPendingGithubRepo,
   listGithubOwners,
+  markGithubAccountExpired,
   resolveUserGithubToken,
 } from "@/features/github-integration/lib/github-accounts";
 import { createGithubRepository, linkGithubRepoToProject } from "@/features/github-integration/lib/github-link";
@@ -19,6 +20,8 @@ import { githubBlobUrl, normalizeGitHubPath, parseGithubRepoRef } from "./github
 export {
   githubCapabilityGap,
   githubPauseCapability,
+  githubSandboxInspectHint,
+  githubSessionInspectBranch,
   normalizeGitHubPath,
   parseGithubAttachRequest,
   parseGithubRepoRef,
@@ -31,6 +34,8 @@ export type GithubRepoOk = {
   repo: string;
   branch: string;
   repoId?: string;
+  /** GitHub login the token authenticates as (when known). */
+  githubLogin?: string;
 };
 
 export type GithubRepoErr = { error: string; capability?: AgentCapability; skipped?: boolean };
@@ -40,6 +45,62 @@ export const NO_LINKED_GITHUB_REPO =
 
 export const CONNECT_PERSONAL_GITHUB =
   "Connect your GitHub account to your Fairlx profile. Sign in with GitHub or paste a PAT with repo and read:org. Code actions (read, write, PRs, merge) run as your GitHub user.";
+
+export function githubAuthRequired(login?: string, detail?: string) {
+  const who = login ? `@${login}'s GitHub login` : "The GitHub login";
+  return {
+    error:
+      detail ||
+      `${who} has expired or was revoked (GitHub returned 401 Unauthorized). Ask the user to Sign in with GitHub again from the card shown in chat — it re-authorizes repo and read:org. Do not retry GitHub tools until then.`,
+    capability: "code.write" as AgentCapability,
+    code: "github_auth_required" as const,
+    githubLogin: login,
+    expired: true,
+  };
+}
+
+const GITHUB_AUTH_REQUIRED = githubAuthRequired();
+
+function githubRepoAccessRequired(login: string | undefined, owner: string, repo: string) {
+  const who = login ? `@${login}` : "the connected GitHub login";
+  return {
+    error: `GitHub returns 404 for ${owner}/${repo} when called as ${who}. The repository is private and this login cannot see it, or the token lacks the repo scope. Ask the user to Sign in with GitHub again as an account that can access ${owner}/${repo}. Do not retry list/read until then.`,
+    capability: "code.write" as AgentCapability,
+    code: "github_auth_required" as const,
+    githubLogin: login,
+    repoAccess: false,
+  };
+}
+
+/**
+ * Prove the token still works before using it. On 401 the account is marked expired so the
+ * next turn pauses with the Sign in with GitHub card instead of retrying a dead token.
+ */
+async function validateGithubToken(params: {
+  databases?: Databases;
+  userId?: string;
+  token: string;
+  login?: string;
+}): Promise<{ token: string; login?: string }> {
+  try {
+    const me = await new GitHubAPI(params.token).getAuthenticatedUser();
+    return { token: params.token, login: me.login || params.login };
+  } catch (error) {
+    if (isGithubAuthError(error) && params.databases && params.userId) {
+      await markGithubAccountExpired(params.databases, params.userId);
+    }
+    throw error;
+  }
+}
+
+async function repoVisible(api: GitHubAPI, owner: string, repo: string): Promise<boolean> {
+  try {
+    const access = await api.checkRepositoryAccess(owner, repo);
+    return access.accessible;
+  } catch {
+    return true; // unknown — don't turn a transient error into an auth prompt
+  }
+}
 
 export async function resolveGithubRepo(params: {
   databases?: Databases;
@@ -126,17 +187,30 @@ export async function resolveGithubRepo(params: {
   }
 
   let token = overrideToken;
+  let login: string | undefined;
   const userId = params.context.user.id;
   if (!token && params.databases && userId) {
     const resolved = await resolveUserGithubToken(params.databases, userId);
     token = resolved?.token || "";
+    login = resolved?.githubLogin || params.context.githubAccount?.login;
   }
 
   if (!token) {
-    return {
-      error: CONNECT_PERSONAL_GITHUB,
-      capability: "code.write",
-    };
+    const expiredLogin = params.context.githubAccount?.login;
+    return params.context.githubAccount?.expired
+      ? { ...githubAuthRequired(expiredLogin) }
+      : { error: CONNECT_PERSONAL_GITHUB, capability: "code.write" };
+  }
+
+  try {
+    const valid = await validateGithubToken({ databases: params.databases, userId, token, login });
+    token = valid.token;
+    login = valid.login;
+  } catch (error) {
+    if (isGithubAuthError(error)) {
+      return { ...githubAuthRequired(login) };
+    }
+    throw error;
   }
 
   return {
@@ -145,6 +219,7 @@ export async function resolveGithubRepo(params: {
     repo,
     branch,
     repoId: match?.id,
+    githubLogin: login,
   };
 }
 
@@ -160,21 +235,43 @@ export async function githubListFiles(params: {
   const resolved = await resolveGithubRepo({ ...params, branch: params.branch });
   if ("error" in resolved) return resolved;
   const path = normalizeGitHubPath(params.path || "");
+  const branch = params.branch || resolved.branch;
   try {
-    const entries = await resolved.api.getContents(resolved.owner, resolved.repo, path, params.branch || resolved.branch);
+    const entries = await resolved.api.getContents(resolved.owner, resolved.repo, path, branch);
     return {
       owner: resolved.owner,
       repo: resolved.repo,
-      branch: params.branch || resolved.branch,
+      branch,
       path: path || "/",
       items: entries.map((item) => ({ name: item.name, path: item.path, type: item.type, size: item.size })),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to list files";
+    if (isGithubAuthError(error)) {
+      return { ...githubAuthRequired(resolved.githubLogin), path: path || "/" };
+    }
+    // A 404 on the repo root is never "path missing" — the token cannot see the repository.
+    if (/not found/i.test(message) && !path && !(await repoVisible(resolved.api, resolved.owner, resolved.repo))) {
+      return { ...githubRepoAccessRequired(resolved.githubLogin, resolved.owner, resolved.repo), path: "/" };
+    }
+    if (/not found/i.test(message)) {
+      return {
+        owner: resolved.owner,
+        repo: resolved.repo,
+        branch,
+        path: path || "/",
+        items: [],
+        missing: true,
+        skipped: true,
+        hint: path
+          ? `No such path on ${branch}. Omit path to list the repo root, then only read listed paths.`
+          : `Branch ${branch} was not found on GitHub. If a coding session is bound, inspect /workspace with coding_session_exec.`,
+      };
+    }
     return {
       error: message,
       path: path || "/",
-      missing: /not found/i.test(message),
+      missing: false,
       hint: "Omit path to list the repo root, or list a parent folder that github_list_files already returned.",
     };
   }
@@ -207,6 +304,12 @@ export async function githubReadFile(params: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to read file";
+    if (isGithubAuthError(error)) {
+      return { ...githubAuthRequired(resolved.githubLogin), path };
+    }
+    if (/not found/i.test(message) && !(await repoVisible(resolved.api, resolved.owner, resolved.repo))) {
+      return { ...githubRepoAccessRequired(resolved.githubLogin, resolved.owner, resolved.repo), path };
+    }
     if (/invalid file type/i.test(message)) {
       try {
         const entries = await resolved.api.getContents(resolved.owner, resolved.repo, path, branch);
@@ -218,6 +321,17 @@ export async function githubReadFile(params: {
       } catch {
         // Fall through to the missing-path payload.
       }
+    }
+    if (/not found/i.test(message)) {
+      return {
+        owner: resolved.owner,
+        repo: resolved.repo,
+        branch,
+        path,
+        missing: true,
+        skipped: true,
+        hint: `No such file on ${branch}. List the parent with github_list_files and only read listed paths. Missing files must not stop the audit.`,
+      };
     }
     return {
       error: message,
@@ -428,12 +542,6 @@ export async function githubSessionDiff(params: {
   return { owner: resolved.owner, repo: resolved.repo, base, head, ...compare, checks };
 }
 
-const GITHUB_AUTH_REQUIRED = {
-  error: "GitHub is not connected. Ask the user to Sign in with GitHub or paste a PAT with repo and read:org.",
-  capability: "code.write" as AgentCapability,
-  code: "github_auth_required" as const,
-};
-
 export async function githubListAccountRepos(params: {
   databases?: Databases;
   context: AgentContext;
@@ -484,8 +592,8 @@ export async function githubListAccountRepos(params: {
     };
   }
 
+  const api = new GitHubAPI(resolved.token);
   try {
-    const api = new GitHubAPI(resolved.token);
     const listed = await api.listUserRepositories();
     let matched = listed.filter((repo) => matchesGithubRepoQuery(repo, params.query));
     if (params.query?.trim() && matched.length === 0) {
@@ -512,15 +620,21 @@ export async function githubListAccountRepos(params: {
         : "No repository is attached to this Fairlx project. githubRepositories/repositories are from this user's GitHub account. If they asked to connect, link, or attach an existing repo to this Fairlx project, call github_link_repo with owner and repo (or repoId owner/repo). Do not call request_capability. Do not github_create_repo unless they asked to create a new repository. Inspect with github_list_files repoId owner/repo.",
     };
   } catch (error) {
+    const unauthorized = isGithubAuthError(error);
+    if (unauthorized) await markGithubAccountExpired(params.databases, params.userId);
+    const login = githubLogin || resolved.githubLogin;
     return {
-      accountConnected: true,
-      githubLogin: githubLogin || resolved.githubLogin,
+      accountConnected: unauthorized ? false : true,
+      githubLogin: login,
       projectRepositories: projectLinked,
       githubRepositories: [] as ReturnType<typeof toGithubAccountRepo>[],
       repositories: projectLinked,
       total: projectLinked.length,
       error: error instanceof Error ? error.message : "Failed to list GitHub repositories",
-      hint: "GitHub is connected. Listing GitHub.com repositories failed. Retry github_list_repos. Do not ask the user to reconnect unless the error is github_auth_required.",
+      ...(unauthorized ? githubAuthRequired(login) : {}),
+      hint: unauthorized
+        ? `${login ? `@${login}'s` : "The"} GitHub login expired. Ask the user to Sign in with GitHub again from the card in chat. Do not retry github_list_repos until then.`
+        : "GitHub is connected. Listing GitHub.com repositories failed. Retry github_list_repos if this looks transient.",
     };
   }
 }
@@ -543,13 +657,15 @@ export async function githubAccountStatus(params: {
   if (!resolved) {
     return {
       connected: Boolean(account?.connected),
-      githubLogin: account?.login,
       linkedRepo: Boolean(params.projectId && params.context.githubRepos.some((repo) => repo.projectId === params.projectId)),
       ...(account?.connected
         ? {
             hint: "Signed into Fairlx with GitHub. Authorize repo access on the Fairlx profile to list repositories. Do not say GitHub is disconnected.",
           }
-        : GITHUB_AUTH_REQUIRED),
+        : account?.expired
+          ? githubAuthRequired(account.login)
+          : GITHUB_AUTH_REQUIRED),
+      githubLogin: account?.login,
     };
   }
   const owners = await listGithubOwners(resolved.token).catch(() => ({ login: resolved.githubLogin || "", owners: [] }));

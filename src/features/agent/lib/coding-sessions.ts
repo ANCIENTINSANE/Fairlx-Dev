@@ -203,10 +203,16 @@ export async function findCodingSessionByRun(
   try {
     const listed = await databases.listDocuments(DATABASE_ID, AGENT_CODING_SESSIONS_ID, [
       Query.equal("runId", runId),
-      Query.limit(1),
+      Query.orderDesc("$createdAt"),
+      Query.limit(8),
     ]);
-    const doc = listed.documents[0];
-    return doc ? parseSession(doc as unknown as SessionDocument) : null;
+    const sessions = listed.documents.map((doc) => parseSession(doc as unknown as SessionDocument));
+    return (
+      sessions.find((session) => session.sandboxId && !["merged", "failed", "stopped"].includes(session.status)) ??
+      sessions.find((session) => Boolean(session.sandboxId)) ??
+      sessions[0] ??
+      null
+    );
   } catch {
     return null;
   }
