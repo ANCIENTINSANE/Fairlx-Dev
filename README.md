@@ -18,19 +18,29 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-09T16:30:54.766Z
+**Last updated:** 2026-09-09T18:24:17.680Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
+**This commit**
+
+- `.github/workflows/billing-cron.yml`
+- `.github/workflows/ci.yml`
+- `.github/workflows/deploy.yml`
+- `next.config.mjs`
+- `scripts/ci/audit_env.js`
+- `scripts/ci/github-sync.sh`
+- `scripts/ci/push_env.js`
+- `src/features/agent/lib/sandbox/debug-log.ts`
+
 **Latest commits**
 
+- `6b2114e` chore: bump version to 0.2.118 [skip ci] (2026-09-09)
+- `728b3e4` Merge pull request #315 from Happyesss/main (2026-09-09)
+- `dd73a75` chore: bump version to 0.2.117 [skip ci] (2026-09-09)
 - `e998198` refactor: overhaul implementation plan handling with robust clamping, merging logic, and improved persistence limits (2026-09-09)
 - `103a794` chore: bump version to 0.2.116 [skip ci] (2026-09-09)
 - `fbb5b1e` Merge pull request #314 from ANCIENTINSANE/main (2026-09-09)
-- `44ae78e` fix: restore Azure sandbox previews and Open Preview links (2026-09-09)
-- `c2d6216` chore: bump version to 0.2.115 [skip ci] (2026-09-09)
-- `f49ca4b` Merge pull request #313 from Happyesss/main (2026-09-09)
-- `7206523` chore: bump version to 0.2.114 [skip ci] (2026-09-08)
 <!-- docs:latest:end -->
 
 ---

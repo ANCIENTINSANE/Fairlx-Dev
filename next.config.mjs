@@ -9,8 +9,11 @@ const nextConfig = {
   // Set the output file tracing root to the current project directory
   // This silences the warning about multiple lockfiles
   outputFileTracingRoot: __dirname,
+  outputFileTracingExcludes: {
+    '*': ['.cursor/**', '.git/**', '.env*', 'tsconfig.tsbuildinfo'],
+  },
   transpilePackages: ['@fairlx/mcp-server', '@fairlx/multi-agent'],
-  webpack: (config, { isServer, webpack }) => {
+  webpack: (config, { isServer, webpack, dev }) => {
     if (!isServer) {
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
@@ -20,6 +23,12 @@ const nextConfig = {
       config.resolve.fallback = {
         ...config.resolve.fallback,
         crypto: false,
+      };
+    }
+    if (dev) {
+      config.output = {
+        ...config.output,
+        chunkLoadTimeout: 300_000,
       };
     }
     return config;
@@ -32,15 +41,6 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '20mb',
     },
-  },
-  webpack: (config, { dev }) => {
-    if (dev) {
-      config.output = {
-        ...config.output,
-        chunkLoadTimeout: 300_000,
-      };
-    }
-    return config;
   },
   images: {
     minimumCacheTTL: 3600, // Cache optimized images for 1 hour
