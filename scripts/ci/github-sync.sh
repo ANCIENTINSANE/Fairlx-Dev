@@ -15,12 +15,12 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 ENV_FILE=".env.local"
-REPO_FLAG=""
+EXTRA_FLAGS=()
 
 for arg in "$@"; do
   case "$arg" in
-    --repo=*)
-      REPO_FLAG="$arg"
+    --repo=*|--include-ssh|--include-local-urls)
+      EXTRA_FLAGS+=("$arg")
       ;;
     --all)
       ;;
@@ -37,4 +37,4 @@ if [[ "$ENV_FILE" != ".env.local" ]]; then
   exit 1
 fi
 
-exec node "$ROOT/scripts/ci/push_env.js" --all ${REPO_FLAG}
+exec node "$ROOT/scripts/ci/push_env.js" --all "${EXTRA_FLAGS[@]}"

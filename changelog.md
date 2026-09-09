@@ -4,6 +4,13 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `scripts/ci/github-sync.sh`
+- `scripts/ci/push_env.js`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
@@ -89,6 +96,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-01 | `9f29adb` | chore: bump version to 0.2.89 [skip ci] | github-actions[bot] |
 | 2026-09-02 | `3481abe` | Merge pull request #297 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-09-01 | `b14b78f` | chore: bump version to 0.2.88 [skip ci] | github-actions[bot] |
-| 2026-09-02 | `36d43ba` | refactor: add runtime-scoped run management to AgentScopeBar and conditionally toggle Grok availability based on environment configuration | Happyesss |
 
-Last generated: 2026-09-09T18:24:20.952Z
+Last generated: 2026-09-09T18:43:37.838Z

@@ -18,9 +18,14 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-09T18:24:20.974Z
+**Last updated:** 2026-09-09T18:43:37.858Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
+
+**This commit**
+
+- `scripts/ci/github-sync.sh`
+- `scripts/ci/push_env.js`
 
 **Latest commits**
 
@@ -30,7 +35,6 @@ This block and [changelog.md](changelog.md) refresh on every `git commit` and `g
 - `dd73a75` chore: bump version to 0.2.117 [skip ci] (2026-09-09)
 - `e998198` refactor: overhaul implementation plan handling with robust clamping, merging logic, and improved persistence limits (2026-09-09)
 - `103a794` chore: bump version to 0.2.116 [skip ci] (2026-09-09)
-- `fbb5b1e` Merge pull request #314 from ANCIENTINSANE/main (2026-09-09)
 <!-- docs:latest:end -->
 
 ---

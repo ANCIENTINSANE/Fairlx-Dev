@@ -10,6 +10,9 @@
  * Usage:
  *   node scripts/ci/push_env.js --all [--repo=owner/repo]
  *   node scripts/ci/push_env.js [--repo=owner/repo] KEY_1 KEY_2
+ *
+ * SSH deploy credentials are skipped unless you pass --include-ssh.
+ * NEXT_PUBLIC_APP_URL is skipped when it is localhost unless --include-local-urls.
  */
 
 const fs = require("fs");
@@ -124,14 +127,33 @@ function githubTargetKey(key, type) {
   return key;
 }
 
+const SSH_KEYS = new Set(["AZURE_SSH_HOST", "AZURE_HOST", "AZURE_SSH_PRIVATE_KEY"]);
+
+function shouldSkip(key, value, flags) {
+  if (SSH_KEYS.has(key) && !flags.includeSsh) {
+    return "Skip SSH deploy credential (pass --include-ssh to overwrite)";
+  }
+  if (
+    key === "NEXT_PUBLIC_APP_URL" &&
+    /localhost|127\.0\.0\.1/i.test(value) &&
+    !flags.includeLocalUrls
+  ) {
+    return "Skip localhost NEXT_PUBLIC_APP_URL (would bake into the production client)";
+  }
+  return null;
+}
+
 function ghSet(kind, key, value, repo) {
   const args =
     kind === "secret"
       ? ["secret", "set", key, "--repo", repo]
       : ["variable", "set", key, "--repo", repo];
 
+  const payload =
+    key.includes("PRIVATE_KEY") && !value.endsWith("\n") ? `${value}\n` : value;
+
   const result = spawnSync("gh", args, {
-    input: value,
+    input: payload,
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -159,6 +181,7 @@ const valueMap = parseDotenv(envLocal);
 const args = process.argv.slice(2);
 let targetRepo = "";
 let pushAll = false;
+const flags = { includeSsh: false, includeLocalUrls: false };
 const keysToPush = [];
 
 for (let i = 0; i < args.length; i++) {
@@ -168,6 +191,10 @@ for (let i = 0; i < args.length; i++) {
     targetRepo = args[++i];
   } else if (args[i] === "--all") {
     pushAll = true;
+  } else if (args[i] === "--include-ssh") {
+    flags.includeSsh = true;
+  } else if (args[i] === "--include-local-urls") {
+    flags.includeLocalUrls = true;
   } else {
     keysToPush.push(args[i]);
   }
@@ -189,7 +216,7 @@ if (!targetRepo) {
 
 const requested = pushAll ? [...valueMap.keys()] : keysToPush;
 if (requested.length === 0) {
-  console.log("Usage: node scripts/ci/push_env.js --all [--repo=owner/repo]");
+  console.log("Usage: node scripts/ci/push_env.js --all [--repo=owner/repo] [--include-ssh] [--include-local-urls]");
   console.log("   or: node scripts/ci/push_env.js [--repo=owner/repo] KEY_1 KEY_2");
   process.exit(0);
 }
@@ -205,6 +232,11 @@ for (const key of requested) {
     console.log(`Skip empty: ${key}`);
     continue;
   }
+  const skipReason = shouldSkip(key, value, flags);
+  if (skipReason) {
+    console.log(`${skipReason}: ${key}`);
+    continue;
+  }
   const type = classify(key, typeMap);
   const target = githubTargetKey(key, type);
   if (target) {
@@ -213,6 +245,11 @@ for (const key of requested) {
     console.log(`Skip reserved GitHub name: ${key} (mapped via alias)`);
   }
   for (const [alias, aliasValue] of extraAliases(key, value)) {
+    const aliasSkip = shouldSkip(alias, aliasValue, flags);
+    if (aliasSkip) {
+      console.log(`${aliasSkip}: ${alias}`);
+      continue;
+    }
     jobs.push({ key: alias, value: aliasValue, type: classify(alias, typeMap) });
   }
 }
