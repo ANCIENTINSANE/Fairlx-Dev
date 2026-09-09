@@ -1,9 +1,22 @@
 import { stripToolCallMarkup } from "./parse-tool-calls";
 
-const APPWRITE_ID_RE = /\b[0-9a-f]{20}\b/gi;
-const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const NARRATION_RE =
   /^(let me (check|look|search|fetch|find|inspect|query|get)|i('ll| will) (check|look|search|fetch|find|inspect|query|look up|get)|looking that up|checking (your|the)|i('m| am) (calling|using|invoking)|calling (the )?(model|mcp|tool)|use mcp_|fairlx is the platform).*$/gim;
+const URL_TOKEN_RE = /(https?:\/\/[^\s<>\]\)'"]+)/gi;
+
+function stripInternalIds(text: string): string {
+  return text
+    .replace(/\b[0-9a-f]{20}\b/gi, "")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "");
+}
+
+/** Strip Appwrite/document UUIDs from prose, but keep them inside URLs (Azure preview hosts are `{sandboxId}--port.adcproxy.io`). */
+function stripIdsOutsideUrls(text: string): string {
+  return text
+    .split(URL_TOKEN_RE)
+    .map((part) => (/^https?:\/\//i.test(part) ? part : stripInternalIds(part)))
+    .join("");
+}
 
 function parseTruncatedPreview(content: string): string | null {
   const trimmed = content.trim();
@@ -33,8 +46,7 @@ export function sanitizeAssistantVisible(content: string | null | undefined): st
   let next = unwrapTruncatedPreview(content);
   next = stripToolCallMarkup(next);
   next = next.replace(NARRATION_RE, "");
-  next = next.replace(APPWRITE_ID_RE, "");
-  next = next.replace(UUID_RE, "");
+  next = stripIdsOutsideUrls(next);
   next = next.replace(/\(\s*\)/g, "");
   next = next.replace(/[ \t]{2,}/g, " ");
   next = next.replace(/\n{3,}/g, "\n\n");

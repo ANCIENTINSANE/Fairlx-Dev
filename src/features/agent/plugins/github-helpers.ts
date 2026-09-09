@@ -56,6 +56,26 @@ export function parseGithubAttachRequest(text: string): { owner: string; repo: s
   return undefined;
 }
 
+/** Branch GitHub list/read should use while a coding session is bound (unmerged work lives here, not on main). */
+export function githubSessionInspectBranch(session: {
+  status?: string;
+  headBranch?: string;
+} | null | undefined): string | undefined {
+  if (!session || session.status === "merged" || session.status === "stopped") return undefined;
+  const branch = session.headBranch?.trim();
+  return branch || undefined;
+}
+
+export function githubSandboxInspectHint(params: {
+  sandboxBound: boolean;
+  branch: string;
+  path: string;
+}): string | undefined {
+  if (!params.sandboxBound) return undefined;
+  const where = params.path || "the repo root";
+  return `A coding session is bound. ${where} is not on GitHub ${params.branch} (or that branch is not pushed). Inspect /workspace with coding_session_exec. Do not keep listing GitHub for the working tree.`;
+}
+
 export function githubCapabilityGap(result: unknown): AgentCapability | undefined {
   if (!result || typeof result !== "object") return undefined;
   const rec = result as { error?: string; capability?: AgentCapability; skipped?: boolean; missing?: boolean };
@@ -67,16 +87,26 @@ export function githubCapabilityGap(result: unknown): AgentCapability | undefine
   if (typeof rec.error === "string" && /not connected|sign in with github|github_auth_required|fairlx profile/i.test(rec.error)) {
     return "code.write";
   }
+  if (typeof rec.error === "string" && /unauthorized|bad credentials|token.*expired|invalid.*token/i.test(rec.error)) {
+    return "code.write";
+  }
   if (typeof rec.error === "string" && /token|cannot push/i.test(rec.error)) return "code.write";
   return undefined;
 }
 
-/** Do not pause the run for GitHub OAuth when the Fairlx profile already has a GitHub account. */
+export function isGithubUnauthorizedResult(result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+  const rec = result as { code?: string; error?: string };
+  if (rec.code === "github_auth_required") return true;
+  return typeof rec.error === "string" && /unauthorized|bad credentials|token.*expired|invalid.*token/i.test(rec.error);
+}
+
+/** Pause for GitHub OAuth when disconnected, or when a connected token was rejected. */
 export function githubPauseCapability(
   accountConnected: boolean,
   result: unknown,
 ): AgentCapability | undefined {
-  if (accountConnected) return undefined;
+  if (accountConnected && !isGithubUnauthorizedResult(result)) return undefined;
   return githubCapabilityGap(result);
 }
 

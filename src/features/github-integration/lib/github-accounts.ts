@@ -26,6 +26,8 @@ export type GithubAccountPublic = {
   connected: boolean;
   /** True when Fairlx has a GitHub API token (OAuth or PAT) for repo read/write. */
   hasRepoAccess: boolean;
+  /** True when GitHub rejected the stored token (401). The user must sign in again. */
+  expired?: boolean;
   githubLogin?: string;
   githubUserId?: string;
   authMethod?: GithubAuthMethod;
@@ -76,7 +78,8 @@ export function decodeStoredGithubToken(stored?: string | null): string {
     try {
       return decryptToken(value);
     } catch {
-      return value;
+      // Ciphertext is not a GitHub token. Sending it produces 401 Unauthorized.
+      return "";
     }
   }
   return value;
@@ -85,6 +88,18 @@ export function decodeStoredGithubToken(stored?: string | null): string {
 function toPublic(doc: GithubAccountDoc | null): GithubAccountPublic {
   if (!doc || doc.status === "disconnected" || !doc.accessToken) {
     return { connected: false, hasRepoAccess: false };
+  }
+  if (doc.status === "error") {
+    // GitHub rejected this token. Surface as "not connected" so the Agent pauses with the
+    // Sign in with GitHub card, but keep the login so the message can name the account.
+    return {
+      connected: false,
+      hasRepoAccess: false,
+      expired: true,
+      githubLogin: doc.githubLogin,
+      githubUserId: doc.githubUserId,
+      authMethod: doc.authMethod,
+    };
   }
   return {
     connected: true,
@@ -127,7 +142,7 @@ export async function getGithubAccountPublic(
 ): Promise<GithubAccountPublic> {
   const doc = await getGithubAccountDoc(databases, userId);
   const stored = toPublic(doc);
-  if (stored.hasRepoAccess) return stored;
+  if (stored.hasRepoAccess || stored.expired) return stored;
 
   const appwriteUsers = users ?? (await loadAdminUsers());
   if (!appwriteUsers) return stored;
@@ -151,7 +166,8 @@ export async function resolveUserGithubToken(
 ): Promise<ResolvedGithubToken | null> {
   const account = await getGithubAccountDoc(databases, userId);
   const accountToken = decodeStoredGithubToken(account?.accessToken);
-  if (accountToken && account?.status !== "disconnected") {
+  const expired = account?.status === "error";
+  if (accountToken && account?.status !== "disconnected" && !expired) {
     return {
       token: accountToken,
       source: "account",
@@ -160,21 +176,43 @@ export async function resolveUserGithubToken(
   }
 
   const appwriteUsers = users ?? (await loadAdminUsers());
-  if (!appwriteUsers) return null;
-  const found = await lookupAppwriteGithubAuth(appwriteUsers, userId);
-  if (!found.token) return null;
+  if (appwriteUsers) {
+    const found = await lookupAppwriteGithubAuth(appwriteUsers, userId);
+    // The Appwrite identity token is often the very token GitHub just rejected. Only use it
+    // when it is different from the one marked expired, otherwise we would loop on 401.
+    if (found.token && !(expired && found.token === accountToken)) {
+      const persisted = await upsertGithubAccount(databases, {
+        userId,
+        token: found.token,
+        authMethod: "oauth",
+        githubUserId: found.githubUserId,
+      });
+      return {
+        token: found.token,
+        source: "account",
+        githubLogin: persisted?.githubLogin,
+      };
+    }
+  }
 
-  const persisted = await upsertGithubAccount(databases, {
-    userId,
-    token: found.token,
-    authMethod: "oauth",
-    githubUserId: found.githubUserId,
-  });
-  return {
-    token: found.token,
-    source: "account",
-    githubLogin: persisted?.githubLogin,
-  };
+  // No server-wide PAT fallback on purpose: a PAT in .env belongs to whoever created it and
+  // silently changes the identity every GitHub call runs as (and 404s on private repos it
+  // cannot see). Code actions must run as the signed-in user's GitHub account.
+  return null;
+}
+
+/** GitHub returned 401 for the stored token. Keep the login, drop repo access, force re-login. */
+export async function markGithubAccountExpired(databases: Databases, userId: string): Promise<void> {
+  const existing = await getGithubAccountDoc(databases, userId);
+  if (!existing || existing.status === "error" || existing.status === "disconnected") return;
+  try {
+    await databases.updateDocument(DATABASE_ID, GITHUB_ACCOUNTS_ID, existing.$id, {
+      status: "error",
+      lastValidatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn("[GitHub Account] Failed to mark account expired:", error);
+  }
 }
 
 export async function importGithubAccountFromAppwriteSession(

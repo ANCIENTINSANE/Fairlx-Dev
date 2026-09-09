@@ -25,6 +25,19 @@ describe("sanitizeAssistantVisible", () => {
     expect(visible).not.toMatch(/69d2d1720023d3c1f3e9/);
   });
 
+  it("keeps Azure preview URLs whose hostname is a sandbox UUID", () => {
+    const url = "https://421b50f0-ed05-46b1-9ade-caafc10a7ea8--3000.centralindia.adcproxy.io/";
+    const visible = sanitizeAssistantVisible(`The sandbox is live! [Open Preview](${url})`);
+    expect(visible).toContain(url);
+    expect(visible).not.toContain("https://--3000.");
+  });
+
+  it("still strips bare UUIDs outside URLs", () => {
+    const visible = sanitizeAssistantVisible("Session 421b50f0-ed05-46b1-9ade-caafc10a7ea8 is ready.");
+    expect(visible).toContain("Session");
+    expect(visible).not.toMatch(/421b50f0/);
+  });
+
   it("unwraps persisted truncated JSON so the preview is readable", () => {
     const wrapped = JSON.stringify({
       truncated: true,

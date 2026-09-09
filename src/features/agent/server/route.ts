@@ -1487,22 +1487,36 @@ const app = new Hono()
           if (!access.hasAccess) return c.json({ error: "Coding session not found." }, 404);
         }
         let diff: Record<string, unknown> | null = null;
-        if (session.prNumber || session.headBranch) {
-          const [context, harness] = await Promise.all([
-            loadAgentContext(databases, user),
-            getOrCreateHarness(databases, user.$id),
-          ]);
-          const loaded = await githubSessionDiff({
-            databases,
-            context,
-            plugins: harness.plugins,
-            pullNumber: session.prNumber,
-            base: session.baseBranch,
-            head: session.headBranch,
-            repoId: session.repoId,
-            projectId: session.projectId,
-          });
-          diff = loaded && !("error" in loaded) ? loaded : null;
+        // Only sessions whose branch exists on GitHub can have a diff. A session that failed
+        // before clone/push has a headBranch name but nothing to compare — GitHub 404s and
+        // that must not turn the whole session payload into a 500 (the Preview tab polls this).
+        const canDiff =
+          Boolean(session.prNumber) ||
+          (Boolean(session.headBranch) && Boolean(session.sandboxId) && session.status !== "failed");
+        if (canDiff) {
+          try {
+            const [context, harness] = await Promise.all([
+              loadAgentContext(databases, user),
+              getOrCreateHarness(databases, user.$id),
+            ]);
+            const loaded = await githubSessionDiff({
+              databases,
+              context,
+              plugins: harness.plugins,
+              pullNumber: session.prNumber,
+              base: session.baseBranch,
+              head: session.headBranch,
+              repoId: session.repoId,
+              projectId: session.projectId,
+            });
+            diff = loaded && !("error" in loaded) ? loaded : null;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!/not found|404/i.test(message)) {
+              console.warn("[agent] coding session diff unavailable", message.slice(0, 200));
+            }
+            diff = null;
+          }
         }
         const files = Array.isArray((diff as { files?: unknown } | null)?.files)
           ? ((diff as {

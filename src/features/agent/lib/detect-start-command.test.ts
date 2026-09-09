@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appDirFromWorkspacePackageJson,
   backgroundStartShell,
   detectPackageManager,
   detectStartCommand,
   healthCheckShell,
   injectListenPort,
   parsePackageJsonScripts,
+  previewHostEnvPrefix,
+  rankNestedPackageJsonPaths,
 } from "./detect-start-command";
 
 describe("detect start command", () => {
@@ -85,5 +88,47 @@ describe("detect start command", () => {
     expect(detectPackageManager({ "pnpm-lock.yaml": true })).toBe("pnpm");
     expect(detectPackageManager({ "package-lock.json": true })).toBe("npm");
     expect(detectPackageManager({})).toBe("unknown");
+  });
+
+  it("forwards host/port flags through npm run for Vite and allow-lists the preview host", () => {
+    const detected = detectStartCommand({
+      files: { "package.json": JSON.stringify({ scripts: { dev: "vite", build: "tsc && vite build" } }) },
+      exposePort: 3000,
+      previewHost: "abc.sandbox.example.azure.com",
+    });
+    expect(detected.startCommand).toBe(
+      "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=abc.sandbox.example.azure.com DANGEROUSLY_DISABLE_HOST_CHECK=true HOST=0.0.0.0 PORT=3000 npm run dev -- --port 3000 --host 0.0.0.0",
+    );
+    expect(detected.port).toBe(3000);
+    const pinned = detectStartCommand({
+      files: { "package.json": JSON.stringify({ scripts: { dev: "vite --port 5173" } }) },
+      exposePort: 3000,
+    });
+    expect(pinned.port).toBe(5173);
+    expect(pinned.startCommand).toBe("HOST=0.0.0.0 PORT=5173 npm run dev -- --host 0.0.0.0");
+    expect(backgroundStartShell("HOST=0.0.0.0 PORT=3000 npm run dev")).not.toContain("exec ");
+    expect(previewHostEnvPrefix("https://evil;rm -rf /")).toBe("");
+  });
+
+  it("ranks a packages/landing-page app ahead of other nested package.json files", () => {
+    expect(
+      rankNestedPackageJsonPaths([
+        "/workspace/packages/landing-page/package.json",
+        "/workspace/packages/shared/package.json",
+        "/workspace/package.json",
+      ]),
+    ).toEqual(["/workspace/packages/landing-page/package.json", "/workspace/packages/shared/package.json"]);
+    expect(appDirFromWorkspacePackageJson("/workspace/packages/landing-page/package.json")).toBe(
+      "packages/landing-page",
+    );
+    expect(
+      detectStartCommand({
+        files: {
+          appDir: "packages/landing-page",
+          "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+        },
+        exposePort: 3000,
+      }).appDir,
+    ).toBe("packages/landing-page");
   });
 });

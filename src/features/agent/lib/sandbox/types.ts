@@ -24,6 +24,8 @@ export interface SandboxDriver {
   exposePort(sandboxId: string, port: number): Promise<string>;
   suspend(sandboxId: string): Promise<void>;
   destroy(sandboxId: string): Promise<void>;
+  /** False when Azure deleted the VM (portal Stop/Delete) or the id was never provisioned. */
+  exists?(sandboxId: string): Promise<boolean>;
 }
 
 export function redactSecrets(text: string, extraValues: string[] = []): string {

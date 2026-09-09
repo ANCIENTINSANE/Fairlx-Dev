@@ -116,5 +116,9 @@ export function formatAgentTurnError(error: unknown, timeoutMs = AGENT_CHAT_TIME
     return `${message} Fairlx sent that name as the Azure deployment. AGENT_FOUNDRY_*_AZURE_DEPLOYMENT must be the deployment name (for example gpt-5.6-sol), not an API key. Put keys in AGENT_FOUNDRY_*_AZURE_API_KEY.`;
   }
 
+  if (isContextLengthError(error) || /getting the response from the model/i.test(message)) {
+    return "The model could not finish this turn (empty response or context too large after a long tool loop). Retry the same prompt — Fairlx will continue from the sandbox that is already running.";
+  }
+
   return message || "Agent turn failed.";
 }

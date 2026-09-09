@@ -18,18 +18,18 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-08T23:27:47.292Z
+**Last updated:** 2026-09-09T14:59:40.409Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
 **Latest commits**
 
+- `44ae78e` fix: restore Azure sandbox previews and Open Preview links (2026-09-09)
+- `c2d6216` chore: bump version to 0.2.115 [skip ci] (2026-09-09)
+- `f49ca4b` Merge pull request #313 from Happyesss/main (2026-09-09)
+- `7206523` chore: bump version to 0.2.114 [skip ci] (2026-09-08)
 - `3ae0f08` feat: enhance agent facial animations with spherical eye motion, improved gaze responsiveness, and new crayon underline component. (2026-09-09)
 - `dc0f5c1` chore: bump version to 0.2.113 [skip ci] (2026-09-08)
-- `bdae09e` feat: implement optimistic agent run creation and track typing gaze progress in command input (2026-09-09)
-- `746030f` chore: bump version to 0.2.112 [skip ci] (2026-09-08)
-- `bae2612` Merge pull request #312 from ANCIENTINSANE/main (2026-09-09)
-- `cf26f12` feat: modernize AI task UX and resolve critical runtime/schema errors (2026-09-09)
 <!-- docs:latest:end -->
 
 ---

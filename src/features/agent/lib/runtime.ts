@@ -77,6 +77,7 @@ import {
   githubCreateRepoArgsFromOwnerChoice,
   conversationWantsGithubCreateRepo,
   conversationWantsGithubVisibility,
+  isGithubUnauthorizedResult,
   latestGithubRepoRef,
   mergeProjectGithubRepo,
 } from "../plugins/github-helpers";
@@ -131,8 +132,8 @@ import {
   blockedSandboxAuthResult,
   filterCallsForFailedSandboxAuth,
   isNonRetryableAzureAuthError,
+  lastSandboxAccessFailure,
   rewriteSandboxAuthAssistantContent,
-  runHasNonRetryableSandboxAuth,
 } from "./sandbox/azure";
 import { agentDebugLog } from "./sandbox/debug-log";
 
@@ -960,6 +961,18 @@ export async function runAgentTurn(params: {
   let failStreak = 0;
   let forceAnswer = false;
   let pluginGap: AgentCapability | null = null;
+  // Set when GitHub rejected the connected token this turn. The context snapshot still says
+  // "connected", so this is what keeps the Sign in with GitHub pause from being cleared.
+  let pluginGapExpiredGithub = false;
+  const noteCapabilityGap = (result: { missingCapability?: AgentCapability; content: string }) => {
+    if (!result.missingCapability) return;
+    pluginGap = result.missingCapability;
+    try {
+      if (isGithubUnauthorizedResult(JSON.parse(result.content))) pluginGapExpiredGithub = true;
+    } catch {
+      // non-JSON tool content
+    }
+  };
   let launchedCodingSessionFromPlan = false;
 
   const applyCallGate = (
@@ -997,13 +1010,13 @@ export async function runAgentTurn(params: {
       });
       return gated.allowed;
     }
-    if (
-      isNonRetryableAzureAuthError(lastUserText) ||
-      runHasNonRetryableSandboxAuth({
-        events: [...(run.events ?? []), ...(sinkEvents ?? [])],
-        messages: [...run.messages, ...sinkMessages],
-      })
-    ) {
+    // Only a structured sandbox failure from a tool in THIS turn blocks another start. A user
+    // pasting an old error, or the model quoting one, never does — the next attempt runs live.
+    const sandboxFailure = lastSandboxAccessFailure({
+      events: [...(run.events ?? []), ...(sinkEvents ?? [])],
+      messages: [...run.messages, ...sinkMessages],
+    });
+    if (sandboxFailure) {
       const gated = filterCallsForFailedSandboxAuth(calls);
       // #region agent log
       agentDebugLog({
@@ -1017,10 +1030,9 @@ export async function runAgentTurn(params: {
         },
       });
       // #endregion
-      recordBlocked(gated.blocked, blockedSandboxAuthResult, {
-        title: "Azure sandbox auth failed",
-        detail:
-          "AADSTS700016: the app registration is not in this Entra tenant. Do not retry the coding session. GitHub Pages is not an Azure preview.",
+      recordBlocked(gated.blocked, (call) => blockedSandboxAuthResult(call, sandboxFailure), {
+        title: "Azure sandbox access failed",
+        detail: sandboxFailure,
       });
       return gated.allowed;
     }
@@ -1101,7 +1113,7 @@ export async function runAgentTurn(params: {
     if (result.harnessPatch) {
       harness = await upsertHarness(databases, user.$id, result.harnessPatch);
     }
-    if (result.missingCapability) pluginGap = result.missingCapability;
+    noteCapabilityGap(result);
     nextEvents.push(result.event);
     let toolContent = compactJsonString(result.content, 4000);
     let pendingWrites: AgentToolCall[] = [];
@@ -1311,11 +1323,15 @@ export async function runAgentTurn(params: {
     nextEvents: AgentToolEvent[],
   ) => {
     const catalog = catalogForCapability(capability);
+    const githubExpired = pluginGapExpiredGithub || context.githubAccount?.expired === true;
+    const login = context.githubAccount?.login ? `@${context.githubAccount.login}` : "your GitHub account";
     const summary =
       capability === "email.send"
         ? "Connect Outlook, Gmail, Resend, or a mail MCP server to send email."
         : capability === "code.write" || capability === "code.read"
-          ? "Connect your GitHub account to your Fairlx profile. Sign in with GitHub or paste a PAT with repo and read:org."
+          ? githubExpired
+            ? `GitHub login for ${login} has expired or lost access to the repository. Sign in with GitHub again to re-authorize repo and read:org, then the run continues automatically.`
+            : "Connect your GitHub account to your Fairlx profile. Sign in with GitHub or paste a PAT with repo and read:org."
           : `Connect a plugin for ${capability}.`;
     nextEvents.push({
       id: crypto.randomUUID(),
@@ -1478,7 +1494,7 @@ export async function runAgentTurn(params: {
         if (result.harnessPatch) {
           harness = await upsertHarness(databases, user.$id, result.harnessPatch);
         }
-        if (result.missingCapability) pluginGap = result.missingCapability;
+        noteCapabilityGap(result);
         events.push(attachSubagent(result.event, subagentId, specialist));
         messages.push({
           id: crypto.randomUUID(),
@@ -2079,7 +2095,7 @@ export async function runAgentTurn(params: {
               const pendingWrites = item.specialist?.pendingWrites ?? [];
               specialistWrites.push(...pendingWrites);
               if (item.specialist) appendEvents(nextEvents, item.specialist.events);
-              if (item.result.missingCapability) pluginGap = item.result.missingCapability;
+              noteCapabilityGap(item.result);
               nextMessages.push({
                 id: crypto.randomUUID(),
                 role: "tool",
@@ -2109,7 +2125,7 @@ export async function runAgentTurn(params: {
           }
         }
 
-        if (pluginGap && isGithubCapability(pluginGap) && hasGithubAccount(context)) {
+        if (pluginGap && isGithubCapability(pluginGap) && hasGithubAccount(context) && !pluginGapExpiredGithub) {
           pluginGap = null;
         }
         if (pluginGap) {
@@ -2179,16 +2195,16 @@ export async function runAgentTurn(params: {
             : "Done."),
         createdAt: new Date().toISOString(),
       };
-      const hasAuthFailure =
-        isNonRetryableAzureAuthError(lastUserText) ||
-        runHasNonRetryableSandboxAuth({
-          events: snapshotEvents,
-          messages: run.messages,
-        });
+      const sandboxFailure = lastSandboxAccessFailure({
+        events: snapshotEvents,
+        messages: run.messages,
+      });
+      const hasAuthFailure = sandboxFailure !== null;
       const rewritten = rewriteSandboxAuthAssistantContent({
         userText: lastUserText,
         assistantText: assistantMessage.content,
         hasAuthFailure,
+        failure: sandboxFailure,
       });
       // #region agent log
       agentDebugLog({

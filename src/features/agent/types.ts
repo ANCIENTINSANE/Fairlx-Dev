@@ -683,6 +683,8 @@ export type AgentContext = {
     connected: boolean;
     login?: string;
     hasRepoAccess?: boolean;
+    /** GitHub rejected the stored token; the user must Sign in with GitHub again. */
+    expired?: boolean;
   };
   githubAttachProjectIds?: string[];
   integrations: AgentContextIntegration[];

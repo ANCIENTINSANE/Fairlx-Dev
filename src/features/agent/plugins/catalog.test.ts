@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { inferCapabilities, missingCapabilities, hasCapability, catalogForCapability } from "./catalog";
 import { scanSourceFiles, verifyFindings } from "./security";
-import { githubCapabilityGap, githubPauseCapability, normalizeGitHubPath, parseGithubAttachRequest, parseGithubRepoRef, parsePrFiles, parseGithubOwnerChoiceResult, pendingGithubOwnerChoice, matchGithubOwnerReply, githubRepoNameFromLabel, conversationWantsGithubCreateRepo, conversationWantsGithubVisibility, githubCreateRepoArgsFromOwnerChoice, mergeProjectGithubRepo } from "./github-helpers";
+import { githubCapabilityGap, githubPauseCapability, githubSandboxInspectHint, githubSessionInspectBranch, normalizeGitHubPath, parseGithubAttachRequest, parseGithubRepoRef, parsePrFiles, parseGithubOwnerChoiceResult, pendingGithubOwnerChoice, matchGithubOwnerReply, githubRepoNameFromLabel, conversationWantsGithubCreateRepo, conversationWantsGithubVisibility, githubCreateRepoArgsFromOwnerChoice, mergeProjectGithubRepo } from "./github-helpers";
 import type { AgentContext, AgentPluginConnection } from "../types";
 
 function context(): AgentContext {
@@ -134,8 +134,29 @@ describe("github helpers", () => {
     expect(githubPauseCapability(false, { error: "GitHub token is missing or cannot push." })).toBe("code.write");
   });
 
+  it("pauses when a connected GitHub token is rejected", () => {
+    expect(
+      githubPauseCapability(true, {
+        error: "Failed to fetch contents: Unauthorized",
+        code: "github_auth_required",
+      }),
+    ).toBe("code.write");
+    expect(githubCapabilityGap({ error: "Failed to fetch contents: Unauthorized" })).toBe("code.write");
+  });
+
   it("does not treat a missing GitHub path as a plugin gap", () => {
     expect(githubCapabilityGap({ error: "Path not found in repository: src/middleware.ts on main", missing: true })).toBeUndefined();
+    expect(githubCapabilityGap({ missing: true, skipped: true, items: [] })).toBeUndefined();
+  });
+
+  it("uses the coding session head branch for GitHub inspect, not main", () => {
+    expect(githubSessionInspectBranch({ status: "running", headBranch: "fairlx/epic2" })).toBe("fairlx/epic2");
+    expect(githubSessionInspectBranch({ status: "merged", headBranch: "fairlx/epic2" })).toBeUndefined();
+    expect(githubSessionInspectBranch({ status: "running" })).toBeUndefined();
+    expect(
+      githubSandboxInspectHint({ sandboxBound: true, branch: "fairlx/epic2", path: "src" }),
+    ).toMatch(/coding_session_exec/);
+    expect(githubSandboxInspectHint({ sandboxBound: false, branch: "main", path: "src" })).toBeUndefined();
   });
 
   it("parses connect-repo phrasing for attach", () => {

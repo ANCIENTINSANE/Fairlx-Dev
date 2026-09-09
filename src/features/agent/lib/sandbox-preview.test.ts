@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { describeCodingPreview, isStubPreviewUrl } from "./sandbox-preview";
+import {
+  describeCodingPreview,
+  ensureAzurePreviewUrl,
+  isBrokenAzurePreviewUrl,
+  isStubPreviewUrl,
+  repairAzurePreviewUrl,
+  rewriteAzurePreviewMarkdown,
+} from "./sandbox-preview";
 
 describe("sandbox preview", () => {
   it("treats stub.fairlx.local as not live", () => {
@@ -49,5 +56,24 @@ describe("sandbox preview", () => {
     });
     expect(preview.live).toBe(false);
     expect(preview.preparing).toBe(true);
+  });
+
+  it("repairs adcproxy hostnames that are missing the sandbox UUID", () => {
+    const sandboxId = "421b50f0-ed05-46b1-9ade-caafc10a7ea8";
+    const broken = "https://--3000.centralindia.adcproxy.io/";
+    const good = `https://${sandboxId}--3000.centralindia.adcproxy.io/`;
+    expect(isBrokenAzurePreviewUrl(broken)).toBe(true);
+    expect(isBrokenAzurePreviewUrl(good)).toBe(false);
+    expect(ensureAzurePreviewUrl(broken, sandboxId)).toBe(good);
+    expect(repairAzurePreviewUrl(broken, { previewUrl: good, sandboxId })).toBe(good);
+    expect(
+      rewriteAzurePreviewMarkdown(
+        `The sandbox is live! [Open Preview](${broken})`,
+        { previewUrl: good, sandboxId },
+      ),
+    ).toContain(good);
+    expect(rewriteAzurePreviewMarkdown(`[Open Preview](${broken})`, { previewUrl: good })).not.toContain(
+      "https://--3000.",
+    );
   });
 });

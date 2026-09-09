@@ -46,6 +46,10 @@ export function formatProjectGithubLine(context: AgentContext, projectId?: strin
   const login = context.githubAccount?.login ? `@${context.githubAccount.login}` : "this Fairlx user";
   const canAttach = canAttachProjectGithub(context, projectId);
 
+  if (context.githubAccount?.expired) {
+    return `GitHub: ${login}'s GitHub login has EXPIRED (GitHub returned 401 for the stored token). Do not call github_list_files, github_read_file, github_list_repos, or coding_session_start. Call request_capability with code.write right away and tell the user in one sentence that their GitHub login expired and they must Sign in with GitHub again from the card. Do not suggest a PAT from the server environment.`;
+  }
+
   if (repos.length && hasGithubAccount(context)) {
     const labels = repos
       .slice(0, 3)

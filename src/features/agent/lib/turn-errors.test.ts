@@ -47,6 +47,12 @@ describe("formatAgentTurnError", () => {
     ).toMatch(/deployment name \(for example gpt-5\.6-sol\), not an API key/i);
   });
 
+  it("maps a generic DeepSeek/Foundry empty-response error to a retry hint", () => {
+    expect(formatAgentTurnError(new Error("An error occurred while getting the response from the model."))).toMatch(
+      /Retry the same prompt/,
+    );
+  });
+
   it("maps DeepSeek Azure rate limits to a retryable message", () => {
     const error = modelHttpError(
       "Your requests to DeepSeek-V4-Flash for DeepSeek-V4-Flash in southindia have exceeded rate limit.",

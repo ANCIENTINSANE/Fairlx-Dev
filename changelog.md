@@ -8,6 +8,10 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-09 | `44ae78e` | fix: restore Azure sandbox previews and Open Preview links | ANCIENTINSANE |
+| 2026-09-09 | `c2d6216` | chore: bump version to 0.2.115 [skip ci] | github-actions[bot] |
+| 2026-09-09 | `f49ca4b` | Merge pull request #313 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-08 | `7206523` | chore: bump version to 0.2.114 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `3ae0f08` | feat: enhance agent facial animations with spherical eye motion, improved gaze responsiveness, and new crayon underline component. | Happyesss |
 | 2026-09-08 | `dc0f5c1` | chore: bump version to 0.2.113 [skip ci] | github-actions[bot] |
 | 2026-09-09 | `bdae09e` | feat: implement optimistic agent run creation and track typing gaze progress in command input | Happyesss |
@@ -88,10 +92,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-01 | `589cab6` | chore: bump version to 0.2.84 [skip ci] | github-actions[bot] |
 | 2026-09-01 | `05ee50e` | feat: add collapsible navigation sections to agent app shell and remove unused model picker and mode switcher | Happyesss |
 | 2026-09-01 | `950b4f7` | chore: bump version to 0.2.83 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `ebccefa` | Merge pull request #295 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-01 | `41cd28d` | chore: bump version to 0.2.82 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `af9d275` | refactor: implement adaptive message truncation logic with priority for assistant content and add comprehensive test suite for tool loops and state management | Happyesss |
-| 2026-08-31 | `bce5065` | chore: bump version to 0.2.81 [skip ci] | github-actions[bot] |
-| 2026-09-01 | `c10f872` | Merge pull request #294 from Happyesss/main | Shashank Kumar Rathour |
 
-Last generated: 2026-09-08T23:27:47.280Z
+Last generated: 2026-09-09T14:59:40.319Z

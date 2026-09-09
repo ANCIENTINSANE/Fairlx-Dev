@@ -12,7 +12,11 @@ export {
   blockedSandboxAuthResult,
   filterCallsForFailedSandboxAuth,
   formatAzureSandboxAuthError,
+  isAzureSandboxAccessError,
+  isAzureSandboxRbacError,
   isNonRetryableAzureAuthError,
+  lastSandboxAccessFailure,
+  probeAzureSandboxAccess,
   rewriteSandboxAuthAssistantContent,
   runHasNonRetryableSandboxAuth,
 } from "./azure";
@@ -50,4 +54,14 @@ export function resetSandboxDriverCache(): void {
 
 export function sandboxDriverKind(): SandboxDriver["kind"] {
   return getSandboxDriver().kind;
+}
+
+export async function sandboxIsAlive(driver: SandboxDriver, sandboxId?: string | null): Promise<boolean> {
+  if (!sandboxId) return false;
+  if (typeof driver.exists !== "function") return true;
+  try {
+    return await driver.exists(sandboxId);
+  } catch {
+    return false;
+  }
 }
