@@ -36,6 +36,7 @@ import {
   projectKanbanHref,
   withWorkspaceFallback,
 } from "../lib/project-launch";
+import { extractAttachedImages } from "../lib/attach-images";
 import { displayUserContent } from "../lib/session-context";
 import { ImplementationPlanCard } from "./implementation-plan-card";
 import { resolveRunImplementationPlan } from "../lib/implementation-plan";
@@ -150,6 +151,9 @@ function UserBubble({
   compact?: boolean;
 }) {
   const visible = displayUserContent(message.content);
+  const images = extractAttachedImages(message.content).filter(
+    (image) => !image.omitted && image.dataUrl.startsWith("data:image/"),
+  );
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(visible);
 
@@ -230,7 +234,22 @@ function UserBubble({
             </div>
           </div>
         ) : (
-          <p className="leading-relaxed whitespace-pre-wrap text-[13.5px]">{visible}</p>
+          <div className="space-y-2">
+            {images.length ? (
+              <div className="flex flex-wrap gap-1.5 justify-end">
+                {images.map((image, index) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={`${image.name}-${index}`}
+                    src={image.dataUrl}
+                    alt={image.name}
+                    className="max-h-36 max-w-[min(16rem,70vw)] rounded-lg border border-primary/20 object-contain bg-background"
+                  />
+                ))}
+              </div>
+            ) : null}
+            {visible ? <p className="leading-relaxed whitespace-pre-wrap text-[13.5px]">{visible}</p> : null}
+          </div>
         )}
       </div>
     </div>
@@ -1172,6 +1191,7 @@ export function AgentChatThread({
   const { data: sessionPayload } = useGetCodingSession({
     runId: run.id,
     projectId: effectiveProjectId,
+    runLive: run.status === "running" || run.status === "awaiting_confirmation" || run.status === "awaiting_plugin",
   });
   const previewCanonical = useMemo<AzurePreviewCanonical>(
     () => ({

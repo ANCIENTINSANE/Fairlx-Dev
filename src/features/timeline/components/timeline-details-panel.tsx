@@ -243,6 +243,18 @@ export function TimelineDetailsPanel({
                         : "Not set"}
                     </span>
                   </div>
+                  {!item.hasExplicitDates && item.startDate && item.dueDate && (
+                    <p className="text-xs text-muted-foreground">
+                      {item.sprintId
+                        ? "These dates come from the sprint. Drag the bar to set dates on this item."
+                        : "These dates come from the sprints that contain this epic's work."}
+                    </p>
+                  )}
+                  {!item.hasExplicitDates && !item.startDate && (
+                    <p className="text-xs text-muted-foreground">
+                      Dates are not set. Move this item into a sprint or pick dates to schedule it.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

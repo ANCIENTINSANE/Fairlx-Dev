@@ -255,9 +255,12 @@ function WorkflowSidebar({
     }
     return list;
   }, [workspaceProjects, project]);
+  const activityLive =
+    run.status === "running" || run.status === "awaiting_confirmation" || run.status === "awaiting_plugin";
   const { data: sessionPayload } = useGetCodingSession({
     runId: run.id,
     projectId: project?.id,
+    runLive: activityLive,
   });
   const startSession = useStartCodingSession();
   const commentSession = useCommentCodingSession();
@@ -286,8 +289,6 @@ function WorkflowSidebar({
   const live = events
     .filter((event) => event.type !== "context_meter" && !looksLikeLlmUsageEvent(event))
     .slice(-40);
-  const activityLive =
-    run.status === "running" || run.status === "awaiting_confirmation" || run.status === "awaiting_plugin";
   const [activityOpen, setActivityOpen] = useState(activityLive);
   useEffect(() => {
     setActivityOpen(activityLive);

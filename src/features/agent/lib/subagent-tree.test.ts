@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentToolEvent } from "../types";
-import { buildAgentCrew, specialistDisplayName } from "./subagent-tree";
+import { buildAgentCrew, crewHeadlineCounts, specialistDisplayName } from "./subagent-tree";
 
 function event(
   type: AgentToolEvent["type"],
@@ -31,6 +31,20 @@ describe("subagent tree", () => {
     expect(crew.live).toBe(0);
     expect(crew.orchestratorStatus).toBe("idle");
     expect(crew.children).toEqual([]);
+    expect(crewHeadlineCounts(crew)).toEqual({ live: 0, launched: 0 });
+  });
+
+  it("counts a running orchestrator as live before any specialist starts", () => {
+    const crew = buildAgentCrew([event("thought", "Thinking", {})], "running");
+    expect(crew.live).toBe(0);
+    expect(crew.orchestratorStatus).toBe("working");
+    expect(crewHeadlineCounts(crew)).toEqual({ live: 1, launched: 1 });
+  });
+
+  it("keeps the orchestrator live while waiting for an answer", () => {
+    const crew = buildAgentCrew([event("thought", "Waiting", {})], "awaiting_question");
+    expect(crew.orchestratorStatus).toBe("working");
+    expect(crewHeadlineCounts(crew)).toEqual({ live: 1, launched: 1 });
   });
 
   it("groups live specialists under the orchestrator", () => {

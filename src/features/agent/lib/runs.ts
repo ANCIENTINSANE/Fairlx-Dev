@@ -2,6 +2,7 @@ import { Databases, ID, Query } from "node-appwrite";
 
 import { AGENT_RUNS_ID, DATABASE_ID } from "@/config";
 import type { AgentChatMessage, AgentRun, AgentRunMode, AgentRunStatus, AgentToolEvent, ImplementationPlan } from "../types";
+import { hasFullAttachedImages, keepLatestImages } from "./attach-images";
 import { extractAttachedFiles, serializeAttachments, withAttachedFiles } from "./attachments";
 import { AGENT_EVENTS_JSON_MAX, AGENT_EXTRA_JSON_MAX, AGENT_MESSAGES_JSON_MAX, AGENT_PROMPT_ATTR_MAX } from "./limits";
 import { isTrainingRun } from "./personal-training";
@@ -161,7 +162,8 @@ export async function createRun(
 ): Promise<AgentRun> {
   const fullPrompt = input.prompt.trim();
   const attachments = extractAttachedFiles(fullPrompt);
-  const visible = displayUserContent(fullPrompt) || fullPrompt;
+  const visible =
+    displayUserContent(fullPrompt) || (hasFullAttachedImages(fullPrompt) ? "Image" : fullPrompt);
   const prompt = truncateString(visible, AGENT_PROMPT_ATTR_MAX);
   const kind = isTrainingRun({ kind: input.kind, prompt: fullPrompt }) ? "training" : "chat";
   const title = truncateString(
@@ -187,7 +189,7 @@ export async function createRun(
     workspaceId: input.workspaceId || "",
     projectId: input.projectId || "",
     modelId: input.modelId || "",
-    messagesJson: stringifyBounded(messages, AGENT_MESSAGES_JSON_MAX),
+    messagesJson: stringifyBounded(keepLatestImages(messages), AGENT_MESSAGES_JSON_MAX),
     eventsJson: stringifyBounded([], AGENT_EVENTS_JSON_MAX),
     extraJson: stringifyBounded(
       {
@@ -263,7 +265,7 @@ export async function updateRun(
   if (patch.projectId !== undefined) payload.projectId = patch.projectId || "";
   if (patch.modelId !== undefined) payload.modelId = patch.modelId || "";
   if (patch.messages !== undefined) {
-    payload.messagesJson = stringifyBounded(patch.messages, AGENT_MESSAGES_JSON_MAX);
+    payload.messagesJson = stringifyBounded(keepLatestImages(patch.messages), AGENT_MESSAGES_JSON_MAX);
     const files = patch.messages.flatMap((message) =>
       message.role === "user" ? extractAttachedFiles(message.content) : [],
     );

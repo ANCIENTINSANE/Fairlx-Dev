@@ -7,6 +7,9 @@ import dynamic from "next/dynamic";
 
 import { useProjectId } from "@/features/projects/hooks/use-project-id";
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
+import { useRegisterAgentPage } from "@/features/agent/components/agent-page-context";
+import { chromePageLayout, isPageTaskView, type PageSnapshotEntity } from "@/features/agent/lib/page-context";
+import type { ParsedPageUiAction } from "@/features/agent/lib/page-ui-action";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
 import { useGetMembers } from "@/features/members/api/use-get-members";
 import { useProjectPermissions } from "@/hooks/use-project-permissions";
@@ -259,7 +262,7 @@ export const TaskViewSwitcher = ({
 }: TaskViewSwitcherProps) => {
 
 
-  const [{ status, assigneeId, projectId, search, priority, labels }] =
+  const [{ status, assigneeId, projectId, search, priority, labels }, setTaskFilters] =
     useTaskFilters();
   const [view, setView] = useQueryState("task-view", { defaultValue: "dashboard" });
   const [completeSprintOpen, setCompleteSprintOpen] = useState(false);
@@ -427,10 +430,78 @@ export const TaskViewSwitcher = ({
 
   const isLoadingTasks = isLoadingWorkItems;
 
+  useRegisterAgentPage(
+    () => {
+      const items = (workItemsData?.documents ?? []) as PopulatedWorkItem[];
+      const sprints = sprintsData?.documents ?? [];
+      const visible =
+        view === "kanban"
+          ? items.filter((item) => kanbanTasks.some((task) => task.$id === item.$id))
+          : items;
+      const entities: PageSnapshotEntity[] = visible.slice(0, 40).map((item) => ({
+        kind: "work_item",
+        id: item.$id,
+        key: item.key,
+        title: item.title,
+        status: String(item.status),
+        location: view === "kanban" ? String(item.status) : view,
+      }));
+      const page = showMyTasksOnly ? `My Spaces · ${view}` : `Project ${view}`;
+      return {
+        page,
+        layout: chromePageLayout(page, [
+          {
+            id: "board",
+            position: "main",
+            label: `${view} board`,
+            summary: `${visible.length} items. Sprints: ${sprints.map((sprint) => `${sprint.name} (${sprint.status})`).join(", ") || "none"}`,
+          },
+        ]),
+        entities,
+        ui: {
+          view,
+          status: status || "",
+          assigneeId: assigneeId || "",
+          search: search || "",
+          priority: priority || "",
+          labels: labels?.join(",") || "",
+        },
+        actions: ["set_view", "set_filters", "reset_filters", "navigate"],
+      };
+    },
+    (action: ParsedPageUiAction) => {
+      if (action.action === "set_view" && action.view) {
+        const next = action.view.toLowerCase();
+        if (!isPageTaskView(next)) return { ok: false as const, error: `Unknown view ${action.view}.` };
+        void setView(next);
+        return true;
+      }
+      if (action.action === "reset_filters") {
+        void setTaskFilters({
+          status: null,
+          assigneeId: null,
+          search: null,
+          priority: null,
+          labels: null,
+        });
+        return true;
+      }
+      if (action.action === "set_filters" && action.filters) {
+        void setTaskFilters({
+          status: action.filters.status ?? undefined,
+          assigneeId: action.filters.assigneeId ?? undefined,
+          search: action.filters.search ?? undefined,
+          priority: action.filters.priority ?? undefined,
+        });
+        return true;
+      }
+      return undefined;
+    },
+  );
 
   return (
     <Tabs
-      defaultValue={view}
+      value={view ?? "dashboard"}
       onValueChange={setView}
       className="flex-1 w-full border rounded-lg "
     >

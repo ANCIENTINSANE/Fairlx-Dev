@@ -8,6 +8,8 @@ import { useGetWorkspace } from "@/features/workspaces/api/use-get-workspace";
 import { EditWorkspaceForm } from "@/features/workspaces/components/edit-workspace-form";
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
+import { useRegisterAgentPage } from "@/features/agent/components/agent-page-context";
+import { chromePageLayout } from "@/features/agent/lib/page-context";
 
 const WorkspaceIdSettingsClientContent = () => {
   const workspaceId = useWorkspaceId();
@@ -16,6 +18,18 @@ const WorkspaceIdSettingsClientContent = () => {
     isLoading: isMemberLoading,
     isAdmin,
   } = useCurrentMember({ workspaceId });
+
+  useRegisterAgentPage(() => ({
+    page: "Workspace settings",
+    heading: initialValues?.name ? `${initialValues.name} settings` : "Workspace settings",
+    layout: chromePageLayout("Workspace settings", [
+      { id: "form", position: "main", label: "Edit workspace" },
+    ]),
+    entities: initialValues
+      ? [{ kind: "workspace", id: initialValues.$id, title: initialValues.name, location: "settings" }]
+      : [],
+    actions: ["navigate"],
+  }));
 
   if (isLoading || isMemberLoading) {
     return <PageLoader />;

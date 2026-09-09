@@ -21,9 +21,12 @@ import { useTranscribeAudio } from "../api/use-transcribe-audio";
 import { AGENT_RUNS_QUERY_KEY } from "../constants";
 import { buildOptimisticAgentRun, navigateToAgentRun, newAgentRunId } from "../lib/optimistic-run";
 import { chipKey, composeUserPrompt, isPersonalSessionMode } from "../lib/session-context";
+import { chipsFromFiles, filesFromDataTransfer } from "../lib/attach-files";
+import { useAgentPageContextBlock } from "./agent-page-context";
 import { profileIsTrained } from "../lib/personal-agent-status";
 import { typingGazeProgress } from "../lib/typing-gaze";
 import { countWorkspaceProjects, getQuickActions } from "../lib/quick-actions";
+import { resolveAgentProjectId } from "../lib/project-scope";
 import { MAX_VOICE_MS, audioFilenameForMime, pickRecorderMimeType, voiceInputSupported } from "../lib/voice-input";
 import type { AgentContextChip, AgentRun, AgentSessionMode } from "../types";
 import { AgentPlusMenu, ContextChips } from "./agent-plus-menu";
@@ -87,6 +90,7 @@ export function AgentCommandInput({
   const createRun = useCreateAgentRun();
   const stopRunMutation = useStopAgentRun();
   const transcribeAudio = useTranscribeAudio();
+  const pageContext = useAgentPageContextBlock();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [prompt, setPrompt] = useState("");
   const [chips, setChips] = useState<AgentContextChip[]>([]);
@@ -95,7 +99,9 @@ export function AgentCommandInput({
   const [composerFocused, setComposerFocused] = useState(false);
   const [gazeProgress, setGazeProgress] = useState(0.12);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(workspaceId ?? null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectId ?? null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null | undefined>(
+    projectId === undefined ? undefined : projectId || null,
+  );
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -138,7 +144,8 @@ export function AgentCommandInput({
   }, [workspaceId]);
 
   useEffect(() => {
-    setSelectedProjectId(projectId ?? null);
+    if (projectId === undefined) return;
+    setSelectedProjectId(projectId || null);
   }, [projectId]);
 
   const isRunning = run?.status === "running";
@@ -146,7 +153,10 @@ export function AgentCommandInput({
   const showStop = isRunning || run?.status === "awaiting_confirmation" || run?.status === "awaiting_question" || stopping;
   const busy = submitting || createRun.isPending;
   const voiceBusy = busy || isTranscribing;
-  const canSend = Boolean(prompt.trim()) && !busy && !disabled;
+  const canSend =
+    Boolean(prompt.trim() || chips.some((chip) => chip.kind === "image" && chip.content?.startsWith("data:image/"))) &&
+    !busy &&
+    !disabled;
   const sessionMode = (harness?.settings.sessionMode as AgentSessionMode) || "agent";
   const personalUntrained =
     isPersonalSessionMode(sessionMode) &&
@@ -171,9 +181,11 @@ export function AgentCommandInput({
     [context?.projects, activeWorkspaceId]
   );
   const hasProjects = context ? projectCount > 0 : true;
-  const activeProjectId = hasProjects
-    ? selectedProjectId || run?.projectId || projectId || harness?.settings.defaultProjectId
-    : undefined;
+  const activeProjectId = resolveAgentProjectId(selectedProjectId, [
+    run?.projectId,
+    projectId,
+    harness?.settings.defaultProjectId,
+  ]);
 
   const quickActions = useMemo(
     () => getQuickActions(hasProjects),
@@ -303,10 +315,31 @@ export function AgentCommandInput({
     };
   }, []);
 
+  const ingestFiles = async (files: File[]) => {
+    if (!files.length || personalUntrained || busy || disabled) return;
+    const { chips: added, errors } = await chipsFromFiles(
+      files,
+      chips.filter((chip) => chip.kind === "image").length,
+    );
+    for (const message of errors) toast.error(message);
+    if (!added.length) return;
+    setChips((current) => {
+      const next = [...current];
+      for (const chip of added) {
+        const key = chipKey(chip);
+        const index = next.findIndex((item) => chipKey(item) === key);
+        if (index >= 0) next[index] = chip;
+        else next.push(chip);
+      }
+      return next;
+    });
+  };
+
   const submit = (value: string) => {
     const trimmed = value.trim();
-    if (!trimmed || busy || disabled || personalUntrained) return;
-    const content = composeUserPrompt(trimmed, chips, sessionMode);
+    const hasImages = chips.some((chip) => chip.kind === "image" && chip.content?.startsWith("data:image/"));
+    if ((!trimmed && !hasImages) || busy || disabled || personalUntrained) return;
+    const content = composeUserPrompt(trimmed, chips, sessionMode, pageContext);
     if (variant === "followup") {
       onFollowUp?.(content);
       setPrompt("");
@@ -316,9 +349,11 @@ export function AgentCommandInput({
     }
     const targetWorkspaceId =
       activeWorkspaceId || workspaceId || harness?.settings.defaultWorkspaceId || context?.workspaces[0]?.id;
-    const targetProjectId = hasProjects
-      ? selectedProjectId || run?.projectId || projectId || harness?.settings.defaultProjectId
-      : undefined;
+    const targetProjectId = resolveAgentProjectId(selectedProjectId, [
+      run?.projectId,
+      projectId,
+      harness?.settings.defaultProjectId,
+    ]);
 
     const runId = newAgentRunId();
     const optimistic = buildOptimisticAgentRun({
@@ -349,7 +384,7 @@ export function AgentCommandInput({
           id: runId,
           prompt: content,
           workspaceId: targetWorkspaceId,
-          projectId: targetProjectId,
+          projectId: targetProjectId ?? "",
         },
       },
       {
@@ -390,6 +425,17 @@ export function AgentCommandInput({
           event.preventDefault();
           if (!personalUntrained) submit(prompt);
         }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer?.types?.includes("Files")) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }}
+        onDrop={(event) => {
+          const files = filesFromDataTransfer(event.dataTransfer);
+          if (!files.length) return;
+          event.preventDefault();
+          void ingestFiles(files);
+        }}
       >
         {personalUntrained ? (
           <div className="px-4 pt-4 pb-3">
@@ -420,6 +466,27 @@ export function AgentCommandInput({
               onClick={updateTypingGaze}
               onKeyUp={updateTypingGaze}
               onSelect={updateTypingGaze}
+              onPaste={(event) => {
+                const files = filesFromDataTransfer(event.clipboardData);
+                if (!files.length) return;
+                event.preventDefault();
+                const pasted = event.clipboardData?.getData("text/plain") ?? "";
+                if (pasted) {
+                  const el = textareaRef.current;
+                  const start = el?.selectionStart ?? prompt.length;
+                  const end = el?.selectionEnd ?? prompt.length;
+                  const next = `${prompt.slice(0, start)}${pasted}${prompt.slice(end)}`;
+                  setPrompt(next);
+                  requestAnimationFrame(() => {
+                    if (!el) return;
+                    const caret = start + pasted.length;
+                    el.selectionStart = caret;
+                    el.selectionEnd = caret;
+                    autosize(el, minHeight);
+                  });
+                }
+                void ingestFiles(files);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();

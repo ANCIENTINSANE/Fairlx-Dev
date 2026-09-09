@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Briefcase, Code, Folder, FolderPlus, GitBranch, Plus, Check, ChevronDown } from "lucide-react";
+import { Briefcase, Code, Folder, FolderPlus, FolderX, GitBranch, Plus, Check, ChevronDown } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useCreateProject } from "@/features/projects/api/use-create-project";
@@ -48,6 +48,11 @@ export function AgentScopeBar({
   const [projectOpen, setProjectOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [newName, setNewName] = useState("");
+  const [overrideProjectId, setOverrideProjectId] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    setOverrideProjectId(undefined);
+  }, [run?.id]);
 
   const workspaces = useMemo(() => context?.workspaces ?? [], [context?.workspaces]);
   const launch = useMemo(() => extractBoardProject(run?.messages ?? []), [run?.messages]);
@@ -65,9 +70,11 @@ export function AgentScopeBar({
     }
     return list;
   }, [context?.projects, workspaceId, launch]);
-  const projectId = run?.projectId || launch?.projectId || defaultProjectId || harness?.settings.defaultProjectId;
+  const inheritedProjectId =
+    run?.projectId || launch?.projectId || defaultProjectId || harness?.settings.defaultProjectId;
+  const projectId = overrideProjectId === undefined ? inheritedProjectId : overrideProjectId || undefined;
   const project = projects.find((item) => item.id === projectId) ?? context?.projects.find((item) => item.id === projectId);
-  const projectLabel = project?.name || launch?.name || "Project";
+  const projectLabel = project?.name || (projectId ? launch?.name || "Project" : "No project");
   const repo = (context?.githubRepos ?? []).find(
     (item) => item.projectId === project?.id || (!project && item.workspaceId === workspaceId),
   );
@@ -88,11 +95,12 @@ export function AgentScopeBar({
       (item) => item.id === projectId && item.workspaceId === id,
     );
     const nextProjectId = stillValid ? projectId : undefined;
+    if (!stillValid) setOverrideProjectId(null);
     updateHarness.mutate({
       json: {
         settings: {
           defaultWorkspaceId: id,
-          defaultProjectId: nextProjectId,
+          defaultProjectId: nextProjectId || "",
         },
       },
     });
@@ -110,13 +118,14 @@ export function AgentScopeBar({
     setSearch("");
   };
 
-  const selectProject = (id: string, nextWorkspaceId?: string) => {
+  const selectProject = (id: string | undefined, nextWorkspaceId?: string) => {
     const targetWorkspaceId = nextWorkspaceId || workspaceId;
+    setOverrideProjectId(id || null);
     updateHarness.mutate({
       json: {
         settings: {
           defaultWorkspaceId: targetWorkspaceId,
-          defaultProjectId: id,
+          defaultProjectId: id || "",
         },
       },
     });
@@ -124,12 +133,12 @@ export function AgentScopeBar({
       patchRun.mutate({
         param: { runId: run.id },
         json: {
-          projectId: id,
+          projectId: id || "",
           ...(targetWorkspaceId ? { workspaceId: targetWorkspaceId } : {}),
         },
       });
     }
-    onScopeChange?.(targetWorkspaceId, id);
+    onScopeChange?.(targetWorkspaceId || "", id);
     setProjectOpen(false);
     setSearch("");
   };
@@ -185,11 +194,23 @@ export function AgentScopeBar({
           setNewName("");
         }}
         label={projectLabel}
-        icon={Code}
+        icon={projectId ? Code : FolderX}
         searchPlaceholder="Search folders, projects..."
         search={search}
         onSearch={setSearch}
       >
+        {(!q || "no project".includes(q) || "none".includes(q)) ? (
+          <button
+            type="button"
+            onClick={() => selectProject(undefined, workspaceId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
+          >
+            <FolderX className="size-3.5 text-muted-foreground" />
+            <span className="flex-1 truncate text-muted-foreground font-medium">No project</span>
+            {!projectId ? <Check className="size-3 text-primary" /> : null}
+          </button>
+        ) : null}
+        {filteredProjects.length ? <div className="h-px bg-border my-1" /> : null}
         {filteredProjects.map((item) => (
           <button
             key={item.id}

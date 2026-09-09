@@ -32,6 +32,8 @@ export type TimelineItem = {
   }>;
   startDate?: string;
   dueDate?: string;
+  /** True when the work item itself has both startDate and dueDate. False when the bar follows a sprint. */
+  hasExplicitDates?: boolean;
   estimatedHours?: number;
   labels?: string[];
   description?: string | null;

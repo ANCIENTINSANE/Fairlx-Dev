@@ -334,6 +334,22 @@ describe("graph and prompt", () => {
     expect(prompt).toMatch(/never say you lack that tool/i);
   });
 
+  it("does not inherit another project when the run has none selected", () => {
+    const harnessDoc = harness();
+    harnessDoc.settings.defaultProjectId = "p1";
+    const scoped = run("Create a new school management project");
+    scoped.projectId = undefined;
+    const prompt = buildSystemPrompt({
+      harness: harnessDoc,
+      context: context(),
+      run: scoped,
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(prompt).toMatch(/No project selected/);
+    expect(prompt).not.toMatch(/Project: Website/);
+    expect(prompt).toMatch(/fairlx_project_create/);
+  });
+
   it("tells the agent to create project teams with tools instead of Settings", () => {
     const prompt = buildSystemPrompt({
       harness: harness(),
@@ -426,6 +442,20 @@ describe("session context", () => {
     expect(content).toContain("<<<FAIRLX_ATTACH");
     expect(content).toContain("Chat tutor.");
     expect(displayUserContent(content)).toBe("Plan every module");
+  });
+
+  it("embeds pasted images for the model and hides the data URL in the UI", () => {
+    const dataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const content = composeUserPrompt(
+      "What's on this screen?",
+      [{ kind: "image", id: "img1", label: "timeline.png", meta: "png", content: dataUrl }],
+      "agent",
+    );
+    expect(content).toContain("<<<FAIRLX_IMAGE");
+    expect(content).toContain(dataUrl);
+    expect(displayUserContent(content)).toBe("What's on this screen?");
+    expect(displayUserContent(content)).not.toContain("data:image");
   });
 
   it("exposes Personal Agent in the chat session modes", () => {

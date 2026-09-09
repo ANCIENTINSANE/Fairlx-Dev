@@ -1,3 +1,4 @@
+import { stripAttachedImages } from "./attach-images";
 import { AGENT_ATTACHMENTS_JSON_MAX, MAX_ATTACHED_FILE_CHARS, SPECIALIST_FULL_ATTACH_MAX } from "./limits";
 
 export type AttachedFile = {
@@ -157,7 +158,7 @@ export function parentPromptFromMessages(messages: Array<{ role: string; content
   if (!users.length) return fallback;
   const attached = users.flatMap((message) => extractAttachedFiles(message.content));
   const texts = users
-    .map((message) => stripAttachedFiles(message.content).trim())
+    .map((message) => stripAttachedImages(stripAttachedFiles(message.content), true).trim())
     .filter(Boolean);
   const brief = texts.join("\n\n");
   const capped =
@@ -179,7 +180,7 @@ export function buildSpecialistUserMessage(params: {
   subject?: string;
 }): string {
   const files = extractAttachedFiles(params.parentPrompt);
-  const prior = stripAttachedFiles(params.parentPrompt).trim();
+  const prior = stripAttachedImages(stripAttachedFiles(params.parentPrompt), true).trim();
   if (!files.length) {
     if (!prior || prior === params.task) return params.task;
     const subjectLine = params.subject ? `Subject for this sub-agent: ${params.subject}` : "";

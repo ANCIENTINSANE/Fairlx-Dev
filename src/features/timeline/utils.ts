@@ -8,7 +8,21 @@ import {
   TimelineDateRange,
 } from "./types";
 import { PopulatedWorkItem, PopulatedSprint, WorkItemType, WorkItemStatus, WorkItemPriority } from "../sprints/types";
-import { differenceInDays, addDays, startOfDay, endOfDay, parseISO, format } from "date-fns";
+import { differenceInDays, addDays, startOfDay, endOfDay, parseISO, format, isValid } from "date-fns";
+
+function estimatedDurationDays(item: { estimatedHours?: number }): number {
+  return item.estimatedHours ? Math.max(1, Math.ceil(item.estimatedHours / 8)) : 7;
+}
+
+function formatDay(date: Date): string {
+  return format(date, "yyyy-MM-dd");
+}
+
+function parseValidDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const parsed = parseISO(value);
+  return isValid(parsed) ? parsed : null;
+}
 
 /**
  * Calculate progress percentage for a work item based on its children
@@ -24,6 +38,49 @@ export function calculateProgress(item: PopulatedWorkItem): number {
   return Math.round((completedChildren / totalChildren) * 100);
 }
 
+export type TimelineScheduleContext = {
+  workItems?: PopulatedWorkItem[];
+  sprints?: PopulatedSprint[];
+};
+
+function sprintHasDates(
+  sprint?: { startDate?: string; endDate?: string } | null
+): sprint is { startDate: string; endDate: string } {
+  return Boolean(sprint?.startDate && sprint?.endDate);
+}
+
+/**
+ * Unscheduled epics inherit the span of sprints that contain their child work.
+ * Never uses Date.now() — that made bars slide forward every day.
+ */
+export function deriveEpicScheduleFromSprints(
+  epicId: string,
+  workItems: PopulatedWorkItem[],
+  sprints: PopulatedSprint[]
+): { startDate: string; endDate: string } | null {
+  const sprintById = new Map(sprints.map((sprint) => [sprint.$id, sprint]));
+  let min: Date | null = null;
+  let max: Date | null = null;
+
+  for (const child of workItems) {
+    if (child.epicId !== epicId || child.type === WorkItemType.EPIC) continue;
+
+    const childSprint = child.sprintId ? sprintById.get(child.sprintId) : undefined;
+    const start = sprintHasDates(childSprint)
+      ? parseValidDate(childSprint.startDate)
+      : parseValidDate(child.startDate);
+    const end = sprintHasDates(childSprint)
+      ? parseValidDate(childSprint.endDate)
+      : parseValidDate(child.dueDate);
+
+    if (start && (!min || start < min)) min = start;
+    if (end && (!max || end > max)) max = end;
+  }
+
+  if (!min || !max) return null;
+  return { startDate: formatDay(min), endDate: formatDay(max) };
+}
+
 /**
  * Convert PopulatedWorkItem to TimelineItem with calculated fields
  */
@@ -31,43 +88,50 @@ export function workItemToTimelineItem(
   item: PopulatedWorkItem,
   level: number = 0,
   expandedItems: Set<string> = new Set(),
-  sprint?: { startDate?: string; endDate?: string } | null
+  sprint?: { startDate?: string; endDate?: string } | null,
+  context?: TimelineScheduleContext
 ): TimelineItem {
   const progress = calculateProgress(item);
   const isExpanded = expandedItems.has(item.$id);
 
-  // Use work item's own startDate/dueDate if available
-  // Fall back to sprint dates or calculated defaults only if not set
+  const sprintDates =
+    sprint ??
+    (item.sprintId && context?.sprints
+      ? context.sprints.find((candidate) => candidate.$id === item.sprintId)
+      : null);
+
   let startDate: string | undefined;
   let dueDate: string | undefined;
+  let hasExplicitDates = false;
 
   if (item.startDate && item.dueDate) {
-    // Work item has both start and due dates - use them directly
     startDate = item.startDate;
     dueDate = item.dueDate;
-  } else if (item.startDate && !item.dueDate) {
-    // Has start date but no due date - calculate due date
-    const start = parseISO(item.startDate);
-    const estimatedDays = item.estimatedHours ? Math.max(1, Math.ceil(item.estimatedHours / 8)) : 7;
-    startDate = item.startDate;
-    dueDate = format(addDays(start, estimatedDays), "yyyy-MM-dd");
-  } else if (item.dueDate && !item.startDate) {
-    // Has due date but no start date - calculate start date
-    const due = parseISO(item.dueDate);
-    const estimatedDays = item.estimatedHours ? Math.max(1, Math.ceil(item.estimatedHours / 8)) : 7;
-    startDate = format(addDays(due, -estimatedDays), "yyyy-MM-dd");
-    dueDate = item.dueDate;
-  } else if (sprint?.startDate && sprint?.endDate) {
-    // No dates on item but item is in a sprint - use sprint dates
-    startDate = sprint.startDate;
-    dueDate = sprint.endDate;
+    hasExplicitDates = true;
+  } else if (sprintHasDates(sprintDates)) {
+    // Sprint deadlines win over a lone dueDate so bars follow the board, not stale estimates.
+    startDate = sprintDates.startDate;
+    dueDate = sprintDates.endDate;
   } else {
-    // No dates and no sprint - use current date + 7 days as default
-    const now = new Date();
-    const defaultDue = addDays(now, 7);
-    const defaultStart = now;
-    startDate = format(defaultStart, "yyyy-MM-dd");
-    dueDate = format(defaultDue, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+    const derived =
+      item.type === WorkItemType.EPIC && context?.workItems && context?.sprints
+        ? deriveEpicScheduleFromSprints(item.$id, context.workItems, context.sprints)
+        : null;
+
+    if (derived) {
+      startDate = derived.startDate;
+      dueDate = derived.endDate;
+    } else if (item.startDate && !item.dueDate) {
+      const start = parseValidDate(item.startDate);
+      startDate = item.startDate;
+      dueDate = start ? formatDay(addDays(start, estimatedDurationDays(item))) : undefined;
+      hasExplicitDates = Boolean(dueDate);
+    } else if (item.dueDate && !item.startDate) {
+      const due = parseValidDate(item.dueDate);
+      startDate = due ? formatDay(addDays(due, -estimatedDurationDays(item))) : undefined;
+      dueDate = item.dueDate;
+      hasExplicitDates = Boolean(startDate);
+    }
   }
 
   return {
@@ -81,6 +145,7 @@ export function workItemToTimelineItem(
     assignees: item.assignees,
     startDate,
     dueDate,
+    hasExplicitDates,
     estimatedHours: item.estimatedHours,
     labels: item.labels,
     description: item.description,
@@ -88,7 +153,12 @@ export function workItemToTimelineItem(
     sprintId: item.sprintId,
     epicId: item.epicId,
     parentId: item.parentId,
-    children: isExpanded && item.children ? item.children.map((child) => workItemToTimelineItem(child, level + 1, expandedItems, sprint)) : undefined,
+    children:
+      isExpanded && item.children
+        ? item.children.map((child) =>
+            workItemToTimelineItem(child, level + 1, expandedItems, sprint, context)
+          )
+        : undefined,
     childrenCount: item.childrenCount || 0,
     isExpanded,
     level,
@@ -106,6 +176,7 @@ export function groupItemsBySprintAndEpic(
   // First, separate items into scheduled (in sprints) and unscheduled (no sprint)
   const itemsWithoutSprint = workItems.filter((item) => !item.sprintId);
   const itemsWithSprint = workItems.filter((item) => item.sprintId);
+  const scheduleContext: TimelineScheduleContext = { workItems, sprints };
 
   const groups: TimelineSprintGroup[] = [];
 
@@ -120,8 +191,10 @@ export function groupItemsBySprintAndEpic(
       const epicTasks = itemsWithoutSprint.filter((item) => item.epicId === epic.$id);
       
       return {
-        epic: workItemToTimelineItem(epic, 1, expandedItems),
-        tasks: epicTasks.map((task) => workItemToTimelineItem(task, 2, expandedItems)),
+        epic: workItemToTimelineItem(epic, 1, expandedItems, null, scheduleContext),
+        tasks: epicTasks.map((task) =>
+          workItemToTimelineItem(task, 2, expandedItems, null, scheduleContext)
+        ),
         isExpanded: expandedItems.has(epic.$id),
       };
     });
@@ -146,7 +219,9 @@ export function groupItemsBySprintAndEpic(
           level: 1,
           isExpanded: expandedItems.has('no-epic-unscheduled'),
         } as TimelineItem,
-        tasks: standaloneTasks.map((task) => workItemToTimelineItem(task, 2, expandedItems)),
+        tasks: standaloneTasks.map((task) =>
+          workItemToTimelineItem(task, 2, expandedItems, null, scheduleContext)
+        ),
         isExpanded: expandedItems.has('no-epic-unscheduled'),
       });
     }
@@ -208,8 +283,10 @@ export function groupItemsBySprintAndEpic(
 
       if (epicInSprint) {
         epicGroups.push({
-          epic: workItemToTimelineItem(epicInSprint, 1, expandedItems, sprint),
-          tasks: tasks.map((task) => workItemToTimelineItem(task, 2, expandedItems, sprint)),
+          epic: workItemToTimelineItem(epicInSprint, 1, expandedItems, sprint, scheduleContext),
+          tasks: tasks.map((task) =>
+            workItemToTimelineItem(task, 2, expandedItems, sprint, scheduleContext)
+          ),
           isExpanded: expandedItems.has(epicId),
         });
         return;
@@ -236,7 +313,9 @@ export function groupItemsBySprintAndEpic(
           isExpanded: expandedItems.has(labelId) || expandedItems.has(epicId),
           isLabelOnly: true,
         } as TimelineItem,
-        tasks: tasks.map((task) => workItemToTimelineItem(task, 2, expandedItems, sprint)),
+        tasks: tasks.map((task) =>
+          workItemToTimelineItem(task, 2, expandedItems, sprint, scheduleContext)
+        ),
         isExpanded: expandedItems.has(labelId) || expandedItems.has(epicId),
       });
     });
@@ -245,7 +324,7 @@ export function groupItemsBySprintAndEpic(
     epicsInThisSprint.forEach((epic) => {
       if (!processedEpicIds.has(epic.$id)) {
         epicGroups.push({
-          epic: workItemToTimelineItem(epic, 1, expandedItems, sprint),
+          epic: workItemToTimelineItem(epic, 1, expandedItems, sprint, scheduleContext),
           tasks: [],
           isExpanded: expandedItems.has(epic.$id),
         });
@@ -268,7 +347,9 @@ export function groupItemsBySprintAndEpic(
           level: 1,
           isExpanded: expandedItems.has(`no-epic-${sprint.$id}`),
         } as TimelineItem,
-        tasks: tasksWithoutEpic.map((task) => workItemToTimelineItem(task, 2, expandedItems, sprint)),
+        tasks: tasksWithoutEpic.map((task) =>
+          workItemToTimelineItem(task, 2, expandedItems, sprint, scheduleContext)
+        ),
         isExpanded: expandedItems.has(`no-epic-${sprint.$id}`),
       });
     }

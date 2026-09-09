@@ -401,6 +401,7 @@ export type AgentToolEventType =
   | "save_personal_agent"
   | "ask_user"
   | "ask_user_resolved"
+  | "page_ui"
   | "mail_send"
   | "github_read_file"
   | "github_list_files"
@@ -571,7 +572,7 @@ export type AgentContextChip = {
   id: string;
   label: string;
   meta?: string;
-  /** Text body for attached markdown/code. Images omit this. */
+  /** Text body for attached markdown/code, or a data URL for pasted images. */
   content?: string;
 };
 

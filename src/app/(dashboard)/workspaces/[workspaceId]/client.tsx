@@ -18,6 +18,8 @@ import { useGetWorkspaceAnalytics } from "@/features/workspaces/api/use-get-work
 import { useGetWorkspace } from "@/features/workspaces/api/use-get-workspace"
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id"
 import { useCurrent } from "@/features/auth/api/use-current"
+import { useRegisterAgentPage } from "@/features/agent/components/agent-page-context"
+import { chromePageLayout } from "@/features/agent/lib/page-context"
 
 import { formatDistanceToNow, format } from "date-fns"
 import {
@@ -275,6 +277,44 @@ export const WorkspaceIdClient = () => {
         (p as Record<string, unknown>).status === ProgramStatus.PLANNING
     )
   }, [programs])
+
+  useRegisterAgentPage(() => {
+    const items = (workItems?.documents as PopulatedWorkItem[]) || []
+    const projectDocs = projects?.documents ?? []
+    return {
+      page: "Home",
+      heading: workspace?.name ? `${workspace.name} home` : "Home",
+      layout: chromePageLayout("Home", [
+        {
+          id: "stats",
+          position: "main",
+          label: "Workspace overview",
+          summary: `${projectDocs.length} projects, ${items.length} work items, ${members?.documents?.length ?? 0} members`,
+        },
+      ]),
+      entities: [
+        ...projectDocs.slice(0, 12).map((project) => ({
+          kind: "project",
+          id: project.$id,
+          title: project.name,
+          location: "projects",
+        })),
+        ...items.slice(0, 12).map((item) => ({
+          kind: "work_item",
+          id: item.$id,
+          key: item.key,
+          title: item.title,
+          status: String(item.status),
+          location: item.project?.name || "workspace",
+        })),
+      ],
+      ui: {
+        taskCount: analytics?.taskCount ?? 0,
+        completed: analytics?.completedTaskCount ?? 0,
+      },
+      actions: ["navigate"],
+    }
+  })
 
   // Handle error state
   if (!isLoadingAnalytics && !analytics) {

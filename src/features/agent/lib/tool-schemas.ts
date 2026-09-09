@@ -543,6 +543,41 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
       required: ["question", "options"],
     },
   },
+  page_ui: {
+    description:
+      "Change the Fairlx page the user is looking at. Use for view chrome only: switch task-view tab, timeline zoom, filters, select/expand a row, or navigate in-app. Do not use this to create or update work items — call fairlx_work_item_* / fairlx_sprint_* for data changes. The open screen applies the action immediately.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["set_view", "set_zoom", "set_filters", "reset_filters", "select_item", "expand", "collapse", "navigate"],
+        },
+        view: {
+          type: "string",
+          description: "For set_view: dashboard, table, kanban, calendar, timeline, backlog, or issues.",
+        },
+        zoom: {
+          type: "string",
+          description: "For set_zoom: days, weeks, months, or quarters.",
+        },
+        filters: {
+          type: "object",
+          description: "For set_filters: status, type, search, epicId, sprintId, label, assigneeId.",
+          additionalProperties: { type: ["string", "null"] },
+        },
+        itemId: {
+          type: "string",
+          description: "Work item key (AGEN-7), document id, or sprint id for select_item / expand / collapse.",
+        },
+        path: {
+          type: "string",
+          description: "In-app path for navigate, such as /workspaces/{workspaceId}/timeline.",
+        },
+      },
+      required: ["action"],
+    },
+  },
   save_personal_agent: {
     description:
       "Save the trained Personal Agent standing prompt from this interview. Call only after covering the agenda. Include every question and answer plus a detailed compiledPrompt.",

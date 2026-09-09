@@ -72,6 +72,8 @@ import { EditProgramModal } from "@/features/programs/components/edit-program-mo
 import { ProgramStatus, ProgramPriority } from "@/features/programs/types";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
+import { useRegisterAgentPage } from "@/features/agent/components/agent-page-context";
+import { chromePageLayout } from "@/features/agent/lib/page-context";
 import { cn } from "@/lib/utils";
 
 /* ─── Config ──────────────────────────────────────────────────────── */
@@ -165,6 +167,40 @@ export const ProgramsClient = () => {
     const ok = await confirmDelete();
     if (ok) deleteProgram({ param: { programId: id } });
   };
+
+  useRegisterAgentPage(() => ({
+    page: "Programs",
+    layout: chromePageLayout("Programs", [
+      {
+        id: "list",
+        position: "main",
+        label: view === "grid" ? "Program cards" : "Program list",
+        summary: `${filtered.length} shown of ${programs?.documents?.length ?? 0}. Filter: ${statusFilter}`,
+      },
+    ]),
+    entities: filtered.slice(0, 24).map((program) => ({
+      kind: "program",
+      id: program.$id,
+      title: program.name,
+      status: String(program.status),
+      location: view,
+    })),
+    ui: { view, statusFilter, search },
+    actions: ["set_filters", "reset_filters", "navigate"],
+  }), (action) => {
+    if (action.action === "reset_filters") {
+      setSearch("");
+      setStatusFilter("all");
+      return true;
+    }
+    if (action.action === "set_filters" && action.filters) {
+      if (action.filters.search !== undefined) setSearch(action.filters.search || "");
+      if (action.filters.status !== undefined) setStatusFilter(action.filters.status || "all");
+      if (action.filters.view === "grid" || action.filters.view === "list") setView(action.filters.view);
+      return true;
+    }
+    return undefined;
+  });
 
   return (
     <div className="h-full flex flex-col">

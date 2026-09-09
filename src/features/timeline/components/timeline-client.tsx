@@ -18,12 +18,17 @@ import {
 import {
   TimelineGridConfig,
   TimelineItem,
+  TimelineFilters,
   ZOOM_CONFIGS,
   TimelineSprintGroup,
+  TimelineZoomLevel,
 } from "@/features/timeline/types";
 import { PopulatedWorkItem, PopulatedSprint } from "@/features/sprints/types";
 import { CreateEpicDialog } from "@/features/sprints/components/create-epic-dialog";
 import { useGetGitHubReleases } from "@/features/github-integration/api/use-github";
+import { useRegisterAgentPage } from "@/features/agent/components/agent-page-context";
+import { chromePageLayout, type PageSnapshotEntity } from "@/features/agent/lib/page-context";
+import { normalizeZoom, type ParsedPageUiAction } from "@/features/agent/lib/page-ui-action";
 
 interface TimelineClientProps {
   initialData: {
@@ -210,6 +215,150 @@ export function TimelineClient({
       });
     },
     [updateItem]
+  );
+
+  useRegisterAgentPage(
+    () => {
+      const entities: PageSnapshotEntity[] = [];
+      const treeParts: string[] = [];
+      const barKeys: string[] = [];
+      for (const group of sprintGroups) {
+        const sprintName = group.sprint.name;
+        const expanded = expandedItems.has(group.sprint.$id);
+        treeParts.push(`${sprintName} (${group.sprint.status}${expanded ? ", expanded" : ", collapsed"})`);
+        if (!expanded) {
+          entities.push({
+            kind: "sprint",
+            id: group.sprint.$id,
+            title: sprintName,
+            status: String(group.sprint.status),
+            location: "work tree (collapsed)",
+          });
+          continue;
+        }
+        for (const epicGroup of group.epics) {
+          const epic = epicGroup.epic;
+          const epicExpanded = expandedItems.has(epic.id);
+          if (epic.key) {
+            entities.push({
+              kind: epic.isLabelOnly ? "epic-label" : "epic",
+              id: epic.id,
+              key: epic.key,
+              title: epic.title,
+              status: String(epic.status),
+              location: `${sprintName} · work tree`,
+            });
+          }
+          if (!epicExpanded && epicGroup.tasks.length) {
+            entities.push({
+              kind: "note",
+              id: `${epic.id}-collapsed`,
+              title: `${epicGroup.tasks.length} tasks under ${epic.key || epic.title}`,
+              location: `${sprintName} · collapsed`,
+            });
+            continue;
+          }
+          for (const task of epicGroup.tasks) {
+            const hasBar = Boolean(task.startDate || task.dueDate);
+            if (hasBar && task.key) barKeys.push(task.key);
+            entities.push({
+              kind: "work_item",
+              id: task.id,
+              key: task.key,
+              title: task.title,
+              status: String(task.status),
+              location: `${sprintName} / ${epic.key || epic.title}`,
+              extra: hasBar
+                ? `bar ${task.startDate?.slice(0, 10) || "?"}–${task.dueDate?.slice(0, 10) || "?"}`
+                : "no bar",
+            });
+          }
+        }
+      }
+      const selected = selectedItem
+        ? `${selectedItem.key || selectedItem.id} ${selectedItem.title}`
+        : "none";
+      return {
+        page: projectId ? "Project timeline" : "Timeline",
+        layout: chromePageLayout(projectId ? "Project timeline" : "Timeline", [
+          { id: "tree", position: "main-left", label: "Sprint / epic tree", summary: treeParts.join("; ") || "empty" },
+          {
+            id: "grid",
+            position: "main-right",
+            label: "Gantt",
+            summary: `zoom ${zoomLevel}. Bars: ${barKeys.slice(0, 12).join(", ") || "none"}`,
+          },
+          ...(selectedItem
+            ? [{ id: "details", position: "details" as const, label: "Details panel", summary: selected }]
+            : []),
+        ]),
+        entities,
+        ui: {
+          zoom: zoomLevel,
+          selected: selectedItem?.key || selectedItemId || "",
+          epicId: filters.epicId || "",
+          type: filters.type || "ALL",
+          status: filters.status || "ALL",
+          label: filters.label || "",
+          search: filters.search || "",
+        },
+        actions: ["set_zoom", "set_filters", "reset_filters", "select_item", "expand", "collapse", "navigate"],
+      };
+    },
+    (action: ParsedPageUiAction) => {
+      if (action.action === "set_zoom") {
+        const zoom = normalizeZoom(action.zoom);
+        if (zoom === "TODAY" || zoom === "WEEKS" || zoom === "MONTHS" || zoom === "QUARTERS") {
+          setZoomLevel(zoom as TimelineZoomLevel);
+          return true;
+        }
+        return { ok: false as const, error: "Unknown zoom." };
+      }
+      if (action.action === "reset_filters") {
+        resetFilters();
+        return true;
+      }
+      if (action.action === "set_filters" && action.filters) {
+        const next: Partial<typeof filters> = {};
+        if (action.filters.search !== undefined) next.search = action.filters.search || "";
+        if (action.filters.status !== undefined) {
+          next.status = (action.filters.status as TimelineFilters["status"]) || "ALL";
+        }
+        if (action.filters.type !== undefined) {
+          next.type = (action.filters.type as TimelineFilters["type"]) || "ALL";
+        }
+        if (action.filters.label !== undefined) next.label = action.filters.label || null;
+        if (action.filters.epicId !== undefined) next.epicId = action.filters.epicId || null;
+        if (action.filters.sprintId !== undefined) next.sprintId = action.filters.sprintId || null;
+        setFilters(next);
+        return true;
+      }
+      if (action.action === "select_item" && action.itemId) {
+        const needle = action.itemId.toLowerCase();
+        const match =
+          flatItems.find((item) => item.id === action.itemId || item.key.toLowerCase() === needle) ||
+          null;
+        if (!match) return { ok: false as const, error: `No item ${action.itemId} on this timeline.` };
+        setSelectedItemId(match.id);
+        return true;
+      }
+      if ((action.action === "expand" || action.action === "collapse") && action.itemId) {
+        const needle = action.itemId.toLowerCase();
+        const sprint = sprints.find(
+          (item) => item.$id === action.itemId || item.name.toLowerCase() === needle,
+        );
+        const targetId =
+          sprint?.$id ||
+          (needle === "unscheduled" ? "unscheduled" : undefined) ||
+          flatItems.find((item) => item.id === action.itemId || item.key.toLowerCase() === needle)?.id;
+        if (!targetId) return { ok: false as const, error: `Nothing named ${action.itemId} to ${action.action}.` };
+        const isOpen = expandedItems.has(targetId);
+        if (action.action === "expand" && !isOpen) toggleExpanded(targetId);
+        if (action.action === "collapse" && isOpen) toggleExpanded(targetId);
+        return true;
+      }
+      return undefined;
+    },
   );
 
   return (

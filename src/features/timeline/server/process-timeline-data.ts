@@ -57,8 +57,11 @@ export function processTimelineData(
   const expandedSet = new Set(expandedItems);
 
   // Convert work items to timeline items
-  const allTimelineItems: TimelineItem[] = data.workItems.documents.map(
-    (item) => workItemToTimelineItem(item, 0, expandedSet)
+  const allTimelineItems: TimelineItem[] = data.workItems.documents.map((item) =>
+    workItemToTimelineItem(item, 0, expandedSet, null, {
+      workItems: data.workItems.documents,
+      sprints: data.sprints.documents,
+    })
   );
 
   // Group by sprints and epics

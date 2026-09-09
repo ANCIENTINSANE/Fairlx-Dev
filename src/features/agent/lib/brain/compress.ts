@@ -1,4 +1,6 @@
 import type { AgentChatMessage } from "../../types";
+import { keepLatestImages } from "../attach-images";
+import { keepLatestPageContext } from "../page-context";
 import { compactJsonString, unwrapMcpToolContent } from "../truncate";
 
 export const COMPRESS_KEEP_RECENT = 8;
@@ -182,7 +184,7 @@ export function fitMessagesForModel(
   maxInputTokens?: number,
   budgetRatio = CONTEXT_BUDGET_RATIO,
 ): AgentChatMessage[] {
-  let next = compressMessages(collapsePriorTurns(messages));
+  let next = keepLatestImages(keepLatestPageContext(compressMessages(collapsePriorTurns(messages))));
   next = repairToolPairing(next);
   next = keepUsersAndTail(next, MODEL_HISTORY);
 

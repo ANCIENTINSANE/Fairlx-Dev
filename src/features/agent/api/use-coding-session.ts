@@ -4,15 +4,29 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "@/lib/rpc";
 import { QUERY_CONFIG } from "@/lib/query-config";
 import { AGENT_CODING_SESSIONS_QUERY_KEY } from "../constants";
+import type { CodingSessionStatus } from "../types";
 import { agentRunQueryKey } from "./use-agent-runs";
 
-export function useGetCodingSession(params: { runId?: string; workItemId?: string; projectId?: string }) {
+const IDLE_CODING_SESSION: CodingSessionStatus[] = ["merged", "failed", "stopped"];
+
+export function codingSessionPollMs(status?: CodingSessionStatus, runLive = false): number | false {
+  if (status && !IDLE_CODING_SESSION.includes(status)) return 2500;
+  if (runLive) return 2500;
+  return false;
+}
+
+export function useGetCodingSession(params: {
+  runId?: string;
+  workItemId?: string;
+  projectId?: string;
+  runLive?: boolean;
+}) {
   const enabled = Boolean(params.runId || params.workItemId || params.projectId);
   return useQuery({
-    queryKey: [...AGENT_CODING_SESSIONS_QUERY_KEY, params],
+    queryKey: [...AGENT_CODING_SESSIONS_QUERY_KEY, params.runId, params.workItemId, params.projectId],
     enabled,
     staleTime: QUERY_CONFIG.REALTIME.staleTime,
-    refetchInterval: 2500,
+    refetchInterval: (query) => codingSessionPollMs(query.state.data?.session?.status, params.runLive),
     queryFn: async () => {
       const response = await client.api.agent["coding-sessions"].$get({
         query: {

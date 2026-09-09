@@ -328,7 +328,7 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   {
     name: "fairlx_work_item_update",
     description:
-      "Update a work item. workItemId may be the document id or the item key (SCHO-1). Never pass a project or workspace id. assigneeIds may be names or emails; they are stored as workspace membership ids so Kanban and backlog show the person, not Unassigned. Status changes are validated against the project workflow. Pass epicId (epic key or title) to parent the item under an epic.",
+      "Update a work item. workItemId may be the document id or the item key (SCHO-1). Never pass a project or workspace id. assigneeIds may be names or emails; they are stored as workspace membership ids so Kanban and backlog show the person, not Unassigned. Status changes are validated against the project workflow. Pass epicId (epic key or title) to parent the item under an epic. Pass startDate and dueDate as ISO dates to move the timeline bar.",
     inputSchema: {
       type: "object",
       properties: {
@@ -348,6 +348,10 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
         },
         storyPoints: { type: "number" },
         dueDate: { type: "string", description: "ISO date or datetime for the work item deadline" },
+        startDate: {
+          type: "string",
+          description: "ISO date or datetime for the work item start (timeline bar). Pass empty to clear.",
+        },
         epicId: {
           type: "string",
           description: "Parent epic key (SCHO-1) or title. Pass none to clear.",

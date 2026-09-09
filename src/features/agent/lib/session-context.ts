@@ -1,5 +1,7 @@
 import type { AgentContextChip, AgentSessionMode } from "../types";
+import { formatAttachedImages, imageMimeFromDataUrl, stripAttachedImages } from "./attach-images";
 import { formatAttachedFiles, stripAttachedFiles } from "./attachments";
+import { attachPageContext, stripPageContext } from "./page-context";
 
 export const AGENT_SESSION_MODE_IDS = [
   "agent",
@@ -70,7 +72,12 @@ export function runModeForSession(session: AgentSessionMode): "agent" | "manual"
   return session === "ask" ? "manual" : "agent";
 }
 
-export function composeUserPrompt(text: string, chips: AgentContextChip[], sessionMode: AgentSessionMode) {
+export function composeUserPrompt(
+  text: string,
+  chips: AgentContextChip[],
+  sessionMode: AgentSessionMode,
+  pageContext?: string | null,
+) {
   const parts: string[] = [];
   if (sessionMode !== "agent") {
     const modeLabel = isPersonalSessionMode(sessionMode) ? "personal" : sessionMode;
@@ -83,11 +90,19 @@ export function composeUserPrompt(text: string, chips: AgentContextChip[], sessi
     }
   }
   const files = chips
-    .filter((chip) => chip.content?.trim())
+    .filter((chip) => chip.kind !== "image" && chip.content?.trim())
     .map((chip) => ({ name: chip.label, body: chip.content!.trim() }));
   if (files.length) parts.push(formatAttachedFiles(files));
+  const images = chips
+    .filter((chip) => chip.kind === "image" && chip.content?.startsWith("data:image/"))
+    .map((chip) => ({
+      name: chip.label,
+      mime: imageMimeFromDataUrl(chip.content!),
+      dataUrl: chip.content!.trim(),
+    }));
+  if (images.length) parts.push(formatAttachedImages(images));
   parts.push(text.trim());
-  return parts.filter(Boolean).join("\n");
+  return attachPageContext(parts.filter(Boolean).join("\n"), pageContext);
 }
 
 export const TRAIN_PERSONAL_MARKER = "[Train personal agent]";
@@ -109,7 +124,7 @@ export function trainingSaveReady(messages: Array<{ role: string; content: strin
 }
 
 export function displayUserContent(content: string) {
-  const stripped = stripAttachedFiles(content);
+  const stripped = stripAttachedImages(stripPageContext(stripAttachedFiles(content)));
   const lines = stripped.split("\n");
   let i = 0;
   if (lines[0]?.startsWith(TRAIN_PERSONAL_MARKER)) {
@@ -125,7 +140,10 @@ export function displayUserContent(content: string) {
     i += 1;
     while (i < lines.length && lines[i]?.startsWith("- ")) i += 1;
   }
-  return lines.slice(i).join("\n").trim() || stripped || content;
+  const shown = lines.slice(i).join("\n").trim();
+  if (shown) return shown;
+  if (isTrainingKickoffContent(content)) return TRAIN_PERSONAL_MARKER;
+  return "";
 }
 
 export function chipKey(chip: AgentContextChip) {
