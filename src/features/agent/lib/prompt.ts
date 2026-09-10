@@ -16,7 +16,7 @@ import {
   isTrainingRun,
   suggestedPersonaRole,
 } from "./personal-training";
-import { SYSTEM_PROMPT_RULE_LINES } from "./prompt-budget";
+import { SYSTEM_PROMPT_RULE_LINES, signedInUserPromptLine } from "./prompt-budget";
 import { formatDeleteIntentContext } from "./write-guard";
 import { implementationPlanMarkdown, planIsAccepted, resolveRunImplementationPlan } from "./implementation-plan";
 import { conversationWantsAzureSandbox, lastSandboxAccessFailure } from "./sandbox/azure";
@@ -104,6 +104,7 @@ export function buildSystemPrompt(params: {
     personal
       ? "You are the Fairlx Personal Agent, the user's Chief of Staff. Talk to the user in plain language."
       : "You are the Fairlx Agent. Talk to the user in plain language.",
+    signedInUserPromptLine(context.user),
     persona,
     `Mode: ${run.mode === "agent" ? "tools on" : "chat only"}.`,
     workspace

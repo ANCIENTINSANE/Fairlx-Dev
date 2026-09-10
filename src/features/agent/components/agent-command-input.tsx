@@ -36,7 +36,6 @@ import { AgentPermissionPicker } from "./agent-permission-picker";
 import { ModelPicker } from "./model-picker";
 import { McpBarButton } from "./mcp-servers-card";
 import { PersonalAgentSetup } from "./personal-agent-setup";
-import { AgentContextMeter } from "./agent-context-meter";
 
 /** Short descriptions shown under each suggestion card title. */
 const QUICK_ACTION_DESCRIPTIONS: Record<string, string> = {
@@ -181,11 +180,6 @@ export function AgentCommandInput({
     [context?.projects, activeWorkspaceId]
   );
   const hasProjects = context ? projectCount > 0 : true;
-  const activeProjectId = resolveAgentProjectId(selectedProjectId, [
-    run?.projectId,
-    projectId,
-    harness?.settings.defaultProjectId,
-  ]);
 
   const quickActions = useMemo(
     () => getQuickActions(hasProjects),
@@ -512,13 +506,6 @@ export function AgentCommandInput({
               </div>
 
               <div className="flex items-center gap-1.5">
-                <AgentContextMeter
-                  run={run}
-                  draftPrompt={prompt}
-                  chips={chips}
-                  workspaceId={activeWorkspaceId}
-                  projectId={activeProjectId}
-                />
                 <AgentPlusMenu
                   chips={chips}
                   onAdd={(chip) =>

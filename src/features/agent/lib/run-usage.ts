@@ -20,6 +20,7 @@ export function isLlmUsageEvent(event: AgentToolEvent): boolean {
 }
 
 export function looksLikeLlmUsageEvent(event: AgentToolEvent): boolean {
+  if (event.type === "context_meter") return false;
   if (isLlmUsageEvent(event)) return true;
   if (event.payload && typeof event.payload === "object" && "totalTokens" in event.payload) return true;
   return USAGE_TITLE_RE.test(event.title) && /cache|billed|byok/i.test(event.detail || event.title);

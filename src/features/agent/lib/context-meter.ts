@@ -15,7 +15,7 @@ import { AGENT_DEFINITIONS } from "./brain/definitions";
 import { fitMessagesForModel } from "./brain/compress";
 import { selectToolsForTurn } from "./brain/select";
 import { AGENT_SPECIALISTS } from "./graph";
-import { SYSTEM_PROMPT_RULE_LINES, splitSystemPromptBudget } from "./prompt-budget";
+import { SYSTEM_PROMPT_RULE_LINES, signedInUserPromptLine, splitSystemPromptBudget } from "./prompt-budget";
 import { isPersonalSessionMode, runModeForSession, SESSION_MODE_INSTRUCTIONS } from "./session-context";
 import { openaiToolsForTurn, type OpenAiTool } from "./tool-schemas";
 
@@ -411,6 +411,7 @@ function systemPromptForPreview(params: {
     personal
       ? "You are the Fairlx Personal Agent, the user's Chief of Staff. Talk to the user in plain language."
       : "You are the Fairlx Agent. Talk to the user in plain language.",
+    signedInUserPromptLine(context.user),
     workspace && project ? `${workspace.name} / ${project.name}` : workspace?.name || "",
     `Mode: ${params.mode === "agent" ? "tools on" : "chat only"}.`,
     workspace

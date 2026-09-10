@@ -119,6 +119,40 @@ export async function findByIdempotencyKey(
  * 
  * @returns Result indicating success/failure and reason
  */
+async function deductInstantUsage(params: {
+    databases: Databases;
+    eventId: string;
+    idempotencyKey: string;
+    resourceType: ResourceType;
+    units: number;
+    weightedUnits?: number;
+    metadata?: Record<string, unknown>;
+    billingEntityId: string;
+    billingEntityType?: "user" | "organization";
+}): Promise<void> {
+    let costUSD: number;
+    const metadataCostUSD = params.metadata?.costUSD;
+    if (typeof metadataCostUSD === "number" && metadataCostUSD > 0) {
+        costUSD = metadataCostUSD;
+    } else {
+        const { calculateEventCostUSD } = await import("@/lib/billing/pricing");
+        costUSD = calculateEventCostUSD(params.resourceType, params.units, params.weightedUnits);
+    }
+    if (costUSD <= 0) return;
+
+    const { getOrCreateWallet, deductFromWallet } = await import("@/features/wallet/services/wallet-service");
+    const wallet = await getOrCreateWallet(params.databases, {
+        userId: params.billingEntityType === "user" ? params.billingEntityId : undefined,
+        organizationId: params.billingEntityType === "organization" ? params.billingEntityId : undefined,
+    });
+    await deductFromWallet(params.databases, wallet.$id, costUSD, {
+        referenceId: params.eventId,
+        idempotencyKey: `deduct:${params.idempotencyKey}`,
+        description: `Instant Charge: ${params.resourceType.toUpperCase()}${params.metadata?.model ? ` (${params.metadata.model})` : ""}`,
+        skipRateLimit: true,
+    });
+}
+
 export async function writeUsageEvent(
     databases: Databases,
     params: WriteUsageEventParams
@@ -259,53 +293,31 @@ export async function writeUsageEvent(
             }
         );
 
-        // INSTANT DEDUCTION (Approved Requirement)
-        // WHY: Wallet balance should drop as soon as usage occurs.
-        // We defer this call to avoid blocking the main API response, but it runs
-        // immediately in the background execution context.
-        //
-        // AI events carry pre-calculated costUSD in metadata (model-aware pricing).
-        // Non-AI events continue using the flat-rate calculator.
+        // INSTANT DEDUCTION
+        // AI chat charges wait for the wallet write so billing survives refresh.
+        // Other sources stay background so they do not block the request.
         if (resolvedBillingEntityId) {
-            setImmediate(async () => {
-                try {
-                    let costUSD: number;
-
-                    // Check if metadata contains a pre-calculated costUSD (set by logAIUsage)
-                    const metadataCostUSD = params.metadata?.costUSD;
-                    if (typeof metadataCostUSD === "number" && metadataCostUSD > 0) {
-                        // AI events: use model-aware pricing from metadata
-                        costUSD = metadataCostUSD;
-                    } else {
-                        // Non-AI events: use flat-rate calculator
-                        const { calculateEventCostUSD } = await import("@/lib/billing/pricing");
-                        costUSD = calculateEventCostUSD(
-                            params.resourceType,
-                            params.units,
-                            params.weightedUnits
-                        );
-                    }
-
-                    if (costUSD > 0) {
-                        const { getOrCreateWallet, deductFromWallet } = await import("@/features/wallet/services/wallet-service");
-                        const wallet = await getOrCreateWallet(databases, {
-                            userId: resolvedBillingEntityType === "user" ? resolvedBillingEntityId : undefined,
-                            organizationId: resolvedBillingEntityType === "organization" ? resolvedBillingEntityId : undefined,
-                        });
-
-                        await deductFromWallet(databases, wallet.$id, costUSD, {
-                            referenceId: event.$id,
-                            idempotencyKey: `deduct:${params.idempotencyKey}`,
-                            description: `Instant Charge: ${params.resourceType.toUpperCase()}${params.metadata?.model ? ` (${params.metadata.model})` : ""}`,
-                            skipRateLimit: true,
-                        });
-                    }
-                } catch (err) {
+            const deduct = () =>
+                deductInstantUsage({
+                    databases,
+                    eventId: event.$id,
+                    idempotencyKey: params.idempotencyKey,
+                    resourceType: params.resourceType,
+                    units: params.units,
+                    weightedUnits: params.weightedUnits,
+                    metadata: params.metadata,
+                    billingEntityId: resolvedBillingEntityId,
+                    billingEntityType: resolvedBillingEntityType,
+                }).catch((err) => {
                     console.error("[UsageLedger] Instant deduction failed:", err);
-                    // Non-fatal: Daily aggregation cron will catch any missed deductions
-                    // to ensure eventual consistency if the instant deduction fails.
-                }
-            });
+                });
+            if (params.source === UsageSource.AI) {
+                await deduct();
+            } else {
+                setImmediate(() => {
+                    void deduct();
+                });
+            }
         }
 
         return {

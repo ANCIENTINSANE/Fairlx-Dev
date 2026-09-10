@@ -13,13 +13,11 @@ import type {
   AgentAiConfigStored,
   AgentCapability,
   AgentChatMessage,
-  AgentHarness,
   AgentPermissionType,
   AgentRun,
   AgentSpecialistId,
   AgentToolCall,
   AgentToolEvent,
-  McpConfig,
 } from "../types";
 import { buildAgentMcpAuth, mcpToolsForAuth } from "./agent-auth";
 import { loadAgentContext } from "./context";
@@ -59,7 +57,7 @@ import {
   toolsWhenContextIsTight,
 } from "./tool-loop";
 import { parseAskUserArgs } from "./ask-user";
-import { askUserTool, executeTool, failedToolResult, openaiToolsForTurn, trainingSaveTool, type OpenAiTool } from "./tools";
+import { askUserTool, executeTool, failedToolResult, openaiToolsForTurn, trainingSaveTool } from "./tools";
 import { compactJsonString } from "./truncate";
 import { getRun, listRuns, updateRun } from "./runs";
 import { getPersonalAgent } from "./personal-agent-store";
@@ -86,13 +84,7 @@ import { capSpecialistResult, CONTEXT_BUDGET_RATIO, estimatedFittedTokens, facts
 import { catalogForCapability, isGithubCapability, missingCapabilities } from "../plugins/catalog";
 import { claimQueuedJobs } from "./jobs";
 import { scheduleAgentJob } from "./schedule-job";
-import {
-  activeSubagents,
-  buildContextMeterPayload,
-  latestContextMeter,
-  takeHigherChatPeak,
-} from "./context-meter";
-import { buildAgentLlmUsageEvent, recordAgentChatUsage } from "./ai-usage-billing";
+import { captureAndRecordAgentChatUsage } from "./ai-usage-billing";
 import {
   MAX_PARALLEL_SUBAGENTS,
   chunkForParallel,
@@ -174,38 +166,6 @@ function attachSubagent(event: AgentToolEvent, subagentId: string, specialist: s
       specialist,
     },
   };
-}
-
-function withContextMeter(params: {
-  events: AgentToolEvent[];
-  runId: string;
-  system: string;
-  tools: OpenAiTool[];
-  messages: AgentChatMessage[];
-  harness: AgentHarness;
-  mcp: McpConfig;
-  maxInputTokens: number;
-}): AgentToolEvent[] {
-  const payload = buildContextMeterPayload({
-    system: params.system,
-    tools: params.tools,
-    messages: params.messages,
-    harness: params.harness,
-    mcp: params.mcp,
-    maxInputTokens: params.maxInputTokens,
-    subagents: activeSubagents(params.events).length,
-  });
-  return [
-    ...params.events.filter((event) => event.type !== "context_meter"),
-    {
-      id: crypto.randomUUID(),
-      type: "context_meter",
-      title: "Context",
-      payload,
-      createdAt: new Date().toISOString(),
-      runId: params.runId,
-    },
-  ];
 }
 
 function chatHost(url: string) {
@@ -640,8 +600,12 @@ export async function runAgentTurn(params: {
   const persistUnlessStopped = async (
     patch: Parameters<typeof updateRun>[2],
   ): Promise<AgentRun> => {
+    if (patch.events) {
+      const events = patch.events.filter((event) => event.type !== "context_meter");
+      patch = { ...patch, events };
+      snapshotEvents = events;
+    }
     if (patch.messages) snapshotMessages = patch.messages;
-    if (patch.events) snapshotEvents = patch.events;
     const latest = await getRun(databases, user.$id, run.id);
     const stopped = cancelledRuns.has(run.id) || latest?.status === "stopped";
     if (stopped) {
@@ -651,11 +615,6 @@ export async function runAgentTurn(params: {
         status: "stopped",
       });
     }
-    const meter = latestContextMeter(patch.events ?? run.events);
-    const contextPeak = takeHigherChatPeak(
-      takeHigherChatPeak(run.contextPeak, latest?.contextPeak),
-      meter?.breakdown,
-    );
     const plan = run.implementationPlan ?? latest?.implementationPlan;
     const extra = {
       kind:
@@ -666,14 +625,12 @@ export async function runAgentTurn(params: {
             : (run.kind ?? latest?.kind ?? "chat"),
       sessionId: run.sessionId || latest?.sessionId,
       ...(plan ? { implementationPlan: compactImplementationPlan(plan) } : {}),
-      contextPeak,
     };
     const updated = await updateRun(databases, run.id, { ...patch, extra });
     return {
       ...updated,
       messages: patch.messages ?? run.messages,
       events: patch.events ?? updated.events,
-      contextPeak,
       sessionId: run.sessionId || extra.sessionId || updated.sessionId,
       implementationPlan: run.implementationPlan ?? extra.implementationPlan ?? updated.implementationPlan,
       kind: extra.kind ?? updated.kind,
@@ -789,8 +746,7 @@ export async function runAgentTurn(params: {
       subagentId: extra?.subagentId,
       iteration: extra?.iteration,
     };
-    void recordAgentChatUsage(ctx);
-    return buildAgentLlmUsageEvent(ctx);
+    return captureAndRecordAgentChatUsage(ctx);
   };
 
   run = await persistUnlessStopped({
@@ -1820,22 +1776,6 @@ export async function runAgentTurn(params: {
           : tools;
       const writeNow = !training && tight && researched;
 
-      if (iteration === 0) {
-        run = await persistUnlessStopped({
-          events: withContextMeter({
-            events: run.events,
-            runId: run.id,
-            system,
-            tools: iterationTools,
-            messages: run.messages,
-            harness,
-            mcp,
-            maxInputTokens: target.maxInputTokens ?? 0,
-          }),
-        });
-        if (run.status === "stopped") return run;
-      }
-
       run = await persistUnlessStopped({
         events: appendEvents([...snapshotEvents], [
           thoughtEvent(
@@ -1956,28 +1896,10 @@ export async function runAgentTurn(params: {
         const askCall = allowedCalls.find((call) => call.name === "ask_user");
         if (askCall && !saveCall) {
           assistantMessage.toolCalls = [askCall];
-          const askedEvents = withContextMeter({
-            events: run.events,
-            runId: run.id,
-            system,
-            tools: iterationTools,
-            messages: nextMessages,
-            harness,
-            mcp,
-            maxInputTokens: target.maxInputTokens ?? 0,
-          });
+          const askedEvents = run.events;
           return pauseForQuestion(nextMessages, askedEvents, askCall);
         }
-        const nextEvents = withContextMeter({
-          events: run.events,
-          runId: run.id,
-          system,
-          tools: iterationTools,
-          messages: nextMessages,
-          harness,
-          mcp,
-          maxInputTokens: target.maxInputTokens ?? 0,
-        });
+        const nextEvents = run.events;
         const confirmNeeded = (call: AgentToolCall) => {
           if (planAccepted() && call.name === "coding_session_start") return false;
           return needsConfirmation(call, permissionType(), { autonomousCoding: autonomousCoding() });

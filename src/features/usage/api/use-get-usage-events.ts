@@ -40,5 +40,7 @@ export const useGetUsageEvents = (params: UseGetUsageEventsParams) => {
         },
         // Enable if either workspaceId or organizationId is provided
         enabled: !!(params.workspaceId || params.organizationId),
+        refetchOnWindowFocus: true,
+        refetchInterval: 8_000,
     });
 };

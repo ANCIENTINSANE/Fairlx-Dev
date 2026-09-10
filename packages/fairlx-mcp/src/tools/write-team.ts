@@ -140,6 +140,45 @@ function teamMemberRole(teamRole?: string): "lead" | "member" {
   return "member";
 }
 
+const DEFAULT_OWNER_PERMISSIONS = [
+  "project.view",
+  "project.tasks.view",
+  "project.sprints.view",
+  "project.docs.view",
+  "project.members.view",
+  "project.teams.view",
+  "project.board.view",
+  "project.reports.view",
+  "project.tasks.create",
+  "project.sprints.create",
+  "project.docs.create",
+  "project.teams.create",
+  "project.comments.create",
+  "project.roles.create",
+  "project.tasks.edit",
+  "project.sprints.edit",
+  "project.docs.edit",
+  "project.settings.edit",
+  "project.board.update",
+  "project.tasks.assign",
+  "project.tasks.delete",
+  "project.sprints.delete",
+  "project.docs.delete",
+  "project.delete",
+  "project.comments.delete",
+  "project.roles.delete",
+  "project.sprints.start",
+  "project.sprints.complete",
+  "project.members.manage",
+  "project.teams.manage",
+  "project.permissions.manage",
+  "project.settings.manage",
+  "project.members.invite",
+  "project.members.remove",
+];
+
+const DEFAULT_ADMIN_PERMISSIONS = DEFAULT_OWNER_PERMISSIONS.filter((key) => key !== "project.delete");
+
 const DEFAULT_MEMBER_PERMISSIONS = [
   "project.view",
   "project.tasks.view",
@@ -151,8 +190,59 @@ const DEFAULT_MEMBER_PERMISSIONS = [
   "project.tasks.edit",
 ];
 
+const DEFAULT_VIEWER_PERMISSIONS = [
+  "project.view",
+  "project.tasks.view",
+  "project.sprints.view",
+  "project.docs.view",
+  "project.members.view",
+  "project.teams.view",
+];
+
+const DEFAULT_PROJECT_ROLE_SEED = [
+  {
+    name: "OWNER",
+    description: "Full access to project settings, members, and resources.",
+    color: "#ef4444",
+    permissions: DEFAULT_OWNER_PERMISSIONS,
+  },
+  {
+    name: "ADMIN",
+    description: "Can manage tasks, sprints, and docs, but cannot delete the project.",
+    color: "#f97316",
+    permissions: DEFAULT_ADMIN_PERMISSIONS,
+  },
+  {
+    name: "MEMBER",
+    description: "Can create and edit tasks, but has limited administrative access.",
+    color: "#3b82f6",
+    permissions: DEFAULT_MEMBER_PERMISSIONS,
+  },
+  {
+    name: "VIEWER",
+    description: "Can view project resources but cannot make changes.",
+    color: "#6b7280",
+    permissions: DEFAULT_VIEWER_PERMISSIONS,
+  },
+] as const;
+
 function roleError(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
+}
+
+function wantedRoleNames(workspaceRole: string): string[] {
+  const key = workspaceRole.trim().toUpperCase();
+  if (key === "OWNER") return ["OWNER", "ADMIN", "MEMBER"];
+  if (isWorkspaceAdminRole(workspaceRole)) return ["ADMIN", "OWNER", "MEMBER"];
+  return ["MEMBER", "ADMIN"];
+}
+
+function projectRoleEnum(roleName: string): "PROJECT_OWNER" | "PROJECT_ADMIN" | "MEMBER" | "VIEWER" {
+  const name = canonicalRoleName(roleName);
+  if (name === "OWNER") return "PROJECT_OWNER";
+  if (name === "ADMIN") return "PROJECT_ADMIN";
+  if (name === "VIEWER") return "VIEWER";
+  return "MEMBER";
 }
 
 async function findProjectRole(
@@ -165,10 +255,7 @@ async function findProjectRole(
   const roles = await listAllDocuments(runtime, collection, [
     { type: "equal", field: "projectId", value: projectId },
   ]);
-  const wanted = isWorkspaceAdminRole(workspaceRole)
-    ? ["ADMIN", "OWNER", "MEMBER"]
-    : ["MEMBER", "ADMIN"];
-  for (const name of wanted) {
+  for (const name of wantedRoleNames(workspaceRole)) {
     const match = roles.find((role) => canonicalRoleName(String(role.name ?? "")) === name);
     if (match) return { id: String(match.$id ?? match.id ?? ""), name: String(match.name ?? name) };
   }
@@ -177,30 +264,36 @@ async function findProjectRole(
   return { id: String(fallback.$id ?? fallback.id ?? ""), name: String(fallback.name ?? "MEMBER") };
 }
 
-async function ensureDefaultMemberRole(
+async function ensureDefaultProjectRoles(
   runtime: McpRuntime,
   auth: AuthContext,
   projectId: string,
   workspaceId: string
-): Promise<{ id: string; name: string }> {
+): Promise<void> {
   const collection = runtime.collections.projectRoles;
   if (!collection) {
     throw invalidParams("This project has no role catalog, so the person cannot be added as a project member.");
   }
-  try {
-    const created = await runtime.store.create<Record<string, unknown>>(collection, {
-      workspaceId,
-      projectId,
-      name: "MEMBER",
-      description: "Can create and edit tasks, but has limited administrative access.",
-      permissions: DEFAULT_MEMBER_PERMISSIONS,
-      color: "#3b82f6",
-      isDefault: true,
-      createdBy: auth.actorUserId,
-    });
-    return { id: String(created.$id ?? created.id ?? ""), name: "MEMBER" };
-  } catch (error) {
-    throw invalidParams(`Could not create a project role: ${roleError(error)}`);
+  const existing = await listAllDocuments(runtime, collection, [
+    { type: "equal", field: "projectId", value: projectId },
+  ]);
+  const have = new Set(existing.map((role) => canonicalRoleName(String(role.name ?? ""))));
+  for (const seed of DEFAULT_PROJECT_ROLE_SEED) {
+    if (have.has(seed.name)) continue;
+    try {
+      await runtime.store.create<Record<string, unknown>>(collection, {
+        workspaceId,
+        projectId,
+        name: seed.name,
+        description: seed.description,
+        permissions: [...seed.permissions],
+        color: seed.color,
+        isDefault: true,
+        createdBy: auth.actorUserId,
+      });
+    } catch (error) {
+      throw invalidParams(`Could not create a project role: ${roleError(error)}`);
+    }
   }
 }
 
@@ -211,12 +304,13 @@ async function requireProjectRole(
   workspaceId: string,
   workspaceRole: string
 ): Promise<{ id: string; name: string }> {
+  await ensureDefaultProjectRoles(runtime, auth, projectId, workspaceId);
   const existing = await findProjectRole(runtime, projectId, workspaceRole);
   if (existing) return existing;
-  return ensureDefaultMemberRole(runtime, auth, projectId, workspaceId);
+  throw invalidParams("This project has no role catalog, so the person cannot be added as a project member.");
 }
 
-async function ensureProjectMember(
+export async function ensureProjectMember(
   runtime: McpRuntime,
   auth: AuthContext,
   projectId: string,
@@ -233,9 +327,9 @@ async function ensureProjectMember(
     { type: "limit", value: 1 },
   ]);
   const doc = existing.documents[0];
-  const role = isWorkspaceAdminRole(workspaceRole) ? "PROJECT_ADMIN" : "MEMBER";
+  const projectRole = await requireProjectRole(runtime, auth, projectId, workspaceId, workspaceRole);
+  const role = projectRoleEnum(projectRole.name);
   if (!doc) {
-    const projectRole = await requireProjectRole(runtime, auth, projectId, workspaceId, workspaceRole);
     try {
       await runtime.store.create(runtime.collections.projectMembers, {
         workspaceId,
@@ -258,7 +352,9 @@ async function ensureProjectMember(
   if (status === "REMOVED" || status === "INVITED") {
     await runtime.store.update(runtime.collections.projectMembers, String(doc.$id ?? doc.id ?? ""), {
       status: "ACTIVE",
-      role: String(doc.role || role),
+      role,
+      roleId: projectRole.id,
+      roleName: projectRole.name,
       removedAt: null,
       removedBy: null,
     });

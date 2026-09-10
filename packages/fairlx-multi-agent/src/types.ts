@@ -125,7 +125,9 @@ export type BriefingWorkItem = {
   blockedBy?: string[];
   flagged?: boolean;
   workspaceId?: string;
+  projectId?: string;
   createdAt?: string;
+  labels?: string[];
 };
 
 export type BriefingSprint = {
@@ -144,8 +146,12 @@ export type BriefingTopTask = {
   title: string;
   status?: string;
   priority?: string;
+  type?: string;
   workspaceId?: string;
+  projectId?: string;
   dueAt?: string;
+  labels?: string[];
+  flagged?: boolean;
 };
 
 export type DailyBriefing = {

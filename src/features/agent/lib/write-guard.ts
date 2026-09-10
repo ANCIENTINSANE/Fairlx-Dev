@@ -47,6 +47,7 @@ export function isWriteToolCall(call: AgentToolCall): boolean {
   if (HARNESS_WRITES.has(call.name)) return true;
   const mcpName = mcpToolNameFromCall(call) ?? (call.name.startsWith("fairlx_") ? call.name : "");
   if (!mcpName) return false;
+  if (HARNESS_WRITES.has(mcpName)) return true;
   return WRITE_NAME_RE.test(mcpName);
 }
 
@@ -342,7 +343,7 @@ export function confirmationSummary(call: AgentToolCall): string {
   if (/update|set|complete|start|sync/i.test(mcpName)) {
     return label ? `Update ${label}?` : `Apply ${action}?`;
   }
-  if (call.name === "github_link_repo") {
+  if (call.name === "github_link_repo" || mcpName === "github_link_repo") {
     const owner = String(nested.owner || "").trim();
     const repo = String(nested.repo || nested.repoId || label).trim();
     if (owner && repo && !repo.includes("/")) return `Attach ${owner}/${repo} to this project?`;

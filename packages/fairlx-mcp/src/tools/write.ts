@@ -4,6 +4,7 @@ import type { AuthContext } from "../auth/context";
 import { hasScope } from "../auth/scopes";
 import { PERMISSIONS, type McpRuntime } from "../runtime/types";
 import { parseAssignPercent, pickAssignShareKeys } from "../runtime/assign-share";
+import { resolveWorkItemStatus } from "./work-item-status";
 import {
   compactWorkItem,
   hydrateMembers,
@@ -45,6 +46,7 @@ import {
   projectTeamCreate,
   projectTeamMemberAdd,
   projectTeamUpdate,
+  ensureProjectMember,
 } from "./write-team";
 import { organizationUpdate, departmentCreate, departmentPermissionAdd } from "./organization";
 import {
@@ -237,6 +239,7 @@ async function workItemCreate(
       assigneeInput === undefined
         ? []
         : await resolveAssigneeIds(runtime, auth, { workspaceId, projectId }, assigneeInput);
+    await ensureAssigneesOnProject(runtime, auth, projectId, workspaceId, assigneeIds);
     const item = await runtime.store.create<Record<string, unknown>>(runtime.collections.workItems, {
       title,
       name: title,
@@ -332,6 +335,16 @@ async function resolveAssigneeIds(
   for (const entry of entries) {
     if (typeof entry !== "string" || !entry.trim()) continue;
     const value = entry.trim();
+    if (/^(me|myself|self|i|current user|signed[- ]in user)$/i.test(value)) {
+      const self = named.find((member) => member.id === auth.actorUserId);
+      if (!self?.membershipId) {
+        throw invalidParams(
+          "No workspace member matches the signed-in user. They must be in this workspace first.",
+        );
+      }
+      resolved.push(self.membershipId);
+      continue;
+    }
     if (workspaceId && value === workspaceId) {
       throw invalidParams(
         "assigneeIds must be a person (name, email, or user id), not the workspace id.",
@@ -375,6 +388,26 @@ async function resolveAssigneeIds(
     );
   }
   return [...new Set(resolved)];
+}
+
+async function ensureAssigneesOnProject(
+  runtime: McpRuntime,
+  auth: AuthContext,
+  projectId: string,
+  workspaceId: string,
+  membershipIds: string[]
+): Promise<void> {
+  if (!runtime.collections.projectMembers || !membershipIds.length) return;
+  const named = workspaceId ? await namedWorkspaceAssignees(runtime, workspaceId) : [];
+  for (const membershipId of membershipIds) {
+    const person = named.find((member) => member.membershipId === membershipId);
+    if (!person?.id) continue;
+    try {
+      await ensureProjectMember(runtime, auth, projectId, workspaceId, person.id, person.role);
+    } catch {
+      // Assignment still stores the workspace membership id; project membership is best-effort.
+    }
+  }
 }
 
 function isEpicType(value: unknown): boolean {
@@ -482,6 +515,41 @@ async function compactUpdatedWorkItem(
   return compactWorkItem(item, names, epic);
 }
 
+async function resolveStatusPatch(
+  runtime: McpRuntime,
+  auth: AuthContext,
+  item: Record<string, unknown>,
+  rawStatus: string,
+  memberRole?: string,
+): Promise<string> {
+  const projectId = String(item.projectId ?? "");
+  const project = await loadProject(runtime, auth, projectId);
+  const workflowId = String(project.workflowId ?? "");
+  let catalog: Array<{ key?: string; name?: string }> = [];
+  if (workflowId && runtime.collections.workflowStatuses) {
+    try {
+      catalog = await listAllDocuments(runtime, runtime.collections.workflowStatuses, [
+        { type: "equal", field: "workflowId", value: workflowId },
+      ]);
+    } catch {
+      catalog = [];
+    }
+  }
+  const toStatus = resolveWorkItemStatus(rawStatus, catalog);
+  const check = await runtime.validateStatusTransition({
+    workflowId,
+    fromStatus: String(item.status ?? "TODO"),
+    toStatus,
+    userId: auth.actorUserId,
+    projectId,
+    memberRole,
+  });
+  if (!check.allowed) {
+    throw invalidParams(check.message ?? check.reason ?? "Status transition not allowed");
+  }
+  return toStatus;
+}
+
 async function workItemUpdate(
   args: Record<string, unknown>,
   runtime: McpRuntime,
@@ -507,6 +575,13 @@ async function workItemUpdate(
   const assigneeInput = assigneeInputFromArgs(args);
   if (assigneeInput !== undefined) {
     patch.assigneeIds = await resolveAssigneeIds(runtime, auth, item, assigneeInput);
+    await ensureAssigneesOnProject(
+      runtime,
+      auth,
+      projectId,
+      String(item.workspaceId ?? ""),
+      patch.assigneeIds as string[],
+    );
   }
   if (args.storyPoints !== undefined) patch.storyPoints = args.storyPoints;
   if (args.dueDate !== undefined) patch.dueDate = args.dueDate ? String(args.dueDate) : null;
@@ -523,21 +598,7 @@ async function workItemUpdate(
     patch.labels = Array.isArray(args.labels) ? args.labels.map(String).filter(Boolean) : [];
   }
   if (args.status !== undefined) {
-    const toStatus = requireString(args, "status");
-    const fromStatus = String(item.status ?? "TODO");
-    const project = await loadProject(runtime, auth, projectId);
-    const check = await runtime.validateStatusTransition({
-      workflowId: String(project.workflowId ?? ""),
-      fromStatus,
-      toStatus,
-      userId: auth.actorUserId,
-      projectId,
-      memberRole: access.role,
-    });
-    if (!check.allowed) {
-      throw invalidParams(check.reason ?? "Status transition not allowed");
-    }
-    patch.status = toStatus;
+    patch.status = await resolveStatusPatch(runtime, auth, item, requireString(args, "status"), access.role);
   }
   const updated = await runtime.store.update<Record<string, unknown>>(
     runtime.collections.workItems,
@@ -762,11 +823,13 @@ async function workItemBulkUpdate(
   for (const id of ids) {
     if (typeof id !== "string") continue;
     const item = await loadWorkItem(runtime, auth, id);
-    await requireProjectAccess(runtime, auth, String(item.projectId), PERMISSIONS.EDIT_TASKS, [
+    const access = await requireProjectAccess(runtime, auth, String(item.projectId), PERMISSIONS.EDIT_TASKS, [
       "tasks:write",
     ]);
     const patch: Record<string, unknown> = {};
-    if (args.status !== undefined) patch.status = args.status;
+    if (args.status !== undefined) {
+      patch.status = await resolveStatusPatch(runtime, auth, item, String(args.status), access.role);
+    }
     if (!sprintUsedAsScope && explicitIds.length > 0 && args.sprintId !== undefined) {
       patch.sprintId = await resolveOptionalSprintId(runtime, String(item.projectId), args.sprintId);
     }
@@ -774,6 +837,13 @@ async function workItemBulkUpdate(
       patch.assigneeIds = [];
     } else if (assigneeInput !== undefined) {
       patch.assigneeIds = await resolveAssigneeIds(runtime, auth, item, assigneeInput);
+      await ensureAssigneesOnProject(
+        runtime,
+        auth,
+        String(item.projectId ?? ""),
+        String(item.workspaceId ?? ""),
+        patch.assigneeIds as string[],
+      );
     }
     if (args.priority !== undefined) patch.priority = args.priority;
     if (args.epicId !== undefined) {

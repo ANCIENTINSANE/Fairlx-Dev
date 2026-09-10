@@ -1,9 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Briefcase, Code, Folder, FolderPlus, FolderX, GitBranch, Plus, Check, ChevronDown } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useCreateProject } from "@/features/projects/api/use-create-project";
 import { cn } from "@/lib/utils";
@@ -44,11 +55,17 @@ export function AgentScopeBar({
   const patchRun = usePatchAgentRun();
   const createProject = useCreateProject();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [newName, setNewName] = useState("");
   const [overrideProjectId, setOverrideProjectId] = useState<string | null | undefined>(undefined);
+  const [pendingProject, setPendingProject] = useState<{
+    id?: string;
+    workspaceId?: string;
+    name: string;
+  } | null>(null);
 
   useEffect(() => {
     setOverrideProjectId(undefined);
@@ -118,7 +135,7 @@ export function AgentScopeBar({
     setSearch("");
   };
 
-  const selectProject = (id: string | undefined, nextWorkspaceId?: string) => {
+  const applyProjectChange = (id: string | undefined, nextWorkspaceId?: string) => {
     const targetWorkspaceId = nextWorkspaceId || workspaceId;
     setOverrideProjectId(id || null);
     updateHarness.mutate({
@@ -141,6 +158,42 @@ export function AgentScopeBar({
     onScopeChange?.(targetWorkspaceId || "", id);
     setProjectOpen(false);
     setSearch("");
+  };
+
+  const requestProjectChange = (id: string | undefined, nextWorkspaceId?: string, name?: string) => {
+    if ((id || "") === (projectId || "")) {
+      setProjectOpen(false);
+      setSearch("");
+      return;
+    }
+    if (run?.id) {
+      setPendingProject({
+        id,
+        workspaceId: nextWorkspaceId || workspaceId,
+        name: name || (id ? "a different project" : "No project"),
+      });
+      setProjectOpen(false);
+      setSearch("");
+      return;
+    }
+    applyProjectChange(id, nextWorkspaceId);
+  };
+
+  const confirmNewChatForProject = () => {
+    if (!pendingProject) return;
+    const nextId = pendingProject.id;
+    const targetWorkspaceId = pendingProject.workspaceId || workspaceId;
+    updateHarness.mutate({
+      json: {
+        settings: {
+          defaultWorkspaceId: targetWorkspaceId,
+          defaultProjectId: nextId || "",
+        },
+      },
+    });
+    onScopeChange?.(targetWorkspaceId || "", nextId);
+    setPendingProject(null);
+    router.push("/agent/dashboard");
   };
 
   return (
@@ -202,7 +255,7 @@ export function AgentScopeBar({
         {(!q || "no project".includes(q) || "none".includes(q)) ? (
           <button
             type="button"
-            onClick={() => selectProject(undefined, workspaceId)}
+            onClick={() => requestProjectChange(undefined, workspaceId, "No project")}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
           >
             <FolderX className="size-3.5 text-muted-foreground" />
@@ -215,7 +268,7 @@ export function AgentScopeBar({
           <button
             key={item.id}
             type="button"
-            onClick={() => selectProject(item.id, item.workspaceId)}
+            onClick={() => requestProjectChange(item.id, item.workspaceId, item.name)}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
           >
             <Folder className="size-3.5 text-muted-foreground" />
@@ -235,7 +288,7 @@ export function AgentScopeBar({
                 onSuccess: (result) => {
                   queryClient.invalidateQueries({ queryKey: AGENT_CONTEXT_QUERY_KEY });
                   const created = (result as { data?: { $id?: string } }).data;
-                  if (created?.$id) selectProject(created.$id, workspaceId);
+                  if (created?.$id) requestProjectChange(created.$id, workspaceId, newName.trim());
                   setNewName("");
                 },
               },
@@ -276,6 +329,22 @@ export function AgentScopeBar({
       <div className="flex items-center gap-1 shrink-0 ml-auto">
         <AgentWorkingDropUp run={run} />
       </div>
+
+      <AlertDialog open={pendingProject !== null} onOpenChange={(open) => !open && setPendingProject(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start a new chat?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Switching to {pendingProject?.name || "a different project"} starts a new chat session. This
+              conversation stays with the current project, and you can reopen it from Recent Runs anytime.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep this chat</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmNewChatForProject}>Start new chat</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

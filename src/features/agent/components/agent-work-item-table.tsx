@@ -11,11 +11,37 @@ import { PriorityBadge } from "@/features/tasks/components/priority-selector";
 import { WorkItemIcon } from "@/features/timeline/components/work-item-icon";
 
 import {
+  lookupWorkItem,
   mergeWorkItem,
   normalizeAssignees,
   type AgentWorkItem,
   type AgentWorkItemAssignee,
 } from "../lib/work-item-table";
+
+function InlineMarkdown({ text }: { text: string }) {
+  if (!text) return <>{"—"}</>;
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
+          return (
+            <code
+              key={`${part}-${index}`}
+              className="rounded bg-muted px-1 py-0.5 font-mono text-[12px] text-foreground"
+            >
+              {part.slice(1, -1)}
+            </code>
+          );
+        }
+        if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+          return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
+        }
+        return <span key={`${part}-${index}`}>{part}</span>;
+      })}
+    </>
+  );
+}
 
 export function AgentWorkItemTable({
   rows,
@@ -52,7 +78,7 @@ export function AgentWorkItemTable({
 
   const merged = rows.map((row) => {
     const key = String(row.key ?? "").toUpperCase();
-    const item = mergeWorkItem(row, key ? lookup?.get(key) : undefined);
+    const item = mergeWorkItem(row, lookupWorkItem(lookup, key));
     const assignees = normalizeAssignees(item.assignees).map((person) => {
       const match = memberByName.get(person.name.toLowerCase());
       return {
@@ -69,7 +95,7 @@ export function AgentWorkItemTable({
       <table className="w-full min-w-[720px] text-left text-[13px]">
         <thead>
           <tr className="border-b border-border bg-muted/40 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            <th className="px-3 py-2.5 font-medium">Key</th>
+            <th className="px-3 py-2.5 font-medium whitespace-nowrap">Key</th>
             <th className="px-3 py-2.5 font-medium">Title</th>
             <th className="px-3 py-2.5 font-medium">Status</th>
             <th className="px-3 py-2.5 font-medium">Priority</th>
@@ -83,17 +109,17 @@ export function AgentWorkItemTable({
             const customPriority = project?.customPriorities?.find((item) => item.key === row.priority);
             return (
               <tr key={`${row.key ?? row.title ?? index}`} className="border-t border-border/70 hover:bg-muted/30">
-                <td className="px-3 py-2.5 whitespace-nowrap">
+                <td className="px-3 py-2.5 whitespace-nowrap min-w-[7.5rem]">
                   <div className="flex items-center gap-2">
                     {row.type ? (
                       <WorkItemIcon type={row.type} className="size-4 shrink-0" project={project} />
                     ) : null}
-                    <span className="font-semibold tabular-nums text-foreground">{row.key || "—"}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-foreground">{row.key || "—"}</span>
                   </div>
                 </td>
                 <td className="px-3 py-2.5 max-w-[320px]">
                   <span className="line-clamp-2 font-medium text-foreground" title={row.title}>
-                    {row.title || "—"}
+                    <InlineMarkdown text={row.title || ""} />
                   </span>
                   {row.description ? (
                     <span className="block text-xs text-muted-foreground line-clamp-1 mt-0.5" title={row.description}>

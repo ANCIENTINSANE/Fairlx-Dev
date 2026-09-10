@@ -47,6 +47,8 @@ import { useGetAgentContext } from "../api/use-agent-context";
 import { useGetAgentHarness, useUpdateAgentHarness } from "../api/use-agent-harness";
 import { useGetAgentRuns, useDeleteAgentRun } from "../api/use-agent-runs";
 import { relativeTime } from "../lib/agent-ui";
+import { groupContainingRun, groupRunsByProject } from "../lib/run-groups";
+import type { AgentRun } from "../types";
 import { useAgentUi } from "./agent-ui-context";
 import { WalletBalanceChip, WalletBillingBanner } from "@/features/billing/components/wallet-billing-alerts";
 import { routes } from "@/lib/routes";
@@ -121,7 +123,7 @@ function RecentRunItem({
   onPinToggle,
   onDelete,
 }: {
-  run: { id: string; title: string; status: string; updatedAt: string };
+  run: { id: string; title: string; status: string; updatedAt: string; projectId?: string };
   active: boolean;
   pinned: boolean;
   onNavigate?: () => void;
@@ -219,7 +221,7 @@ function AgentSidebarNav({
 }: {
   pathname: string;
   hash: string;
-  runs: Array<{ id: string; title: string; status: string; updatedAt: string }> | undefined;
+  runs: AgentRun[] | undefined;
   activeRunId: string;
   openSearch: () => void;
   openRecentWork: () => void;
@@ -227,8 +229,14 @@ function AgentSidebarNav({
 }) {
   const router = useRouter();
   const { data: harness } = useGetAgentHarness();
+  const { data: context } = useGetAgentContext();
   const updateHarness = useUpdateAgentHarness();
   const deleteRun = useDeleteAgentRun();
+  const runGroups = useMemo(
+    () => groupRunsByProject(runs ?? [], context?.projects ?? []),
+    [context?.projects, runs],
+  );
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [DeleteDialog, confirmDelete] = useConfirm(
     "Delete Run",
     "Are you sure you want to delete this chat run? This action cannot be undone.",
@@ -288,6 +296,16 @@ function AgentSidebarNav({
       }
     });
   }, [pathname, hash]);
+
+  useEffect(() => {
+    const activeGroup = groupContainingRun(runGroups, activeRunId);
+    setExpandedProjects((prev) => {
+      const next = { ...prev };
+      if (activeGroup !== undefined) next[activeGroup] = true;
+      else if (runGroups[0] && Object.keys(prev).length === 0) next[runGroups[0].projectId] = true;
+      return next;
+    });
+  }, [activeRunId, runGroups]);
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -399,21 +417,52 @@ function AgentSidebarNav({
               All
             </button>
           </div>
-          {(runs ?? []).slice(0, 4).map((run) => {
-            const pinned = (harness?.chatMeta?.pinnedRunIds ?? []).includes(run.id);
+          {runGroups.map((group) => {
+            const expanded = !!expandedProjects[group.projectId];
             return (
-              <RecentRunItem
-                key={run.id}
-                run={run}
-                active={activeRunId === run.id}
-                pinned={pinned}
-                onNavigate={onNavigate}
-                onPinToggle={handlePinToggle}
-                onDelete={handleDeleteRun}
-              />
+              <div key={group.projectId || "none"} className="flex flex-col gap-0.5">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() =>
+                    setExpandedProjects((prev) => ({
+                      ...prev,
+                      [group.projectId]: !prev[group.projectId],
+                    }))
+                  }
+                  className="flex items-center gap-1.5 w-full pl-2.5 pr-2 py-1 rounded-md text-left text-[11px] font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-3 shrink-0 transition-transform duration-200",
+                      !expanded && "-rotate-90",
+                    )}
+                  />
+                  <FolderKanban className="size-3.5 shrink-0" />
+                  <span className="flex-1 truncate">{group.projectName}</span>
+                  <span className="text-[10px] text-sidebar-foreground/40 tabular-nums">{group.runs.length}</span>
+                </button>
+                {expanded
+                  ? group.runs.slice(0, 8).map((run) => {
+                      const pinned = (harness?.chatMeta?.pinnedRunIds ?? []).includes(run.id);
+                      return (
+                        <div key={run.id} className="pl-4">
+                          <RecentRunItem
+                            run={run}
+                            active={activeRunId === run.id}
+                            pinned={pinned}
+                            onNavigate={onNavigate}
+                            onPinToggle={handlePinToggle}
+                            onDelete={handleDeleteRun}
+                          />
+                        </div>
+                      );
+                    })
+                  : null}
+              </div>
             );
           })}
-          {(runs ?? []).length === 0 ? (
+          {runGroups.length === 0 ? (
             <p className="px-2.5 text-xs text-muted-foreground">No runs yet.</p>
           ) : null}
         </div>

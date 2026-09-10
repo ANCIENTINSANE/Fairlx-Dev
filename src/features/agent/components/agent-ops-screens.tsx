@@ -16,6 +16,7 @@ import {
   Search,
   Pin,
   GitMerge,
+  ChevronDown,
 } from "lucide-react";
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,6 +38,7 @@ import {
 import { useRunAgentAutomation, useSearchAgent } from "../api/use-agent-search";
 import { AGENT_CONTEXT_QUERY_KEY, AGENT_FIELD_CLASS } from "../constants";
 import { relativeTime } from "../lib/agent-ui";
+import { groupRunsByProject } from "../lib/run-groups";
 import { searchAgentIndex } from "../lib/search";
 import type { AgentGitStageItem, AgentRun, AgentSearchHit } from "../types";
 import { AgentPageFrame } from "./agent-app-shell";
@@ -225,19 +227,37 @@ function ChatRow({
 export function AgentChatsScreen() {
   const { data: runs, isLoading } = useGetAgentRuns();
   const { data: harness } = useGetAgentHarness();
+  const { data: context } = useGetAgentContext();
   const updateHarness = useUpdateAgentHarness();
   const patchRun = usePatchAgentRun();
   const deleteRun = useDeleteAgentRun();
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [DeleteDialog, confirmDelete] = useConfirm(
     "Delete Run",
     "Are you sure you want to delete this chat run? This action cannot be undone.",
     "destructive"
   );
-  const pinned = new Set(harness?.chatMeta?.pinnedRunIds ?? []);
-  const archived = new Set(harness?.chatMeta?.archivedRunIds ?? []);
-  const visible = (runs ?? []).filter((run) => !archived.has(run.id));
+  const pinnedRunIds = harness?.chatMeta?.pinnedRunIds;
+  const archivedRunIds = harness?.chatMeta?.archivedRunIds;
+  const pinned = useMemo(() => new Set(pinnedRunIds ?? []), [pinnedRunIds]);
+  const archived = useMemo(() => new Set(archivedRunIds ?? []), [archivedRunIds]);
+  const visible = useMemo(
+    () => (runs ?? []).filter((run) => !archived.has(run.id)),
+    [archived, runs],
+  );
   const pinnedRuns = visible.filter((run) => pinned.has(run.id));
-  const otherRuns = visible.filter((run) => !pinned.has(run.id));
+  const grouped = useMemo(
+    () => groupRunsByProject(visible.filter((run) => !pinned.has(run.id)), context?.projects ?? []),
+    [context?.projects, pinned, visible],
+  );
+
+  useEffect(() => {
+    setExpandedProjects((prev) => {
+      if (Object.keys(prev).length) return prev;
+      const first = grouped[0]?.projectId;
+      return first === undefined ? prev : { [first]: true };
+    });
+  }, [grouped]);
 
   const setPinned = (runId: string, next: boolean) => {
     const current = harness?.chatMeta?.pinnedRunIds ?? [];
@@ -270,7 +290,7 @@ export function AgentChatsScreen() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Chats</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Pin, rename, or delete Agent runs. Archived chats stay off this list.
+            Chats are grouped by project. Pin, rename, or delete Agent runs. Archived chats stay off this list.
           </p>
         </div>
         {isLoading ? (
@@ -296,16 +316,46 @@ export function AgentChatsScreen() {
             ) : null}
             <section className="space-y-2">
               <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider">Recent</h2>
-              {otherRuns.map((run) => (
-                <ChatRow
-                  key={run.id}
-                  run={run}
-                  pinned={false}
-                  onPin={() => setPinned(run.id, true)}
-                  onDelete={() => handleDelete(run.id)}
-                  onRename={(title) => patchRun.mutate({ param: { runId: run.id }, json: { title } })}
-                />
-              ))}
+              {grouped.map((group) => {
+                const expanded = expandedProjects[group.projectId] !== false;
+                return (
+                  <div key={group.projectId || "none"} className="space-y-2">
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() =>
+                        setExpandedProjects((prev) => ({
+                          ...prev,
+                          [group.projectId]: prev[group.projectId] === false,
+                        }))
+                      }
+                      className="flex items-center gap-2 w-full text-left px-1 py-1 rounded-md hover:bg-muted/50 transition-colors"
+                    >
+                      <ChevronDown
+                        className={cn("size-3.5 text-muted-foreground transition-transform", !expanded && "-rotate-90")}
+                      />
+                      <FolderKanban className="size-3.5 text-muted-foreground" />
+                      <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        {group.projectName}
+                      </h3>
+                      <span className="text-[10px] text-muted-foreground/70 tabular-nums">{group.runs.length}</span>
+                    </button>
+                    {expanded
+                      ? group.runs.map((run) => (
+                          <div key={run.id} className="pl-4">
+                            <ChatRow
+                              run={run}
+                              pinned={false}
+                              onPin={() => setPinned(run.id, true)}
+                              onDelete={() => handleDelete(run.id)}
+                              onRename={(title) => patchRun.mutate({ param: { runId: run.id }, json: { title } })}
+                            />
+                          </div>
+                        ))
+                      : null}
+                  </div>
+                );
+              })}
             </section>
           </div>
         )}

@@ -1,10 +1,36 @@
-import { Databases, Query } from "node-appwrite";
+import { Databases, Query, type Models } from "node-appwrite";
 import {
   DATABASE_ID,
   WORKFLOW_STATUSES_ID,
   WORKFLOW_TRANSITIONS_ID,
   PROJECT_TEAM_MEMBERS_ID,
 } from "@/config";
+
+function foldStatusLabel(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+column$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findWorkflowStatus(docs: Models.Document[], value: string): Models.Document | undefined {
+  const raw = value.trim();
+  if (!raw) return undefined;
+  const folded = foldStatusLabel(raw);
+  return docs.find((status) => {
+    const key = String(status.key ?? "");
+    const name = String(status.name ?? "");
+    return (
+      key === raw ||
+      key.toLowerCase() === raw.toLowerCase() ||
+      foldStatusLabel(key) === folded ||
+      foldStatusLabel(name) === folded
+    );
+  });
+}
 
 /**
  * Validate if a status transition is allowed for the user.
@@ -40,8 +66,12 @@ export async function validateStatusTransition(
       [Query.equal("workflowId", workflowId)]
     );
 
-    const fromStatusDoc = workflowStatuses.documents.find((s) => s.key === fromStatus);
-    const toStatusDoc = workflowStatuses.documents.find((s) => s.key === toStatus);
+    const fromStatusDoc = findWorkflowStatus(workflowStatuses.documents, fromStatus);
+    const toStatusDoc = findWorkflowStatus(workflowStatuses.documents, toStatus);
+
+    if (fromStatusDoc && toStatusDoc && fromStatusDoc.$id === toStatusDoc.$id) {
+      return { allowed: true };
+    }
 
     // Edge Case 1.3: Legacy/Backward Compatibility
     if (!fromStatusDoc || !toStatusDoc) {

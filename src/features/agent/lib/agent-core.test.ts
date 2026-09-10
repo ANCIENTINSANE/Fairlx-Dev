@@ -6,7 +6,7 @@ import { commitStaged, emptyChatMeta, emptyGitStaging, stageItem, unstageItem } 
 import { resolveSpecialist, buildContextGraph } from "./graph";
 import { readPersonalContent } from "./personal";
 import { defaultHarnessData } from "./harness";
-import { groupConversationTurns, groupTranscript, summarizeToolResult, visibleThoughtLines, activityTrailLabel, collapseRepeatedActivity, isPinnedActivityEvent } from "./transcript";
+import { groupConversationTurns, groupTranscript, summarizeToolResult, visibleThoughtLines, activityTrailLabel, collapseRepeatedActivity, isPinnedActivityEvent, collectWorkItemLookup } from "./transcript";
 import { composeUserPrompt, displayUserContent, AGENT_SESSION_MODES, trainingSaveReady } from "./session-context";
 import { trainingKickoffPrompt } from "./personal-training";
 import { compileFairlxListIntent } from "./intent-compiler";
@@ -150,9 +150,14 @@ describe("graph and prompt", () => {
     expect(prompt).toMatch(/fairlx_sprint_plan once/);
     expect(prompt).toMatch(/do not say they are assigned/i);
     expect(prompt).toContain("Task: New high-priority bug on login");
+    expect(prompt).toContain("Signed-in user: Ada (ada@fairlx.dev)");
+    expect(prompt).toMatch(/assign to me/);
+    expect(prompt).toMatch(/assigneeIds: \["me"\]/);
     expect(prompt).toMatch(/One fairlx_work_item_list per project/);
     expect(prompt).toMatch(/backlog=true/);
     expect(prompt).toMatch(/Do not assume the active sprint/);
+    expect(prompt).toMatch(/Kanban columns are status/);
+    expect(prompt).toMatch(/Assigned column/);
   });
 
   it("tells the agent to write a feature plan instead of a workspace census", () => {
@@ -696,5 +701,38 @@ describe("transcript grouping", () => {
     ]);
     expect(lines).toHaveLength(1);
     expect(lines[0]?.detail).toMatch(/Fogef/);
+  });
+
+  it("lets later work_item_update rows overwrite list assignees in the chat lookup", () => {
+    const now = new Date().toISOString();
+    const lookup = collectWorkItemLookup([
+      {
+        id: "t1",
+        role: "tool",
+        toolName: "fairlx_work_item_list",
+        content: JSON.stringify({
+          workItems: [{ key: "SCHO-93", title: "SQL in tests", unassigned: true, assignees: [] }],
+        }),
+        createdAt: now,
+      },
+      {
+        id: "t2",
+        role: "tool",
+        toolName: "fairlx_work_item_update",
+        content: JSON.stringify({
+          workItem: {
+            key: "SCHO-93",
+            title: "SQL in tests",
+            unassigned: false,
+            assignees: [{ name: "fogef" }],
+          },
+        }),
+        createdAt: now,
+      },
+    ]);
+    expect(lookup.get("SCHO-93")).toMatchObject({
+      unassigned: false,
+      assignees: [{ name: "fogef" }],
+    });
   });
 });

@@ -204,6 +204,16 @@ describe("request_capability", () => {
     expect(result.content).not.toContain('"granted":false');
   });
 
+  it("runs github_link_repo natively when wrapped in mcp_call instead of Method not found", async () => {
+    const result = await executeTool(
+      "mcp_call",
+      { server: "fairlx", tool: "github_link_repo", arguments: { owner: "Happyesss", repo: "stemlen-landing" } },
+      ctx(),
+    );
+    expect(result.content).not.toMatch(/Method not found/i);
+    expect(result.content).toContain("Cannot attach a GitHub repository without a database");
+  });
+
   it("still pauses for GitHub when no account or repo is connected", async () => {
     const result = await executeTool(
       "request_capability",

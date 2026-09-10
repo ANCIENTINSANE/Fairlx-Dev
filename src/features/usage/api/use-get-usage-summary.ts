@@ -27,5 +27,7 @@ export const useGetUsageSummary = (params: UseGetUsageSummaryParams) => {
             return await response.json() as { data: UsageSummary };
         },
         enabled: !!(params.workspaceId || params.organizationId),
+        refetchOnWindowFocus: true,
+        refetchInterval: 8_000,
     });
 };

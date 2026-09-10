@@ -39,6 +39,15 @@ describe("isWriteToolCall", () => {
     expect(isWriteToolCall(call("github_create_repo", { name: "app" }))).toBe(true);
     expect(isWriteToolCall(call("github_update_repo", { owner: "acme", repo: "app", private: true }))).toBe(true);
     expect(isWriteToolCall(call("github_link_repo", { owner: "ANCIENTINSANE", repo: "Fairlx-Dev" }))).toBe(true);
+    expect(
+      isWriteToolCall(
+        call("mcp_call", {
+          server: "fairlx",
+          tool: "github_link_repo",
+          arguments: { owner: "Happyesss", repo: "stemlen-landing" },
+        }),
+      ),
+    ).toBe(true);
     expect(isWriteToolCall(call("github_read_file", { path: "a.ts" }))).toBe(false);
   });
 
@@ -98,6 +107,15 @@ describe("write risk and permission type", () => {
       "Make ANCIENTINSANE/agent-harness private?",
     );
     expect(writeRiskLevel(call("github_link_repo", { owner: "ANCIENTINSANE", repo: "Fairlx-Dev" }))).toBe("privileged");
+    expect(
+      writeRiskLevel(
+        call("mcp_call", {
+          server: "fairlx",
+          tool: "github_link_repo",
+          arguments: { owner: "Happyesss", repo: "stemlen-landing" },
+        }),
+      ),
+    ).toBe("privileged");
     expect(confirmationSummary(call("github_link_repo", { owner: "ANCIENTINSANE", repo: "Fairlx-Dev" }))).toBe(
       "Attach ANCIENTINSANE/Fairlx-Dev to this project?",
     );
