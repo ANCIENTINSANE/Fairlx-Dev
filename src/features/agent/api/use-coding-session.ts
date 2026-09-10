@@ -20,6 +20,8 @@ export function useGetCodingSession(params: {
   workItemId?: string;
   projectId?: string;
   runLive?: boolean;
+  /** True while the Preview tab is visible: counts as sandbox activity (keeps it from idling out). */
+  touch?: boolean;
 }) {
   const enabled = Boolean(params.runId || params.workItemId || params.projectId);
   return useQuery({
@@ -33,6 +35,7 @@ export function useGetCodingSession(params: {
           runId: params.runId,
           workItemId: params.workItemId,
           projectId: params.projectId,
+          touch: params.touch ? "1" : undefined,
         },
       });
       if (!response.ok) throw new Error("Failed to load coding session.");
@@ -42,10 +45,34 @@ export function useGetCodingSession(params: {
   });
 }
 
+export type CodingSessionPayload = NonNullable<ReturnType<typeof useGetCodingSession>["data"]>;
+
+export function useRestartCodingSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const response = await client.api.agent["coding-sessions"][":sessionId"].restart.$post({ param: { sessionId } });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({ error: "Failed to restart sandbox." }));
+        throw new Error("error" in body && typeof body.error === "string" ? body.error : "Failed to restart sandbox.");
+      }
+      return (await response.json()).data;
+    },
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: AGENT_CODING_SESSIONS_QUERY_KEY });
+      if (data && typeof data === "object" && "runId" in data && typeof data.runId === "string") {
+        void queryClient.invalidateQueries({ queryKey: agentRunQueryKey(data.runId) });
+      }
+      toast.success("Sandbox is restarting. A fresh preview link will appear in a moment.");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to restart sandbox."),
+  });
+}
+
 export function useStartCodingSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (json: { workItemId: string; projectId?: string; runId?: string; exposePort?: number }) => {
+    mutationFn: async (json: { workItemId?: string; projectId?: string; runId?: string; exposePort?: number }) => {
       const response = await client.api.agent["coding-sessions"].$post({ json });
       if (!response.ok) {
         const body = await response.json().catch(() => ({ error: "Failed to start coding session." }));

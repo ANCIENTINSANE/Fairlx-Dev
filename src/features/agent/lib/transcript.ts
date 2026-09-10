@@ -107,10 +107,12 @@ export function groupTranscriptWithLeftovers(
   return { blocks, leftoverEvents };
 }
 
-const THINKING_EVENT_TYPES = new Set<AgentToolEvent["type"]>(["thought"]);
+const THINKING_EVENT_TYPES = new Set<AgentToolEvent["type"]>(["thought", "model_route", "tool_start"]);
 
 const HIDDEN_ACTIVITY_TYPES = new Set<AgentToolEvent["type"]>([
   "thought",
+  "model_route",
+  "tool_start",
   "context_meter",
   "confirmation",
   "confirmation_resolved",
@@ -121,6 +123,8 @@ const HIDDEN_ACTIVITY_TYPES = new Set<AgentToolEvent["type"]>([
 
 const TRANSCRIPT_META_TYPES = new Set<AgentToolEvent["type"]>([
   "thought",
+  "model_route",
+  "tool_start",
   "context_meter",
   "confirmation",
   "confirmation_resolved",

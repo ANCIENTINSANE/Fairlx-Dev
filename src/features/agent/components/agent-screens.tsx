@@ -8,7 +8,6 @@ import {
   Briefcase,
   Wrench,
   Activity,
-  Zap,
   BookOpen,
   Settings,
   Puzzle,
@@ -44,7 +43,6 @@ import { useGetAgentHarness, useResetAgentHarness, useUpdateAgentHarness } from 
 import { AGENT_FIELD_CLASS, AGENT_TOOL_CATALOG } from "../constants";
 import { relativeTime } from "../lib/agent-ui";
 import type {
-  AgentAutomation,
   AgentContextProject,
   AgentContextWorkspace,
   AgentKnowledgeItem,
@@ -52,7 +50,7 @@ import type {
   AgentWorkPattern,
 } from "../types";
 import { AgentPageFrame } from "./agent-app-shell";
-import { AgentNewProjectForm, AutomationRunButton } from "./agent-ops-screens";
+import { AgentNewProjectForm } from "./agent-ops-screens";
 import { McpServersCard } from "./mcp-servers-card";
 import { PluginCredentialGuide, hasPluginCredentialGuide } from "./plugin-credential-guide";
 import { AgentPermissionPicker } from "./agent-permission-picker";
@@ -732,160 +730,7 @@ export function AgentMcpScreen() {
   );
 }
 
-export function AgentAutomationsScreen() {
-  const { data: harness, isLoading } = useGetAgentHarness();
-  const updateHarness = useUpdateAgentHarness();
-  const automations = harness?.automations ?? [];
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [trigger, setTrigger] = useState("");
-  const [action, setAction] = useState("");
-
-  const save = (next: AgentAutomation[], message?: string) => {
-    updateHarness.mutate(
-      { json: { automations: next } },
-      {
-        onSuccess: () => {
-          if (message) toast.success(message);
-        },
-      }
-    );
-  };
-
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    save(
-      [
-        ...automations,
-        {
-          id: newId(),
-          name: trimmed,
-          description: description.trim(),
-          trigger: trigger.trim(),
-          action: action.trim(),
-          enabled: true,
-          createdAt: nowIso(),
-        },
-      ],
-      "Automation saved."
-    );
-    setName("");
-    setDescription("");
-    setTrigger("");
-    setAction("");
-  };
-
-  return (
-    <AgentPageFrame>
-      <div className="max-w-4xl mx-auto space-y-6">
-        <ScreenHeader
-          title="Automations"
-          description="Named trigger/action recipes stored on your harness. The Agent can follow them while planning work."
-        />
-        <form onSubmit={onSubmit} className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="auto-name">Name</Label>
-              <Input
-                id="auto-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Triage new bugs"
-                className={AGENT_FIELD_CLASS}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="auto-description">Description</Label>
-              <Input
-                id="auto-description"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="When a bug is assigned, summarize it"
-                className={AGENT_FIELD_CLASS}
-              />
-            </div>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="auto-trigger">Trigger</Label>
-              <Input
-                id="auto-trigger"
-                value={trigger}
-                onChange={(event) => setTrigger(event.target.value)}
-                placeholder="New high-priority bug assigned to me"
-                className={AGENT_FIELD_CLASS}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="auto-action">Action</Label>
-              <Input
-                id="auto-action"
-                value={action}
-                onChange={(event) => setAction(event.target.value)}
-                placeholder="Inspect the item and draft a fix plan"
-                className={AGENT_FIELD_CLASS}
-              />
-            </div>
-          </div>
-          <Button type="submit" disabled={!name.trim() || updateHarness.isPending}>
-            {updateHarness.isPending ? "Saving…" : "Add automation"}
-          </Button>
-        </form>
-        {isLoading ? (
-          <LoadingState label="Loading automations…" />
-        ) : automations.length === 0 ? (
-          <EmptyState
-            icon={Zap}
-            title="No automations yet"
-            body="Save a trigger and action the Agent should remember across runs."
-          />
-        ) : (
-          <div className="space-y-3">
-            {automations.map((item) => (
-              <div key={item.id} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">{item.name}</p>
-                    {item.description ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <AutomationRunButton automationId={item.id} />
-                    <Switch
-                      checked={item.enabled}
-                      disabled={updateHarness.isPending}
-                      onCheckedChange={(enabled) =>
-                        save(automations.map((row) => (row.id === item.id ? { ...row, enabled } : row)))
-                      }
-                    />
-                    <RemoveButton
-                      label="Remove"
-                      disabled={updateHarness.isPending}
-                      onClick={() => save(automations.filter((row) => row.id !== item.id), "Automation removed.")}
-                    />
-                  </div>
-                </div>
-                {item.trigger ? (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    <span className="font-semibold text-foreground">Trigger:</span> {item.trigger}
-                  </p>
-                ) : null}
-                {item.action ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    <span className="font-semibold text-foreground">Action:</span> {item.action}
-                  </p>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </AgentPageFrame>
-  );
-}
+export { AgentAutomationsScreen } from "./agent-automations-screen";
 
 export function AgentIntegrationsScreen() {
   const { data, isLoading } = useGetAgentContext();

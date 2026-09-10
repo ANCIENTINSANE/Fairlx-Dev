@@ -639,6 +639,21 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
       required: ["to", "subject", "body"],
     },
   },
+  notify_channel: {
+    description:
+      "Post a short message to the project's connected Slack / Discord / Microsoft Teams channel, or send a Fairlx in-app notification to a user. Used by automation loops and supervisor updates. target: #channel-id, channel name, user id, or email; omit for the project default channel.",
+    parameters: {
+      type: "object",
+      properties: {
+        channel: { type: "string", enum: ["slack", "discord", "teams", "in_app", "auto"] },
+        target: { type: "string" },
+        message: { type: "string" },
+        workItemKey: { type: "string" },
+        threadTs: { type: "string" },
+      },
+      required: ["message"],
+    },
+  },
   github_list_files: {
     description:
       "List files in a GitHub repository. Omit path for the repo root. Omit branch to use the coding session branch (fairlx/{key}) when a sandbox is bound — do not assume main. Unpushed sandbox work is in /workspace via coding_session_exec, not GitHub.",

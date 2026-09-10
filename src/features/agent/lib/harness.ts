@@ -89,6 +89,23 @@ function parsePlugins(raw: unknown): AgentPluginConnection[] {
   return raw.filter((item): item is AgentPluginConnection => Boolean(item && typeof item === "object"));
 }
 
+/** Every harness (one per user). Used by automations to find loops that match an event. */
+export async function listAllHarnesses(databases: Databases, limit = 200): Promise<AgentHarness[]> {
+  const out: AgentHarness[] = [];
+  let cursor: string | undefined;
+  while (out.length < limit) {
+    const page = await databases.listDocuments(DATABASE_ID, AGENT_HARNESS_ID, [
+      Query.limit(Math.min(100, limit - out.length)),
+      ...(cursor ? [Query.cursorAfter(cursor)] : []),
+    ]);
+    for (const doc of page.documents) out.push(parseHarness(doc as unknown as HarnessDocument));
+    if (page.documents.length < 100) break;
+    cursor = page.documents[page.documents.length - 1]?.$id;
+    if (!cursor) break;
+  }
+  return out;
+}
+
 export function parseHarness(doc: HarnessDocument): AgentHarness {
   const defaults = defaultHarnessData();
   const settings = {

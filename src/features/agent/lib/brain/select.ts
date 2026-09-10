@@ -81,6 +81,10 @@ const BUCKETS: Bucket[] = [
     ],
   },
   {
+    pattern: /\b(slack|discord|teams channel|notify|announce|ping the (team|channel)|post (to|in) (the )?channel|supervisor|automation)\b/i,
+    names: ["notify_channel", "fairlx_work_item_get", "fairlx_work_item_update", "fairlx_comment_add"],
+  },
+  {
     pattern: /\b(organiz(ation|e)|org name|company name|rename the org|org members?|org bill)\b/i,
     names: [
       "fairlx_organization_get",

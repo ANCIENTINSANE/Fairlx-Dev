@@ -16,7 +16,7 @@ import { fitMessagesForModel } from "./brain/compress";
 import { selectToolsForTurn } from "./brain/select";
 import { AGENT_SPECIALISTS } from "./graph";
 import { SYSTEM_PROMPT_RULE_LINES, signedInUserPromptLine, splitSystemPromptBudget } from "./prompt-budget";
-import { isPersonalSessionMode, runModeForSession, SESSION_MODE_INSTRUCTIONS } from "./session-context";
+import { isPersonalSessionMode, NO_INTERROGATION_INSTRUCTION, runModeForSession, SESSION_MODE_INSTRUCTIONS } from "./session-context";
 import { openaiToolsForTurn, type OpenAiTool } from "./tool-schemas";
 
 export type ContextCategoryId =
@@ -428,6 +428,7 @@ function systemPromptForPreview(params: {
   ];
   if (personal) lines.push(SESSION_MODE_INSTRUCTIONS.personal);
   else lines.push(SESSION_MODE_INSTRUCTIONS[sessionMode] || SESSION_MODE_INSTRUCTIONS.agent);
+  lines.push(NO_INTERROGATION_INSTRUCTION);
   if (personal && params.personalPrompt?.trim()) {
     lines.push(
       "",

@@ -1,4 +1,4 @@
-import type { AgentContext, AgentHarness, AgentRun, AgentSpecialistId, McpConfig, PersonalTrainingAnswer } from "../types";
+import type { AgentContext, AgentHarness, AgentRun, AgentSessionMode, AgentSpecialistId, McpConfig, PersonalTrainingAnswer } from "../types";
 import { compilePersonaPrompt, inferPersonaRole } from "@fairlx/multi-agent";
 import { AGENT_DEFINITIONS } from "./brain";
 import { AGENT_SPECIALISTS, specialistById } from "./graph";
@@ -6,7 +6,13 @@ import { stripAttachedImages } from "./attach-images";
 import { extractAttachedFiles, subjectsFromFiles, subjectsToc, stripAttachedFiles } from "./attachments";
 import { stripPageContext } from "./page-context";
 import { matchingAutomations, rankKnowledge } from "./search";
-import { isPersonalSessionMode, SESSION_MODE_INSTRUCTIONS } from "./session-context";
+import {
+  displayUserContent,
+  isPersonalSessionMode,
+  NO_INTERROGATION_INSTRUCTION,
+  SESSION_MODE_INSTRUCTIONS,
+} from "./session-context";
+import { sessionModeFromContent } from "./mode-router";
 import { firstName } from "./agent-ui";
 import { PROJECT_DOC_MARKDOWN_GUIDE, documentationPackInstructions } from "@fairlx/mcp-server/markdown";
 import { formatProjectGithubLine, hasGithubAccount, hasProjectGithubRepo } from "./github-scope";
@@ -18,7 +24,14 @@ import {
 } from "./personal-training";
 import { SYSTEM_PROMPT_RULE_LINES, signedInUserPromptLine } from "./prompt-budget";
 import { formatDeleteIntentContext } from "./write-guard";
-import { implementationPlanMarkdown, planIsAccepted, resolveRunImplementationPlan } from "./implementation-plan";
+import {
+  conversationWantsNewPlanSlice,
+  currentPhaseDirective,
+  describePlanSituation,
+  implementationPlanMarkdown,
+  planIsAccepted,
+  resolveRunImplementationPlan,
+} from "./implementation-plan";
 import { conversationWantsAzureSandbox, lastSandboxAccessFailure } from "./sandbox/azure";
 
 export { SYSTEM_PROMPT_RULE_LINES, splitSystemPromptBudget } from "./prompt-budget";
@@ -77,7 +90,9 @@ export function buildSystemPrompt(params: {
       : undefined) ?? context.organizations?.[0];
   const orgRole = organization?.role ? ` Role: ${organization.role}.` : "";
   const personaRole = inferPersonaRole({ workspaceRole: workspace?.role, prompt: query, title: run.title });
-  const sessionMode = harness.settings.sessionMode;
+  // Honour a per-turn tag from Auto routing or a /plan /build /ask /debug shortcut.
+  const routedMode = sessionModeFromContent(lastUser?.content || run.prompt || "");
+  const sessionMode: AgentSessionMode = routedMode ?? harness.settings.sessionMode ?? "agent";
   const personal = isPersonalSessionMode(sessionMode);
   const persona = compilePersonaPrompt(personaRole, workspace?.name, project?.name, { personal });
   const training = isTrainingRun(run);
@@ -126,6 +141,10 @@ export function buildSystemPrompt(params: {
   ];
   if (personal) lines.push(SESSION_MODE_INSTRUCTIONS.personal);
   else lines.push(SESSION_MODE_INSTRUCTIONS[sessionMode || "agent"]);
+  lines.push(NO_INTERROGATION_INSTRUCTION);
+  lines.push(
+    "Never tell the user that GitHub, a repo or a plugin 'is not connected' as a dead end. Call request_capability so Fairlx opens the connect dialog, then keep going with whatever does not need it (planning, docs, scaffolding advice).",
+  );
   if (personal && params.personalPrompt?.trim()) {
     lines.push(
       "",
@@ -202,7 +221,7 @@ export function buildSystemPrompt(params: {
     "",
     "Rules:",
     ...SYSTEM_PROMPT_RULE_LINES,
-    "- For build/change work (start building, implement, scaffold, edit the repo): inspect with github_list_files / github_read_file / fairlx_sprint_list (active sprint only). Then call submit_implementation_plan. Do not fan out specialists, write GitHub files, open PRs, or start a coding session until the user Accepts that plan (autonomous coding / @Fairlx-auto / all_access skips that extra Accept). After Accept, call coding_session_start and wait until previewLive is true. Then call coding_session_implement so Claude Code or Codex edits /workspace in the Azure sandbox. Never github_write_file or github_open_pr files[] while a sandbox is bound. If coding_session_start returns GlobalSandboxNotFound or sandbox_gone, call coding_session_start again — Fairlx recreates the Azure sandbox. If clone fails with git: not found, call coding_session_start again — Fairlx installs git in the sandbox. Do not write files to GitHub or offer GitHub Pages as a workaround. Open the PR from branch fairlx/{key} after sandbox git push. Call coding_session_browser after the app is up. Never wrap coding_session_status in mcp_call — call it directly. If a tool returns blocked:true, stop retrying that tool and answer the user.",
+    "- For build/change work (start building, implement, scaffold, edit the repo): inspect with github_list_files / github_read_file / fairlx_sprint_list (active sprint only). Then call submit_implementation_plan. Do not fan out specialists, write GitHub files, open PRs, or start a coding session until the user Accepts that plan (autonomous coding / @Fairlx-auto / all_access skips that extra Accept). After Accept, finish the current incomplete phase this turn — do not skip to a later phase. If the latest message is a new focused change that is not in the leftover plan (hamburger menu, a small UI tweak), call submit_implementation_plan for THIS request instead of executing leftover phases. If a phase is too large to finish, tell the user in chat what you completed, what is still open, and that the next turn stays on this phase. Call coding_session_start and wait until previewLive is true. Then call coding_session_implement so Claude Code or Codex edits /workspace in the Azure sandbox. If start resumes an existing live preview, that URL is still the previous site — you must coding_session_implement before telling the user the change is done. Never github_write_file or github_open_pr files[] while a sandbox is bound. If coding_session_start returns GlobalSandboxNotFound or sandbox_gone, call coding_session_start again — Fairlx recreates the Azure sandbox. If clone fails with git: not found, call coding_session_start again — Fairlx installs git in the sandbox. Do not write files to GitHub or offer GitHub Pages as a workaround. Open the PR from branch fairlx/{key} after sandbox git push. Call coding_session_browser after the app is up. Never wrap coding_session_status in mcp_call — call it directly. If a tool returns blocked:true, stop retrying that tool and answer the user.",
     "- For other work, independent specialists MUST launch together: emit every delegate_agent call in the same assistant step (not one per turn). Each call is one subject. The runtime runs them in parallel (up to 6 at once). Do not wait for one specialist to finish before launching others that do not depend on its result.",
     "- fairlx_sprint_plan once to set the whole timeline (name, goal, startDate, endDate). That updates Sprint 1/2 in place and folds duplicate numbered sprints together. Do not call fairlx_sprint_create ten times, do not move every item to the backlog first, and never pass the project id as sprintId. After the plan, list sprints if you need workingDays vs estimatedBuildDays, then bulk-move items by sprint name.",
     "- To unassign every sprint item, call fairlx_work_item_bulk_update once with clearAssignees: true — do not pass assignPercent 0 with a person, and do not list first. To put one person on every item in a named sprint, call it once with sprintId as \"Sprint 1\" (name or number) and assigneeIds: [\"Name\"]; that replaces assignees.",
@@ -221,12 +240,23 @@ export function buildSystemPrompt(params: {
   );
 
   const storedPlan = resolveRunImplementationPlan(run);
+  const lastUserPlain = displayUserContent(lastUser?.content || run.prompt || "");
   if (storedPlan && !(sandboxAuthFailed && azurePreviewAsk)) {
+    const leftoverSlice = planIsAccepted(storedPlan) && conversationWantsNewPlanSlice(lastUserPlain, storedPlan);
     lines.push(
       "",
-      planIsAccepted(storedPlan) ? "Accepted implementation plan — execute this, do not replan:" : "Draft implementation plan (waiting for Accept):",
+      leftoverSlice
+        ? "Leftover accepted plan — do NOT execute leftover phases. The latest message is a new focused request: call submit_implementation_plan for THIS request (one phase is enough)."
+        : planIsAccepted(storedPlan)
+          ? "Accepted implementation plan — finish the current incomplete phase this turn. Do not skip to a later phase:"
+          : "Draft implementation plan (waiting for Accept):",
       implementationPlanMarkdown(storedPlan),
     );
+    if (planIsAccepted(storedPlan)) {
+      lines.push("", currentPhaseDirective(storedPlan));
+      const situation = describePlanSituation(storedPlan, lastUserPlain);
+      if (situation) lines.push(situation);
+    }
   }
 
   if (knowledge.length) {

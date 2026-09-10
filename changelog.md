@@ -8,6 +8,19 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-11 | `57825f5` | feat: add automation loops, Slack agent ops, sandbox lifecycle, and live run workspace | ANCIENTINSANE |
+| 2026-09-10 | `b1e88d5` | chore: bump version to 0.2.123 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `4ff1179` | Merge pull request #318 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-10 | `0b3ff99` | chore: bump version to 0.2.122 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `675695a` | Merge branch 'main' into main | Shashank Kumar Rathour |
+| 2026-09-10 | `4d447b4` | chore: bump version to 0.2.120 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `4357ff6` | feat: implement default project roles and permissions system with automated role seeding | Happyesss |
+| 2026-09-09 | `569a63a` | chore: bump version to 0.2.121 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `dfd1574` | Merge pull request #317 from ANCIENTINSANE/main | Shashank Kumar Rathour |
+| 2026-09-09 | `320b423` | chore: bump version to 0.2.120 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `bff92ef` | Merge pull request #316 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-09 | `2d59f93` | chore: bump version to 0.2.119 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `d52ca96` | feat: enhance idempotency handling and add project creation event | Happyesss |
 | 2026-09-10 | `17fcd6e` | Rueq (Build): Build Retuntion and stable:Yes | ANCIENTINSANE |
 | 2026-09-09 | `e35bfff` | Rueq (Build): Build Retuntion and stable:Yes | ANCIENTINSANE |
 | 2026-09-09 | `6b2114e` | chore: bump version to 0.2.118 [skip ci] | github-actions[bot] |
@@ -74,20 +87,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-04 | `a49f12d` | chore: bump version to 0.2.96 [skip ci] | github-actions[bot] |
 | 2026-09-04 | `94a5580` | Merge pull request #299 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-09-04 | `715640b` | chore: bump version to 0.2.95 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `05a058b` | Merge branch 'main' into main | Shashank Kumar Rathour |
-| 2026-09-04 | `cfd443d` | chore: bump version to 0.2.94 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `40b9db9` | refactor: optimize message and event retrieval using useMemo for performance | Happyesss |
-| 2026-09-04 | `e805894` | chore: bump version to 0.2.93 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `7901b84` | feat: add AgentFloatingChat component for interactive agent communication | Happyesss |
-| 2026-09-03 | `3426bbe` | chore: bump version to 0.2.93 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `5c99783` | Merge pull request #298 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-03 | `5c24ef5` | chore: bump version to 0.2.92 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `16f1b6d` | feat: implement personalized agent training workflows, task prioritization, and project team management tools. | Happyesss |
-| 2026-09-03 | `ab595ff` | chore: bump version to 0.2.91 [skip ci] | github-actions[bot] |
-| 2026-09-03 | `b8eb6dd` | refactor: standardize priority UI logic and introduce modular project-based quick actions for agent commands | Happyesss |
-| 2026-09-02 | `7cf95d2` | chore: bump version to 0.2.90 [skip ci] | github-actions[bot] |
-| 2026-09-03 | `6661845` | feat: introduce personal agent functionality with new tools, update environment configurations, and enhance agent run management | Happyesss |
-| 2026-09-01 | `9f29adb` | chore: bump version to 0.2.89 [skip ci] | github-actions[bot] |
-| 2026-09-02 | `3481abe` | Merge pull request #297 from Happyesss/main | Shashank Kumar Rathour |
 
-Last generated: 2026-09-09T18:43:40.636Z
+Last generated: 2026-09-10T18:54:38.476Z

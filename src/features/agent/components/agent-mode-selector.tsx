@@ -8,6 +8,7 @@ import {
   UserRound,
   ChevronDown,
   Check,
+  WandSparkles,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,13 @@ type ModeConfig = {
 };
 
 const MODE_CONFIGS: Record<AgentSessionMode, ModeConfig> = {
+  auto: {
+    icon: WandSparkles,
+    pillClass:
+      "bg-gradient-to-r from-violet-100 via-fuchsia-100 to-amber-100 text-violet-900 border-violet-200 hover:from-violet-200/80 hover:to-amber-200/80 dark:from-violet-950/70 dark:via-fuchsia-950/50 dark:to-amber-950/60 dark:text-violet-100 dark:border-violet-800/60",
+    iconClass: "text-violet-700 dark:text-violet-300",
+    itemIconColor: "text-violet-700 dark:text-violet-300",
+  },
   agent: {
     icon: Infinity,
     pillClass:

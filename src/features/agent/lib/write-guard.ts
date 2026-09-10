@@ -11,6 +11,7 @@ import { skipCodingLoopConfirmation } from "./auto-mode";
 const HARNESS_WRITES = new Set([
   "create_project",
   "mail_send",
+  "notify_channel",
   "github_write_file",
   "github_open_pr",
   "github_merge_pr",

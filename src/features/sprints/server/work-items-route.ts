@@ -763,6 +763,16 @@ const app = new Hono()
           ]),
         )
         .catch(() => {});
+      void import("@/features/agent/lib/automation-runner")
+        .then(({ dispatchAutomationEvent, workItemAutomationEvent }) =>
+          dispatchAutomationEvent(
+            databases,
+            workItemAutomationEvent("work_item_created", workItem as unknown as Record<string, unknown>, {
+              actor: { id: user.$id, name: userName },
+            }),
+          ),
+        )
+        .catch(() => {});
 
       await invalidateCachePattern(CKPattern.workItemLists(data.workspaceId));
 
@@ -869,6 +879,18 @@ const app = new Hono()
             }),
           )
           .catch(() => {});
+        void import("@/features/agent/lib/automation-runner")
+          .then(({ dispatchAutomationEvent, workItemAutomationEvent }) =>
+            dispatchAutomationEvent(
+              databases,
+              workItemAutomationEvent(
+                "work_item_status",
+                { ...(updatedWorkItem as unknown as Record<string, unknown>), status: updates.status },
+                { actor: { id: user.$id, name: userName } },
+              ),
+            ),
+          )
+          .catch(() => {});
       }
 
       // Priority change notification
@@ -914,6 +936,18 @@ const app = new Hono()
                 assigneeIds: addedAssignees,
                 user,
               }),
+            )
+            .catch(() => {});
+          void import("@/features/agent/lib/automation-runner")
+            .then(({ dispatchAutomationEvent, workItemAutomationEvent }) =>
+              dispatchAutomationEvent(
+                databases,
+                workItemAutomationEvent(
+                  "work_item_assigned",
+                  { ...(updatedWorkItem as unknown as Record<string, unknown>), assigneeIds: addedAssignees },
+                  { actor: { id: user.$id, name: userName } },
+                ),
+              ),
             )
             .catch(() => {});
           void import("@/features/agent/lib/personal-standin")

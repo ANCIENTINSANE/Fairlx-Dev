@@ -10,10 +10,15 @@ import {
   compactImplementationPlan,
   conversationLooksLikeError,
   conversationLooksLikeInspect,
+  conversationLooksLikeUiFollowUp,
   conversationWantsBuildOrChange,
+  conversationWantsNewPlanSlice,
   conversationWantsSessionPreview,
+  currentPhaseDirective,
+  describePlanSituation,
   filterCallsForBuildGate,
   filterCallsForErrorDump,
+  followUpImplementPrompt,
   implementationPlanFromEvents,
   implementationPlanMarkdown,
   mergeImplementationPlans,
@@ -369,5 +374,96 @@ describe("implementation plan model", () => {
     });
     expect(fromEvent?.phases.length).toBe(2);
     expect(fromEvent?.status).toBe("accepted");
+  });
+});
+
+describe("new focused slice vs leftover accepted plan", () => {
+  const chemchaPlan = (): ImplementationPlan => ({
+    title: "Chemcha multi-page responsive website expansion",
+    summary: "Extend the landing page into chefs, meals, FAQ, and contact.",
+    status: "accepted",
+    phases: [
+      {
+        id: "phase-1",
+        title: "Shared responsive foundation",
+        tasks: [
+          { id: "t1", title: "Refactor into reusable navigation", status: "done" },
+          { id: "t2", title: "Define route architecture", status: "pending" },
+        ],
+      },
+      {
+        id: "phase-2",
+        title: "Customer discovery pages",
+        tasks: [
+          { id: "t3", title: "Build Browse Meals with filters", status: "pending" },
+          { id: "t4", title: "Implement chef pages", status: "pending" },
+        ],
+      },
+    ],
+  });
+
+  it("treats a hamburger-menu prompt as a new slice, not leftover Chemcha phases", () => {
+    const plan = chemchaPlan();
+    const prompt = "Add a hamburger menu for small devices.";
+    expect(conversationWantsNewPlanSlice(prompt, plan)).toBe(true);
+    expect(buildGateShouldBlock("I want to build a product\n" + prompt, prompt, true, plan)).toBe(true);
+    expect(describePlanSituation(plan, prompt)).toMatch(/new focused change/i);
+    expect(currentPhaseDirective(plan)).toMatch(/Phase 1/);
+  });
+
+  it("stays on the current plan for continue / phase follow-ups", () => {
+    const plan = chemchaPlan();
+    expect(conversationWantsNewPlanSlice("continue", plan)).toBe(false);
+    expect(conversationWantsNewPlanSlice("finish the plan", plan)).toBe(false);
+    expect(buildGateShouldBlock("start building\ncontinue", "continue", true, plan)).toBe(false);
+  });
+
+  it("does not mark a later-phase implement task while phase 1 is still open", () => {
+    const next = applyPlanProgressFromTool(chemchaPlan(), "coding_session_implement");
+    expect(next.phases[0]?.tasks[1]?.status).toBe("pending");
+    expect(next.phases[1]?.tasks[1]?.status).toBe("pending");
+  });
+
+  it("lets a new hamburger plan replace leftover Chemcha phases", () => {
+    const leftover = chemchaPlan();
+    const hamburger = parseImplementationPlan({
+      title: "Hamburger menu for small devices",
+      summary: "Add a mobile nav drawer to the existing landing page.",
+      status: "accepted",
+      phases: [{ title: "Mobile nav", tasks: [{ title: "Add a hamburger menu visible under 768px" }] }],
+    })!;
+    const resolved = resolveRunImplementationPlan({
+      implementationPlan: leftover,
+      events: [
+        {
+          id: "e-old",
+          type: "submit_implementation_plan",
+          title: leftover.title,
+          payload: leftover,
+          createdAt: new Date().toISOString(),
+          runId: "r1",
+        },
+        {
+          id: "e-new",
+          type: "submit_implementation_plan",
+          title: hamburger.title,
+          payload: hamburger,
+          createdAt: new Date().toISOString(),
+          runId: "r1",
+        },
+      ],
+    });
+    expect(resolved?.title).toMatch(/Hamburger/i);
+    expect(conversationWantsNewPlanSlice("Add a hamburger menu for small devices.", resolved)).toBe(false);
+  });
+
+  it("detects responsive / hamburger follow-ups and writes an implement prompt for the live preview", () => {
+    expect(conversationLooksLikeUiFollowUp("make it responsive and add a hamburger menu")).toBe(true);
+    expect(conversationLooksLikeUiFollowUp("build a landing page from scratch")).toBe(false);
+    const prompt = followUpImplementPrompt("Add a hamburger menu for small devices.", chemchaPlan());
+    expect(prompt).toMatch(/EXISTING app/i);
+    expect(prompt).toMatch(/390px/);
+    expect(prompt).toMatch(/Do not scaffold a new product/);
+    expect(prompt).not.toMatch(/Shared responsive foundation/);
   });
 });

@@ -3,6 +3,7 @@ import { DEEPSEEK_PRO_MODEL_ID, FOUNDRY_GPT_LUNA_MODEL_ID } from "../constants";
 import {
   appendSessionEvent,
   createCodingSession,
+  findActiveCodingSessionForUserProject,
   findActiveCodingSessionForWorkItem,
   findCodingSessionByRun,
   updateCodingSession,
@@ -11,24 +12,29 @@ import {
 import { getCodingEnvironment } from "./coding-environment";
 import { loadProjectSecretValues, redactSecretMap } from "./project-secrets";
 import { captureSandboxPreview } from "./sandbox-browser";
-import { resolveSandboxCodingAgent } from "./sandbox-coding-agent";
-import { prepareSandboxApp } from "./sandbox-prepare";
+import { resolveSandboxCodingAgent, sandboxCliPrefetchShell } from "./sandbox-coding-agent";
+import { prepareSandboxApp, recheckSandboxHealth } from "./sandbox-prepare";
 import { getSandboxDriver, redactSecrets, sandboxIsAlive } from "./sandbox";
 import { azureSandboxFailureCode, isAzureSandboxAccessError } from "./sandbox/azure";
 import {
-  cloneIntoWorkspaceShell,
-  createSandboxBranchShell,
+  cloneAndBranchShell,
   isSandboxGoneError,
   parseSandboxSourceMode,
   parseSandboxYes,
   sandboxHasSourceShell,
+  splitCloneAndBranchOutput,
 } from "./sandbox/workspace";
 import { agentDebugLog } from "./sandbox/debug-log";
-import { describeCodingPreview } from "./sandbox-preview";
+import { codingSessionResumeNote, describeCodingPreview } from "./sandbox-preview";
 import { resolveGithubRepo } from "../plugins/github";
 import type { Databases } from "node-appwrite";
 import type { CodingSessionMeta } from "../types";
 import type { SandboxInfo } from "./sandbox";
+
+/** Synthetic work-item key for a project-level preview sandbox (no ticket attached). */
+export function previewWorkItemKey(projectId: string): string {
+  return `preview-${projectId.replace(/[^a-zA-Z0-9]+/g, "").slice(0, 24) || "project"}`;
+}
 
 function workItemKey(context: AgentContext, workItemId: string): string {
   const item = context.workItems.find((entry) => entry.id === workItemId || entry.key === workItemId);
@@ -85,6 +91,7 @@ async function finishPreview(params: {
     startCommand: params.environment?.startCommand,
     extraSecretValues,
     previewHost,
+    prefetchShell: sandboxCliPrefetchShell(params.codingAgent),
   });
   events = appendSessionEvent(
     events,
@@ -103,6 +110,14 @@ async function finishPreview(params: {
     previewLive: prepared.previewLive,
     health: prepared.health.stdout.slice(0, 800),
   });
+  if (!prepared.previewLive) {
+    events = appendSessionEvent(
+      events,
+      "preview",
+      (prepared.health.stdout || prepared.health.stderr || "Health check failed — the preview port never answered.").slice(0, 1500),
+      { previewLive: false, port: prepared.detected.port },
+    );
+  }
 
   let previewLive = prepared.previewLive;
   if (driver.kind === "azure") {
@@ -123,9 +138,14 @@ async function finishPreview(params: {
   }
 
   if (previewLive) {
+    // Only when the image already ships a headless browser (no Playwright download); bounded so a
+    // slow Chromium never delays "running". The Preview iframe is the real browser anyway.
     try {
-      const shot = await captureSandboxPreview({ driver, sandboxId: params.sandboxId, port: prepared.detected.port });
-      if (shot.artifacts.length) {
+      const shot = await Promise.race([
+        captureSandboxPreview({ driver, sandboxId: params.sandboxId, port: prepared.detected.port }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+      ]);
+      if (shot?.artifacts.length) {
         events = appendSessionEvent(events, "screenshot", shot.log.slice(0, 400), { artifacts: shot.artifacts });
       }
     } catch {
@@ -142,6 +162,8 @@ async function finishPreview(params: {
     startCommand: prepared.detected.startCommand,
     packageManager: prepared.detected.packageManager,
     autoMode: Boolean(params.autoMode),
+    lastActivityAt: new Date().toISOString(),
+    lifecycle: "active",
     artifacts: events
       .flatMap((event) => {
         const payload = event.payload && typeof event.payload === "object" ? (event.payload as { artifacts?: CodingSessionMeta["artifacts"] }) : null;
@@ -160,7 +182,8 @@ export async function startOrResumeCodingSession(params: {
   context: AgentContext;
   harness: AgentHarness;
   plugins: AgentPluginConnection[];
-  workItemId: string;
+  /** Optional: a project-level preview sandbox needs no ticket. */
+  workItemId?: string;
   projectId?: string;
   repoId?: string;
   baseBranch?: string;
@@ -173,6 +196,8 @@ export async function startOrResumeCodingSession(params: {
       (entry) => entry.id === params.workItemId || entry.key === params.workItemId,
     ) ?? null;
   const projectId = params.projectId || item?.projectId || params.context.projects[0]?.id || "";
+  // "Run the sandbox" from the Preview tab has no work item: key the session by project.
+  const workItemRef = params.workItemId || previewWorkItemKey(projectId);
   const workspaceId =
     item?.workspaceId ||
     params.context.projects.find((project) => project.id === projectId)?.workspaceId ||
@@ -190,11 +215,19 @@ export async function startOrResumeCodingSession(params: {
   const autoMode = Boolean(params.autoMode || params.harness.settings.autonomousCoding || params.harness.settings.permissionType === "all_access");
 
   const existingByRun = params.runId ? await findCodingSessionByRun(params.databases, params.runId) : null;
-  const existingWorkItem = await findActiveCodingSessionForWorkItem(params.databases, item?.id || params.workItemId);
+  const existingWorkItem = await findActiveCodingSessionForWorkItem(params.databases, item?.id || workItemRef);
+  // One live sandbox per user per project: reuse it even when the run / work item differ.
+  const existingUserProject = await findActiveCodingSessionForUserProject(params.databases, params.userId, projectId);
   let existing =
     existingByRun?.sandboxId && existingByRun.status !== "merged" && existingByRun.status !== "stopped"
       ? existingByRun
-      : existingWorkItem;
+      : existingWorkItem?.sandboxId
+        ? existingWorkItem
+        : existingUserProject ?? existingWorkItem;
+  if (existing && existing.meta?.lifecycle === "destroyed") {
+    // The reaper tore this one down; start clean instead of trying to resume a dead VM.
+    existing = { ...existing, sandboxId: undefined, previewUrl: undefined, previewLive: false };
+  }
   let reuseSandboxId: string | undefined;
 
   if (existing?.sandboxId) {
@@ -226,50 +259,123 @@ export async function startOrResumeCodingSession(params: {
           reuseSandboxId = existing.sandboxId;
         } else {
           const needsPrepare = existing.previewLive !== true;
-          if (needsPrepare) {
-            const finished = await finishPreview({
-              databases: params.databases,
-              sessionId: existing.id,
-              events: existing.events,
-              sandboxId: existing.sandboxId,
-              exposePort,
-              environment: environment ?? undefined,
-              secrets,
-              codingAgent,
-              autoMode,
-            });
-            await updateCodingSession(params.databases, existing.id, {
-              status: "running",
-              previewUrl: finished.previewUrl,
-              runId: params.runId,
-              events: finished.events,
-              meta: finished.meta,
-              previewLive: finished.previewLive,
-              driver: finished.driver as CodingSessionMeta["driver"],
-              codingAgent: finished.meta.codingAgent,
-              artifacts: finished.meta.artifacts,
-            });
+          const alreadyPrepared = existing.events.some((event) => event.type === "dev_server" || event.type === "install");
+          if (needsPrepare && alreadyPrepared) {
+            try {
+              const health = await recheckSandboxHealth({
+                driver,
+                sandboxId: existing.sandboxId,
+                port: existing.meta?.exposePort || exposePort,
+              });
+              if (health.live) {
+                const meta: CodingSessionMeta = {
+                  ...(existing.meta ?? {}),
+                  previewLive: true,
+                  lastActivityAt: new Date().toISOString(),
+                  lifecycle: "active",
+                };
+                await updateCodingSession(params.databases, existing.id, {
+                  status: "running",
+                  previewLive: true,
+                  runId: params.runId,
+                  meta,
+                  events: appendSessionEvent(existing.events, "preview", "Health check passed on resume"),
+                });
+                return {
+                  sessionId: existing.id,
+                  status: "running",
+                  sandboxId: existing.sandboxId,
+                  previewUrl: existing.previewUrl,
+                  previewLive: true,
+                  resumed: true,
+                  headBranch: existing.headBranch,
+                  driver: existing.driver || driver.kind,
+                  codingAgent: codingAgent.id,
+                  codingAgentReason: codingAgent.reason,
+                  note: codingSessionResumeNote(true, {
+                    live: true,
+                    note: "Live sandbox app preview. This is the running app in Azure, not github.dev.",
+                  }),
+                };
+              }
+            } catch {
+              /* VM may still be up; don't reinstall in a loop. */
+            }
             const preview = describeCodingPreview({
-              previewUrl: finished.previewUrl,
-              driver: finished.driver,
-              status: "running",
+              previewUrl: existing.previewUrl,
+              driver: existing.driver || driver.kind,
+              status: existing.status,
               sandboxId: existing.sandboxId,
-              previewLive: finished.previewLive,
+              previewLive: false,
             });
             return {
               sessionId: existing.id,
-              status: "running",
+              status: existing.status,
               sandboxId: existing.sandboxId,
-              previewUrl: preview.live ? finished.previewUrl : undefined,
-              previewLive: preview.live,
+              previewUrl: preview.url || existing.previewUrl,
+              previewLive: false,
               previewStub: preview.stub,
               resumed: true,
+              needsReboot: true,
               headBranch: existing.headBranch,
-              driver: finished.driver,
-              codingAgent: codingAgent.id,
-              codingAgentReason: codingAgent.reason,
-              note: preview.note,
+              driver: preview.driver,
+              codingAgent: existing.codingAgent,
+              codingAgentReason: existing.codingAgentReason,
+              note: "Sandbox is up but the preview never became healthy. Reboot it from the Preview tab to recreate the Azure VM.",
             };
+          }
+          if (needsPrepare) {
+            try {
+              const finished = await finishPreview({
+                databases: params.databases,
+                sessionId: existing.id,
+                events: existing.events,
+                sandboxId: existing.sandboxId,
+                exposePort,
+                environment: environment ?? undefined,
+                secrets,
+                codingAgent,
+                autoMode,
+              });
+              await updateCodingSession(params.databases, existing.id, {
+                status: "running",
+                previewUrl: finished.previewUrl,
+                runId: params.runId,
+                events: finished.events,
+                meta: finished.meta,
+                previewLive: finished.previewLive,
+                driver: finished.driver as CodingSessionMeta["driver"],
+                codingAgent: finished.meta.codingAgent,
+                artifacts: finished.meta.artifacts,
+              });
+              const preview = describeCodingPreview({
+                previewUrl: finished.previewUrl,
+                driver: finished.driver,
+                status: "running",
+                sandboxId: existing.sandboxId,
+                previewLive: finished.previewLive,
+              });
+              return {
+                sessionId: existing.id,
+                status: "running",
+                sandboxId: existing.sandboxId,
+                previewUrl: preview.live ? finished.previewUrl : finished.previewUrl,
+                previewLive: preview.live,
+                previewStub: preview.stub,
+                resumed: true,
+                headBranch: existing.headBranch,
+                driver: finished.driver,
+                codingAgent: codingAgent.id,
+                codingAgentReason: codingAgent.reason,
+                note: codingSessionResumeNote(true, preview),
+              };
+            } catch (prepareError) {
+              const message = prepareError instanceof Error ? prepareError.message : "Sandbox prepare failed";
+              await updateCodingSession(params.databases, existing.id, {
+                events: appendSessionEvent(existing.events, "error", message),
+              });
+              return { error: message, retryable: !isAzureSandboxAccessError(message), needsReboot: true };
+            }
           }
           const preview = describeCodingPreview({
             previewUrl: existing.previewUrl,
@@ -290,7 +396,7 @@ export async function startOrResumeCodingSession(params: {
             driver: preview.driver,
             codingAgent: existing.codingAgent,
             codingAgentReason: existing.codingAgentReason,
-            note: preview.note,
+            note: codingSessionResumeNote(true, preview),
           };
         }
       } catch (error) {
@@ -331,13 +437,13 @@ export async function startOrResumeCodingSession(params: {
     return resolved;
   }
 
-  const key = workItemKey(params.context, item?.id || params.workItemId);
+  const key = workItemKey(params.context, item?.id || workItemRef);
   const headBranch = `fairlx/${key.toLowerCase()}`;
   const session =
     existing ??
     (await createCodingSession(params.databases, {
       userId: params.userId,
-      workItemId: item?.id || params.workItemId,
+      workItemId: item?.id || workItemRef,
       projectId,
       workspaceId,
       runId: params.runId,
@@ -420,7 +526,11 @@ export async function startOrResumeCodingSession(params: {
   let clone: { stdout: string; stderr: string; exitCode: number };
   let branch: { stdout: string; stderr: string; exitCode: number };
   try {
-    clone = await driver.exec(box.id, cloneIntoWorkspaceShell(cloneUrl, cloneBranch));
+    // Clone + branch in one round-trip; the branch half only runs when the clone succeeded.
+    const combined = await driver.exec(box.id, cloneAndBranchShell(cloneUrl, cloneBranch, headBranch));
+    const split = splitCloneAndBranchOutput(combined);
+    clone = split.clone;
+    branch = split.branch;
     if (clone.exitCode !== 0) {
       const detail = redactSecrets(clone.stderr || clone.stdout || "git clone failed");
       await updateCodingSession(params.databases, session.id, {
@@ -430,7 +540,6 @@ export async function startOrResumeCodingSession(params: {
       });
       return { error: `Clone into /workspace failed: ${detail}`, retryable: true };
     }
-    branch = await driver.exec(box.id, createSandboxBranchShell(headBranch), "/workspace");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Sandbox clone failed";
     await updateCodingSession(params.databases, session.id, {
@@ -451,17 +560,27 @@ export async function startOrResumeCodingSession(params: {
     { driver: driver.kind, sandboxId: box.id },
   );
 
-  const finished = await finishPreview({
-    databases: params.databases,
-    sessionId: session.id,
-    events,
-    sandboxId: box.id,
-    exposePort,
-    environment: environment ?? undefined,
-    secrets,
-    codingAgent,
-    autoMode,
-  });
+  let finished: Awaited<ReturnType<typeof finishPreview>>;
+  try {
+    finished = await finishPreview({
+      databases: params.databases,
+      sessionId: session.id,
+      events,
+      sandboxId: box.id,
+      exposePort,
+      environment: environment ?? undefined,
+      secrets,
+      codingAgent,
+      autoMode,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sandbox prepare failed";
+    await updateCodingSession(params.databases, session.id, {
+      status: "failed",
+      events: appendSessionEvent(events, "error", message),
+    });
+    return { error: message, retryable: !isAzureSandboxAccessError(message), needsReboot: true };
+  }
 
   const next = await updateCodingSession(params.databases, session.id, {
     status: "running",

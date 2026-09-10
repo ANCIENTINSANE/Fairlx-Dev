@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  codingSessionResumeNote,
   describeCodingPreview,
   ensureAzurePreviewUrl,
   isBrokenAzurePreviewUrl,
@@ -75,5 +76,17 @@ describe("sandbox preview", () => {
     expect(rewriteAzurePreviewMarkdown(`[Open Preview](${broken})`, { previewUrl: good })).not.toContain(
       "https://--3000.",
     );
+  });
+
+  it("tells the model a resumed live preview is still the previous site", () => {
+    const live = describeCodingPreview({
+      previewUrl: "https://example.azurecontainerapps.io",
+      driver: "azure",
+      status: "running",
+      sandboxId: "sb",
+      previewLive: true,
+    });
+    expect(codingSessionResumeNote(true, live)).toMatch(/coding_session_implement/);
+    expect(codingSessionResumeNote(false, live)).toBe(live.note);
   });
 });

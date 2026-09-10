@@ -29,10 +29,11 @@ export const useSearchAgent = (query: string) => {
 
 export const useRunAgentAutomation = () => {
   return useMutation({
-    mutationFn: async ({ automationId }: { automationId: string }) => {
+    mutationFn: async ({ automationId, workItemId, text }: { automationId: string; workItemId?: string; text?: string }) => {
       const response = await client.api.agent.harness.automations[":automationId"].run.$post({
         param: { automationId },
-      });
+        json: { workItemId, text },
+      } as never);
       if (!response.ok) {
         const body = await response.json().catch(() => ({ error: "Failed to run automation." }));
         throw new Error(

@@ -131,10 +131,12 @@ export function buildGateShouldBlock(
   intentText: string,
   lastUserText: string,
   planAccepted: boolean,
+  plan?: ImplementationPlan | null,
 ): boolean {
-  if (planAccepted) return false;
   if (conversationWantsSessionPreview(lastUserText)) return false;
   if (conversationLooksLikeError(lastUserText)) return false;
+  if (planAccepted && conversationWantsNewPlanSlice(lastUserText, plan)) return true;
+  if (planAccepted) return false;
   return conversationWantsBuildOrChange(intentText);
 }
 
@@ -239,6 +241,209 @@ export function planCompletion(plan?: ImplementationPlan | null): { done: number
   const total = tasks.length;
   const done = tasks.filter((task) => task.status === "done").length;
   return { done, total, percent: total ? Math.round((done / total) * 100) : 0 };
+}
+
+export type PhaseProgress = {
+  id: string;
+  index: number;
+  title: string;
+  done: number;
+  total: number;
+  complete: boolean;
+  remaining: string[];
+};
+
+export function planPhaseProgress(plan?: ImplementationPlan | null): PhaseProgress[] {
+  const phases = Array.isArray(plan?.phases) ? plan.phases : [];
+  return phases.map((phase, index) => {
+    const tasks = Array.isArray(phase.tasks) ? phase.tasks : [];
+    const done = tasks.filter((task) => task.status === "done").length;
+    return {
+      id: phase.id,
+      index,
+      title: phase.title,
+      done,
+      total: tasks.length,
+      complete: tasks.length > 0 && done === tasks.length,
+      remaining: tasks.filter((task) => task.status !== "done").map((task) => task.title),
+    };
+  });
+}
+
+export function firstIncompletePhase(plan?: ImplementationPlan | null): PhaseProgress | null {
+  return planPhaseProgress(plan).find((phase) => !phase.complete) ?? null;
+}
+
+const STOP_WORDS = new Set([
+  "this",
+  "that",
+  "with",
+  "from",
+  "have",
+  "want",
+  "just",
+  "please",
+  "make",
+  "into",
+  "your",
+  "their",
+  "about",
+  "some",
+  "more",
+  "also",
+  "then",
+  "than",
+  "them",
+  "they",
+  "will",
+  "would",
+  "could",
+  "should",
+  "page",
+  "site",
+  "website",
+]);
+
+function significantTokens(text: string): Set<string> {
+  return new Set(
+    (text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length >= 4 && !STOP_WORDS.has(word)),
+  );
+}
+
+const CONTINUE_PLAN_RE =
+  /\b(continue|keep going|next phase|finish (the )?(plan|phase)|same plan|phase\s*\d+|carry on)\b/i;
+const FOCUSED_SLICE_RE =
+  /\b(hamburger|burger menu|nav(igation)? menu|mobile menu|responsive|small devices?|media quer(?:y|ies)|add (a |the )?(button|link|icon|banner|modal|toast|tooltip|footer|header)|tweak|polish|rename|restyle)\b/i;
+
+export function conversationLooksLikeUiFollowUp(text: string): boolean {
+  return FOCUSED_SLICE_RE.test(text || "");
+}
+
+function normalizePlanTitle(title: string): string {
+  return (title || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** True when two plans are the same piece of work (truncated extraJson vs full event), not a new slice. */
+export function plansDescribeSameWork(
+  a?: ImplementationPlan | null,
+  b?: ImplementationPlan | null,
+): boolean {
+  if (!a || !b) return false;
+  const titleA = normalizePlanTitle(a.title);
+  const titleB = normalizePlanTitle(b.title);
+  if (titleA && titleB && (titleA === titleB || titleA.startsWith(titleB) || titleB.startsWith(titleA))) return true;
+  const idA = a.phases[0]?.id;
+  const idB = b.phases[0]?.id;
+  return Boolean(idA && idB && idA === idB);
+}
+
+export function followUpImplementPrompt(userText: string, plan?: ImplementationPlan | null): string {
+  const slice = conversationWantsNewPlanSlice(userText, plan);
+  const phase = slice ? null : firstIncompletePhase(plan);
+  const mobile = conversationLooksLikeUiFollowUp(userText);
+  return [
+    `The user asked: ${userText.trim() || "Apply the current implementation plan."}`,
+    "Edit the EXISTING app in /workspace. Do not scaffold a new product and do not rebuild pages that already work.",
+    "Make the change so it is visible in the running Vite/dev-server preview (hot reload). Save files under /workspace.",
+    phase ? `Stay on this phase: ${phase.title}. Remaining: ${phase.remaining.join("; ") || "(none)"}` : "",
+    mobile
+      ? "Add a real mobile hamburger/drawer (button + panel/nav), not comments. It must show at a phone width (~390px) and the layout must reflow (responsive). Do not leave the desktop-only header unchanged."
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Prompt for the first `coding_session_implement` right after a fresh sandbox start. Used to chain
+ * start → implement inside one turn instead of paying another orchestrator round-trip.
+ */
+export function phaseImplementPrompt(plan: ImplementationPlan | null | undefined, userText: string): string {
+  const phase = firstIncompletePhase(plan);
+  return [
+    plan ? `Implementation plan: ${plan.title}${plan.summary ? ` — ${plan.summary}` : ""}` : "",
+    phase
+      ? `Implement this phase now: ${phase.title}. Tasks: ${phase.remaining.join("; ") || "(see plan)"}. Finish the whole phase before stopping.`
+      : `The user asked: ${userText.trim() || "Implement the accepted plan."}`,
+    "Work in /workspace where the dev server is already running; save files so the preview hot-reloads.",
+    "If /workspace is empty, scaffold the app in place (no nested folder) so the dev server on the exposed port serves it.",
+    "Do not ask questions; make reasonable choices and report what you changed.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** True when the leftover plan tasks already cover this prompt (continue the plan). */
+export function planCoversPrompt(plan: ImplementationPlan | null | undefined, text: string): boolean {
+  if (!plan) return false;
+  const promptTokens = significantTokens(text);
+  if (promptTokens.size === 0) return true;
+  const remaining = plan.phases
+    .flatMap((phase) => (Array.isArray(phase.tasks) ? phase.tasks : []))
+    .filter((task) => task.status !== "done")
+    .map((task) => task.title)
+    .join(" ");
+  const haystack = significantTokens(`${plan.title} ${plan.summary} ${remaining}`);
+  let hits = 0;
+  for (const token of promptTokens) {
+    if (haystack.has(token)) hits += 1;
+  }
+  return hits >= Math.min(2, promptTokens.size);
+}
+
+/**
+ * Latest message is a new focused change (hamburger menu, a one-file tweak) that should not
+ * execute leftover phases of a large accepted plan.
+ */
+export function conversationWantsNewPlanSlice(text: string, plan?: ImplementationPlan | null): boolean {
+  if (!plan || !planIsAccepted(plan)) return false;
+  if (CONTINUE_PLAN_RE.test(text || "")) return false;
+  if (conversationLooksLikeError(text)) return false;
+  if (conversationWantsSessionPreview(text)) return false;
+  const incomplete = firstIncompletePhase(plan);
+  if (!incomplete) return Boolean((text || "").trim());
+  if (FOCUSED_SLICE_RE.test(text || "")) return !planCoversPrompt(plan, text);
+  if (planCoversPrompt(plan, text)) return false;
+  const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
+  return words > 0 && words <= 24;
+}
+
+export function currentPhaseDirective(plan?: ImplementationPlan | null): string {
+  const phase = firstIncompletePhase(plan);
+  if (!phase) {
+    return "The accepted plan is complete. If the user asked for more work, call submit_implementation_plan with a short plan for that request.";
+  }
+  const left = phase.remaining.map((title) => `- ${title}`).join("\n");
+  const heavy =
+    phase.total >= 3 ||
+    phase.remaining.some((title) => /architect|full |entire |across|foundation|responsive/i.test(title));
+  return [
+    `Current phase to finish this turn: Phase ${phase.index + 1} — ${phase.title} (${phase.done}/${phase.total}).`,
+    `Remaining in this phase:\n${left || "- (none)"}`,
+    heavy
+      ? "This phase is large. If you cannot finish every remaining task this turn, tell the user in chat: what you completed, what is still open, and that the next turn continues this phase. Do not start a later phase."
+      : "Complete every remaining task in this phase before starting a later phase.",
+    "Never skip ahead to a later phase while this one still has open tasks.",
+  ].join("\n");
+}
+
+export function describePlanSituation(plan: ImplementationPlan | null | undefined, text: string): string | null {
+  if (!plan || !planIsAccepted(plan)) return null;
+  const { percent, done, total } = planCompletion(plan);
+  const phase = firstIncompletePhase(plan);
+  if (conversationWantsNewPlanSlice(text, plan)) {
+    return `The accepted plan "${plan.title}" is ${percent}% done (${done}/${total}). This message is a new focused change — submit a short implementation plan for it. Do not execute leftover phases of the old plan.`;
+  }
+  if (!phase) return `The accepted plan "${plan.title}" is complete.`;
+  return `Stay on Phase ${phase.index + 1} (${phase.title}): ${phase.done}/${phase.total} tasks done. Finish this phase (or tell the user what is left) before later phases.`;
 }
 
 export function implementationPlanMarkdown(plan: ImplementationPlan): string {
@@ -379,9 +584,16 @@ export function filterCallsUntilSandbox(calls: AgentToolCall[]): {
 const BUILD_GATE_BLOCK_MESSAGE =
   "Build loop: submit an implementation plan and wait for Accept before specialists, GitHub writes, PRs, or a coding session. Call submit_implementation_plan.";
 
-export function blockedBuildGateResult(call: AgentToolCall): string {
+const NEW_SLICE_BLOCK_MESSAGE =
+  "This message is a new focused change, not leftover phases of the accepted plan. Call submit_implementation_plan with a short plan for THIS request (one phase is enough). Do not implement leftover phases from the old plan.";
+
+export function buildGateBlockMessage(lastUserText: string, plan?: ImplementationPlan | null): string {
+  return conversationWantsNewPlanSlice(lastUserText, plan) ? NEW_SLICE_BLOCK_MESSAGE : BUILD_GATE_BLOCK_MESSAGE;
+}
+
+export function blockedBuildGateResult(call: AgentToolCall, message = BUILD_GATE_BLOCK_MESSAGE): string {
   return JSON.stringify({
-    error: BUILD_GATE_BLOCK_MESSAGE,
+    error: message,
     blocked: true,
     tool: call.name,
   });
@@ -457,29 +669,24 @@ function matchTask(task: ImplementationPlanTask, pattern: RegExp): boolean {
 function markFirstMatching(plan: ImplementationPlan, pattern: RegExp): ImplementationPlan {
   const phases = Array.isArray(plan.phases) ? plan.phases : [];
   if (!phases.length) return plan;
+  const incompleteIndex = phases.findIndex((phase) =>
+    (Array.isArray(phase.tasks) ? phase.tasks : []).some((task) => task.status !== "done"),
+  );
+  if (incompleteIndex < 0) return plan;
   let found = false;
-  const nextPhases = phases.map((phase) => ({
-    ...phase,
-    tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
-      if (found || task.status === "done") return task;
-      if (!matchTask(task, pattern)) return task;
-      found = true;
-      return { ...task, status: "done" as const };
-    }),
-  }));
-  if (found) return { ...plan, phases: nextPhases };
-  let marked = false;
-  return {
-    ...plan,
-    phases: phases.map((phase) => ({
+  const nextPhases = phases.map((phase, index) => {
+    if (index !== incompleteIndex) return phase;
+    return {
       ...phase,
       tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
-        if (marked || task.status === "done") return task;
-        marked = true;
+        if (found || task.status === "done") return task;
+        if (!matchTask(task, pattern)) return task;
+        found = true;
         return { ...task, status: "done" as const };
       }),
-    })),
-  };
+    };
+  });
+  return found ? { ...plan, phases: nextPhases } : plan;
 }
 
 export function applyPlanProgressFromTool(plan: ImplementationPlan, toolName: string): ImplementationPlan {
@@ -672,14 +879,26 @@ export function resolveRunImplementationPlan(run: {
   const fromStored = parseImplementationPlan(run.implementationPlan);
   const fromEvents = implementationPlanFromEvents(run.events ?? []);
   const fromMessages = implementationPlanFromMessages(run.messages ?? []);
-  const fullest = pickFullestPlan(fromStored, fromEvents, fromMessages);
-  const overlay = fromStored ?? fromEvents ?? fromMessages;
-  const plan = fullest && overlay ? mergeImplementationPlans(fullest, overlay) : fullest;
-  if (plan) {
-    if (extraStatus === "accepted" || extraStatus === "rejected") return { ...plan, status: extraStatus };
+  // Latest submit wins. Do not merge a new hamburger/responsive slice into an older leftover
+  // mega-plan just because the old plan has more text.
+  const latest = fromEvents ?? fromMessages ?? fromStored;
+  if (!latest) return planAcceptanceStub(run.implementationPlan);
+  const sameWork = [fromStored, fromEvents, fromMessages].filter(
+    (plan): plan is ImplementationPlan => Boolean(plan && plansDescribeSameWork(plan, latest)),
+  );
+  const fullestSame = pickFullestPlan(...sameWork) ?? latest;
+  let plan = mergeImplementationPlans(fullestSame, latest);
+  if (fromStored && plansDescribeSameWork(fromStored, latest)) {
+    plan = mergeImplementationPlans(plan, fromStored);
+  }
+  if (extraStatus === "accepted" || extraStatus === "rejected") {
+    const storedIdentity = fromStored ?? planAcceptanceStub(run.implementationPlan);
+    if (storedIdentity && plansDescribeSameWork(storedIdentity, latest)) {
+      return { ...plan, status: extraStatus };
+    }
     return plan;
   }
-  return planAcceptanceStub(run.implementationPlan);
+  return plan;
 }
 
 export function planPanelModel(plan?: ImplementationPlan | null): {

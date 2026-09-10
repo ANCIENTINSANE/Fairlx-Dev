@@ -6,6 +6,7 @@ import {
   detectStartCommand,
   healthCheckShell,
   parsePackageJsonScripts,
+  quickHealthShell,
   rankNestedPackageJsonPaths,
   type DetectedStartCommand,
 } from "./detect-start-command";
@@ -34,7 +35,7 @@ async function readOptional(driver: SandboxDriver, sandboxId: string, path: stri
   }
 }
 
-export async function probeWorkspaceFiles(driver: SandboxDriver, sandboxId: string): Promise<{
+export type WorkspaceProbe = {
   "package.json"?: string;
   "pnpm-lock.yaml"?: boolean;
   "yarn.lock"?: boolean;
@@ -47,7 +48,91 @@ export async function probeWorkspaceFiles(driver: SandboxDriver, sandboxId: stri
   "go.mod"?: boolean;
   "manage.py"?: boolean;
   appDir?: string;
-}> {
+};
+
+const PROBE_EXISTS = ["poetry.lock", "go.mod", "manage.py", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock", "package-lock.json"] as const;
+const PROBE_READ = ["package.json", "pyproject.toml", "requirements.txt"] as const;
+
+/**
+ * One shell round-trip instead of eleven: prints `FAIRLX_EXISTS <name>` for lockfiles and
+ * base64 bodies for manifests. Every Azure exec is ~0.5–1.5 s, so this alone saves ~10 s per start.
+ */
+export function workspaceProbeShell(root = SANDBOX_WORKSPACE): string {
+  return [
+    `echo FAIRLX_PROBE_BEGIN`,
+    `for f in ${PROBE_EXISTS.join(" ")}; do [ -f ${root}/$f ] && echo "FAIRLX_EXISTS $f"; done`,
+    `for f in ${PROBE_READ.join(" ")}; do if [ -f ${root}/$f ]; then echo "FAIRLX_FILE $f"; (base64 -w0 ${root}/$f 2>/dev/null || base64 ${root}/$f | tr -d '\\n'); echo; echo FAIRLX_FILE_END; fi; done`,
+    `echo FAIRLX_PROBE_END`,
+  ].join("\n");
+}
+
+export function parseWorkspaceProbe(stdout: string): WorkspaceProbe | null {
+  if (!/FAIRLX_PROBE_BEGIN/.test(stdout) || !/FAIRLX_PROBE_END/.test(stdout)) return null;
+  const out: WorkspaceProbe = {};
+  const lines = stdout.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    const exists = line.match(/^FAIRLX_EXISTS (\S+)$/);
+    if (exists) {
+      (out as Record<string, unknown>)[exists[1]] = true;
+      continue;
+    }
+    const file = line.match(/^FAIRLX_FILE (\S+)$/);
+    if (file) {
+      const body: string[] = [];
+      index += 1;
+      while (index < lines.length && lines[index].trim() !== "FAIRLX_FILE_END") {
+        body.push(lines[index].trim());
+        index += 1;
+      }
+      try {
+        const text = Buffer.from(body.join(""), "base64").toString("utf8");
+        if (text.trim()) (out as Record<string, unknown>)[file[1]] = text;
+      } catch {
+        /* unreadable manifest; treat as absent */
+      }
+    }
+  }
+  for (const name of PROBE_EXISTS) if (!(name in out)) (out as Record<string, unknown>)[name] = false;
+  return out;
+}
+
+export async function probeWorkspaceFiles(driver: SandboxDriver, sandboxId: string): Promise<WorkspaceProbe> {
+  if (driver.kind !== "stub") {
+    try {
+      const probed = await driver.exec(sandboxId, workspaceProbeShell(), SANDBOX_WORKSPACE);
+      const parsed = parseWorkspaceProbe(probed.stdout);
+      if (parsed) {
+        const rootScripts = parsePackageJsonScripts(parsed["package.json"]);
+        const rootRunnable = Boolean(rootScripts.dev || rootScripts.start || rootScripts.preview || rootScripts.serve);
+        if (parsed["package.json"]?.trim() && rootRunnable) return parsed;
+        const nested = await findNestedAppPackage(driver, sandboxId);
+        if (!nested) return parsed;
+        const nestedProbe = await driver.exec(sandboxId, workspaceProbeShell(`${SANDBOX_WORKSPACE}/${nested.appDir}`), SANDBOX_WORKSPACE);
+        const nestedParsed = parseWorkspaceProbe(nestedProbe.stdout);
+        return {
+          ...parsed,
+          ...(nestedParsed
+            ? {
+                "pnpm-lock.yaml": nestedParsed["pnpm-lock.yaml"],
+                "yarn.lock": nestedParsed["yarn.lock"],
+                "bun.lockb": nestedParsed["bun.lockb"],
+                "bun.lock": nestedParsed["bun.lock"],
+                "package-lock.json": nestedParsed["package-lock.json"],
+              }
+            : {}),
+          "package.json": nested.content,
+          appDir: nested.appDir,
+        };
+      }
+    } catch {
+      /* fall through to the per-file probe */
+    }
+  }
+  return probeWorkspaceFilesSlow(driver, sandboxId);
+}
+
+async function probeWorkspaceFilesSlow(driver: SandboxDriver, sandboxId: string): Promise<WorkspaceProbe> {
   const [poetry, pyproject, requirements, goMod, manage] = await Promise.all([
     fileExists(driver, sandboxId, "/workspace/poetry.lock"),
     readOptional(driver, sandboxId, "/workspace/pyproject.toml"),
@@ -128,6 +213,8 @@ export async function prepareSandboxApp(params: {
   extraSecretValues?: string[];
   /** Public preview hostname so dev servers with host checks (Vite) accept proxied requests. */
   previewHost?: string;
+  /** Background shell (nohup'd) launched alongside install — e.g. the Claude Code / Codex CLI prefetch. */
+  prefetchShell?: string;
 }): Promise<SandboxPrepareResult> {
   const files = await probeWorkspaceFiles(params.driver, params.sandboxId);
   const detected = detectStartCommand({
@@ -155,13 +242,21 @@ export async function prepareSandboxApp(params: {
   }
 
   const cwd = detected.appDir ? `${SANDBOX_WORKSPACE}/${detected.appDir}` : SANDBOX_WORKSPACE;
-  const install = await params.driver.exec(params.sandboxId, detected.installCommand, cwd);
-  const start = await params.driver.exec(
+  // The prefetch is nohup'd and returns immediately, so it overlaps with the dependency install.
+  const installShell = params.prefetchShell?.trim()
+    ? `${params.prefetchShell.trim()}\n${detected.installCommand}`
+    : detected.installCommand;
+  const install = await params.driver.exec(params.sandboxId, installShell, cwd);
+  // Start the dev server and begin polling in the same shell: one round-trip fewer and the
+  // health loop starts the instant the process is detached.
+  const startAndHealth = await params.driver.exec(
     params.sandboxId,
-    backgroundStartShell(detected.startCommand),
+    `${backgroundStartShell(detected.startCommand)}\necho FAIRLX_START_END\n${healthCheckShell(detected.port, 120, 1)}`,
     cwd,
   );
-  const health = await params.driver.exec(params.sandboxId, healthCheckShell(detected.port), cwd);
+  const [startOut = "", healthOut = ""] = startAndHealth.stdout.split(/^FAIRLX_START_END\s*$/m);
+  const start = { stdout: startOut.trim(), stderr: "", exitCode: 0 };
+  const health = { stdout: healthOut.trim(), stderr: startAndHealth.stderr, exitCode: startAndHealth.exitCode };
   const stub = params.driver.kind === "stub";
   const pool = params.driver.kind === "sessions";
   const previewLive = !stub && !pool && /FAIRLX_HEALTH_OK/.test(health.stdout);
@@ -184,5 +279,21 @@ export async function prepareSandboxApp(params: {
       stderr: redactSecrets(health.stderr, params.extraSecretValues),
       exitCode: health.exitCode,
     },
+  };
+}
+
+export async function recheckSandboxHealth(params: {
+  driver: SandboxDriver;
+  sandboxId: string;
+  port: number;
+  /** When > 1, poll like the initial prepare health check. */
+  attempts?: number;
+}): Promise<{ live: boolean; stdout: string; stderr: string }> {
+  const command = params.attempts && params.attempts > 1 ? healthCheckShell(params.port, params.attempts, 2) : quickHealthShell(params.port);
+  const health = await params.driver.exec(params.sandboxId, command, SANDBOX_WORKSPACE);
+  return {
+    live: /FAIRLX_HEALTH_OK/.test(health.stdout),
+    stdout: health.stdout,
+    stderr: health.stderr,
   };
 }

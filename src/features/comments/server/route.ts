@@ -147,6 +147,21 @@ export const createComment = async (data: {
       )
       .catch(() => {});
 
+    void import("@/features/agent/lib/mentions")
+      .then(async ({ mentionsFairlxAgent }) => {
+        if (!mentionsFairlxAgent(data.content)) return;
+        const { dispatchAutomationEvent, workItemAutomationEvent } = await import("@/features/agent/lib/automation-runner");
+        await dispatchAutomationEvent(
+          databases,
+          workItemAutomationEvent("comment_mention", task as unknown as Record<string, unknown>, {
+            text: data.content,
+            source: "comment",
+            actor: { id: data.authorId, name: authorName },
+          }),
+        );
+      })
+      .catch(() => {});
+
     void import("@/features/agent/lib/personal-standin")
       .then(async ({ PERSONAL_STANDIN_AUTHOR_ID, cancelStandinJobsForUserTask, maybeEnqueueStandinFromComment }) => {
         if (data.authorId === PERSONAL_STANDIN_AUTHOR_ID) return;

@@ -11,6 +11,7 @@ import type {
   AgentSpecialistId,
   AgentToolEvent,
   AgentToolEventType,
+  ImplementationPlan,
   McpConfig,
 } from "../types";
 import { specialistById } from "./graph";
@@ -87,7 +88,7 @@ import {
   withSessionMeta,
 } from "./coding-sessions";
 import { startOrResumeCodingSession, pushCodingSessionBranch } from "./coding-session-start";
-import { parseImplementationPlan, persistImplementationPlan } from "./implementation-plan";
+import { followUpImplementPrompt, parseImplementationPlan, persistImplementationPlan } from "./implementation-plan";
 import { getSandboxDriver, redactSecrets, sandboxDriverKind, sandboxIsAlive } from "./sandbox";
 import { agentDebugLog } from "./sandbox/debug-log";
 import {
@@ -96,7 +97,7 @@ import {
   probeAzureSandboxAccess,
 } from "./sandbox/azure";
 import { isSandboxGoneError, sandboxSessionFailurePresentation } from "./sandbox/workspace";
-import { describeCodingPreview } from "./sandbox-preview";
+import { describeCodingPreview, codingSessionResumeNote } from "./sandbox-preview";
 import { captureSandboxPreview } from "./sandbox-browser";
 import { resolveSandboxCodingAgent, sandboxImplementShell } from "./sandbox-coding-agent";
 
@@ -121,6 +122,7 @@ export type ToolExecutionContext = {
   userAccepted?: boolean;
   permissionType?: AgentPermissionType;
   turnLimits?: DocTurnLimits;
+  implementationPlan?: ImplementationPlan | null;
 };
 
 export { MAX_PROJECT_DOCS_PER_TURN } from "./doc-turn-limits";
@@ -1167,6 +1169,42 @@ export async function executeTool(
           : undefined,
       };
     }
+    case "notify_channel": {
+      const message = asString(parsed.message);
+      if (!ctx.databases) {
+        const payload = { error: "Notifications need a database connection." };
+        return { content: JSON.stringify(payload), event: event(runId, "error", "Notify failed", payload.error, payload) };
+      }
+      if (!message.trim()) {
+        const payload = { error: "message is required." };
+        return { content: JSON.stringify(payload), event: event(runId, "error", "Notify failed", payload.error, payload) };
+      }
+      const { notifyChannel } = await import("../plugins/notify-channel");
+      const workItemKey = asString(parsed.workItemKey) || undefined;
+      const item = workItemKey ? context.workItems.find((entry) => entry.key === workItemKey) : undefined;
+      const result = await notifyChannel(ctx.databases, {
+        channel: asString(parsed.channel) || "auto",
+        target: asString(parsed.target) || undefined,
+        message,
+        threadTs: asString(parsed.threadTs) || undefined,
+        projectId: item?.projectId || ctx.projectId,
+        workspaceId: item?.workspaceId || ctx.workspaceId,
+        fallbackUserId: ctx.userId,
+        workItemId: item?.id,
+        runId,
+      });
+      return {
+        content: JSON.stringify(result),
+        event: event(
+          runId,
+          result.ok ? "notify_channel" : "error",
+          result.ok ? `Notified ${result.delivered.join(", ")}` : "Notify failed",
+          result.ok ? message.slice(0, 120) : result.error,
+          result,
+        ),
+        missingCapability: !result.ok && result.channel !== "in_app" ? "chat.notify" : undefined,
+      };
+    }
     case "github_account_status": {
       try {
         const result = await githubAccountStatus({
@@ -1788,7 +1826,13 @@ export async function executeTool(
             sandboxId: typeof result.sandboxId === "string" ? result.sandboxId : undefined,
             previewLive: result.previewLive === true,
           });
-          const payload = { ...result, jobId: job.id, previewLive: preview.live, previewStub: preview.stub, note: preview.note };
+          const payload = {
+            ...result,
+            jobId: job.id,
+            previewLive: preview.live,
+            previewStub: preview.stub,
+            note: codingSessionResumeNote(result.resumed === true, preview),
+          };
           return {
             content: JSON.stringify(payload),
             event: event(
@@ -1854,7 +1898,14 @@ export async function executeTool(
           previewLive: result.previewLive === true,
           sandboxId: typeof result.sandboxId === "string" ? result.sandboxId : undefined,
         });
-        const payload = failed ? result : { ...result, previewLive: preview.live, previewStub: preview.stub, note: preview.note };
+        const payload = failed
+          ? result
+          : {
+              ...result,
+              previewLive: preview.live,
+              previewStub: preview.stub,
+              note: codingSessionResumeNote(result.resumed === true, preview),
+            };
         return {
           content: JSON.stringify(payload),
           event: event(
@@ -2123,8 +2174,7 @@ export async function executeTool(
       const agent = resolveSandboxCodingAgent();
       const prompt =
         asString(parsed.prompt || parsed.task) ||
-        ctx.latestUserText ||
-        "Implement the accepted implementation plan in /workspace. Do not push until tests pass.";
+        followUpImplementPrompt(ctx.latestUserText || "", ctx.implementationPlan);
       if (!agent.available) {
         const payload = {
           error: agent.reason,
@@ -2218,6 +2268,7 @@ export async function executeTool(
           driver: getSandboxDriver(),
           sandboxId: session.sandboxId,
           port,
+          allowInstall: true,
         });
         const artifacts = [...(session.artifacts ?? []), ...shot.artifacts].slice(-8);
         const meta = { ...session.meta, artifacts };

@@ -20,7 +20,15 @@ import { agentRunQueryKey, useCreateAgentRun, useStopAgentRun } from "../api/use
 import { useTranscribeAudio } from "../api/use-transcribe-audio";
 import { AGENT_RUNS_QUERY_KEY } from "../constants";
 import { buildOptimisticAgentRun, navigateToAgentRun, newAgentRunId } from "../lib/optimistic-run";
-import { chipKey, composeUserPrompt, isPersonalSessionMode } from "../lib/session-context";
+import { chipKey, composeUserPrompt, isAutoSessionMode, isPersonalSessionMode, resolveTurnMode } from "../lib/session-context";
+import {
+  applyShortcutAtCaret,
+  detectComposerTrigger,
+  expandComposerShortcuts,
+  extraAtShortcutsFromContext,
+  filterShortcuts,
+  type ComposerShortcut,
+} from "../lib/composer-shortcuts";
 import { chipsFromFiles, filesFromDataTransfer } from "../lib/attach-files";
 import { useAgentPageContextBlock } from "./agent-page-context";
 import { profileIsTrained } from "../lib/personal-agent-status";
@@ -36,6 +44,7 @@ import { AgentPermissionPicker } from "./agent-permission-picker";
 import { ModelPicker } from "./model-picker";
 import { McpBarButton } from "./mcp-servers-card";
 import { PersonalAgentSetup } from "./personal-agent-setup";
+import { ComposerShortcutMenu } from "./composer-shortcut-menu";
 
 /** Short descriptions shown under each suggestion card title. */
 const QUICK_ACTION_DESCRIPTIONS: Record<string, string> = {
@@ -102,6 +111,9 @@ export function AgentCommandInput({
     projectId === undefined ? undefined : projectId || null,
   );
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const [caret, setCaret] = useState(0);
+  const [activeShortcut, setActiveShortcut] = useState(0);
+  const [dismissedShortcut, setDismissedShortcut] = useState<{ start: number; kind: string } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -110,6 +122,7 @@ export function AgentCommandInput({
   const updateTypingGaze = () => {
     const el = textareaRef.current;
     if (!el) return;
+    setCaret(el.selectionEnd ?? el.value.length);
     const style = window.getComputedStyle(el);
     setGazeProgress(
       typingGazeProgress({
@@ -185,6 +198,65 @@ export function AgentCommandInput({
     () => getQuickActions(hasProjects),
     [hasProjects]
   );
+
+  const scopedProjectId = resolveAgentProjectId(selectedProjectId, [
+    run?.projectId,
+    projectId,
+    harness?.settings.defaultProjectId,
+  ]);
+  const modeScope = useMemo(
+    () => ({
+      hasProject: Boolean(scopedProjectId),
+      hasRepo: Boolean(
+        scopedProjectId && (context?.githubRepos ?? []).some((repo) => repo.projectId === scopedProjectId),
+      ),
+    }),
+    [context?.githubRepos, scopedProjectId],
+  );
+  const extraAt = useMemo(
+    () =>
+      extraAtShortcutsFromContext({
+        skills: (harness?.skills ?? []).filter((skill) => skill.enabled).map((skill) => ({
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+        })),
+        projects: (context?.projects ?? [])
+          .filter((project) => !activeWorkspaceId || project.workspaceId === activeWorkspaceId)
+          .map((project) => ({ id: project.id, name: project.name })),
+        workItems: (context?.workItems ?? []).map((item) => ({
+          id: item.id,
+          key: item.key,
+          title: item.title,
+        })),
+      }),
+    [activeWorkspaceId, context?.projects, context?.workItems, harness?.skills],
+  );
+  const shortcutTrigger = useMemo(() => {
+    const atCaret = detectComposerTrigger(prompt, caret);
+    if (atCaret) return atCaret;
+    if (caret === 0 && prompt.length > 0) return detectComposerTrigger(prompt, prompt.length);
+    return null;
+  }, [caret, prompt]);
+  const shortcutMenuOpen = Boolean(
+    shortcutTrigger &&
+      !(dismissedShortcut && dismissedShortcut.start === shortcutTrigger.start && dismissedShortcut.kind === shortcutTrigger.kind),
+  );
+  const shortcutItems = useMemo(
+    () => (shortcutMenuOpen && shortcutTrigger ? filterShortcuts(shortcutTrigger.kind, shortcutTrigger.query, extraAt) : []),
+    [extraAt, shortcutMenuOpen, shortcutTrigger],
+  );
+  useEffect(() => {
+    setActiveShortcut(0);
+  }, [shortcutTrigger?.kind, shortcutTrigger?.query, shortcutTrigger?.start]);
+  const autoModePreview = useMemo(() => {
+    if (!isAutoSessionMode(sessionMode) || prompt.trim().length < 3) return null;
+    const expanded = expandComposerShortcuts(prompt, extraAt);
+    if (expanded.mode) {
+      return { mode: expanded.mode, confidence: 1, reason: `${expanded.mode} shortcut`, hints: [], auto: true as const };
+    }
+    return resolveTurnMode(prompt, sessionMode, modeScope);
+  }, [extraAt, modeScope, prompt, sessionMode]);
 
   const handleStop = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -333,7 +405,7 @@ export function AgentCommandInput({
     const trimmed = value.trim();
     const hasImages = chips.some((chip) => chip.kind === "image" && chip.content?.startsWith("data:image/"));
     if ((!trimmed && !hasImages) || busy || disabled || personalUntrained) return;
-    const content = composeUserPrompt(trimmed, chips, sessionMode, pageContext);
+    const content = composeUserPrompt(trimmed, chips, sessionMode, pageContext, { ...modeScope, extraAt });
     if (variant === "followup") {
       onFollowUp?.(content);
       setPrompt("");
@@ -394,6 +466,33 @@ export function AgentCommandInput({
     );
   };
 
+  const applyComposerShortcut = (item: ComposerShortcut) => {
+    const el = textareaRef.current;
+    const pos = el?.selectionStart ?? caret;
+    const next = applyShortcutAtCaret(prompt, pos, item);
+    setPrompt(next.text);
+    setDismissedShortcut(null);
+    if (item.chip) {
+      const chip = {
+        kind: item.chip.kind,
+        id: item.chip.id || item.id,
+        label: item.chip.label,
+        meta: item.chip.meta,
+        content: item.chip.content,
+      };
+      setChips((current) => [...current.filter((entry) => chipKey(entry) !== chipKey(chip)), chip]);
+    }
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      textareaRef.current.selectionStart = next.caret;
+      textareaRef.current.selectionEnd = next.caret;
+      autosize(textareaRef.current, minHeight);
+      setCaret(next.caret);
+      updateTypingGaze();
+    });
+  };
+
   const showSuggestions = showQuickActions && !personalUntrained && !suggestionsDismissed && variant === "create";
 
   return (
@@ -443,13 +542,23 @@ export function AgentCommandInput({
         )}
         {personalUntrained ? null : (
           <>
+            <div className="relative">
+              <ComposerShortcutMenu
+                items={shortcutItems}
+                activeIndex={activeShortcut}
+                onSelect={applyComposerShortcut}
+                onHover={setActiveShortcut}
+              />
             <textarea
               ref={textareaRef}
               value={prompt}
               onChange={(event) => {
-                setPrompt(event.target.value);
-                autosize(event.currentTarget, minHeight);
-                updateTypingGaze();
+                const el = event.currentTarget;
+                const next = el.value;
+                const pos = el.selectionEnd ?? next.length;
+                setPrompt(next);
+                setCaret(pos === 0 && next.length > 0 ? next.length : pos);
+                autosize(el, minHeight);
                 requestAnimationFrame(updateTypingGaze);
               }}
               onFocus={() => {
@@ -482,6 +591,31 @@ export function AgentCommandInput({
                 void ingestFiles(files);
               }}
               onKeyDown={(event) => {
+                if (shortcutItems.length) {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setActiveShortcut((index) => (index + 1) % shortcutItems.length);
+                    return;
+                  }
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setActiveShortcut((index) => (index - 1 + shortcutItems.length) % shortcutItems.length);
+                    return;
+                  }
+                  if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+                    event.preventDefault();
+                    const item = shortcutItems[activeShortcut] ?? shortcutItems[0];
+                    if (item) applyComposerShortcut(item);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    if (shortcutTrigger) {
+                      setDismissedShortcut({ start: shortcutTrigger.start, kind: shortcutTrigger.kind });
+                    }
+                    return;
+                  }
+                }
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   submit(prompt);
@@ -497,9 +631,25 @@ export function AgentCommandInput({
                   : "text-[14px] sm:text-[15px] px-4 pt-3.5 pb-2 min-h-[58px]",
               )}
             />
+            </div>
             <div className={cn("flex items-center justify-between pt-0.5 select-none", compact ? "px-2 pb-2" : "px-3 pb-2.5")}>
               <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                 <AgentModeSelector />
+                {autoModePreview ? (
+                  <span
+                    key={autoModePreview.mode}
+                    title={`Fairlx will run this as ${autoModePreview.mode}: ${autoModePreview.reason}`}
+                    className={cn(
+                      "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] font-medium capitalize animate-in fade-in slide-in-from-left-1 duration-200",
+                      autoModePreview.confidence >= 0.7
+                        ? "border-primary/30 bg-primary/10 text-primary"
+                        : "border-border bg-muted/60 text-muted-foreground",
+                    )}
+                  >
+                    <span className="size-1.5 rounded-full bg-current opacity-70" />
+                    → {autoModePreview.mode}
+                  </span>
+                ) : null}
                 <AgentPermissionPicker />
                 <ModelPicker variant="subtle" runModelId={run?.modelId} />
                 <McpBarButton />

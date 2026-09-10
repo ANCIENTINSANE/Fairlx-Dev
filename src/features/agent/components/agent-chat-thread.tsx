@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { useTheme } from "next-themes";
+import { AnimatePresence, motion } from "framer-motion";
 
 import {
   ArrowUpRight,
@@ -10,11 +11,14 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Cpu,
   FolderKanban,
   Loader2,
   Pencil,
+  Pin,
   Sparkles,
   Users,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -79,6 +83,7 @@ import { AgentTurnUsageCard } from "./agent-run-hud";
 import { PendingConfirmationCard } from "./pending-confirmation-card";
 import { AskUserChoices } from "./ask-user-choices";
 import { PluginConnectCard } from "./plugin-connect-card";
+import { useAgentUi } from "./agent-ui-context";
 import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 
 function ProjectKanbanCta({
@@ -575,48 +580,88 @@ function ThinkingBlock({
     if (live || keepOpen) setOpen(true);
     else setOpen(false);
   }, [live, keepOpen]);
-  const lines = visibleThoughtLines(thoughts);
-  const duration = thinkingDurationMs(thoughts, startedAt, endedAt, live);
+  const pureThoughts = useMemo(() => thoughts.filter((event) => event.type === "thought"), [thoughts]);
+  const routeEvent = thoughts.find((event) => event.type === "model_route");
+  const route =
+    routeEvent?.payload && typeof routeEvent.payload === "object" && "displayName" in routeEvent.payload
+      ? (routeEvent.payload as { displayName: string; pinned?: boolean; task?: string; reason?: string })
+      : null;
+  const lines = useMemo(() => {
+    const merged = [...visibleThoughtLines(pureThoughts), ...thoughts.filter((event) => event.type === "tool_start")];
+    return merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [pureThoughts, thoughts]);
+  const duration = thinkingDurationMs(pureThoughts.length ? pureThoughts : thoughts, startedAt, endedAt, live);
   const label = live ? "Thinking" : `Thought ${formatThinkingDuration(duration || 1000)}`;
   const canExpand = lines.length > 0 || live;
   if (!thoughts.length && !live) return null;
 
   return (
     <div className="min-w-0 max-w-[46rem]">
-      <button
-        type="button"
-        onClick={() => {
-          if (!canExpand) return;
-          setOpen((value) => !value);
-        }}
-        className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-[12.5px] text-violet-800 dark:text-violet-200 hover:bg-violet-500/15 transition-colors"
-      >
-        {live ? <Loader2 className="size-3.5 animate-spin text-violet-600 dark:text-violet-300" /> : <Sparkles className="size-3.5 text-violet-600 dark:text-violet-300" />}
-        <span className="font-medium">{label}</span>
-        {live ? (
-          <span className="tabular-nums text-[12px]">
-            <LiveElapsed since={thoughts[0]?.createdAt || startedAt} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => {
+            if (!canExpand) return;
+            setOpen((value) => !value);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-[12.5px] text-violet-800 dark:text-violet-200 hover:bg-violet-500/15 transition-colors"
+        >
+          {live ? <Loader2 className="size-3.5 animate-spin text-violet-600 dark:text-violet-300" /> : <Sparkles className="size-3.5 text-violet-600 dark:text-violet-300" />}
+          <span className="font-medium">{label}</span>
+          {live ? (
+            <span className="tabular-nums text-[12px]">
+              <LiveElapsed since={thoughts[0]?.createdAt || startedAt} />
+            </span>
+          ) : null}
+          {canExpand ? open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" /> : null}
+        </button>
+        {route ? (
+          <span
+            title={route.reason}
+            className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground"
+          >
+            <Cpu className="size-3" />
+            {route.displayName}
+            {route.pinned ? <Pin className="size-2.5 text-primary" /> : route.task ? <span className="opacity-60">· {route.task}</span> : null}
           </span>
         ) : null}
-        {canExpand ? open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" /> : null}
-      </button>
+      </div>
       {open && canExpand ? (
-        <div className="mt-1.5 ml-1 border-l border-border/80 pl-3 space-y-1.5 text-[12.5px] text-muted-foreground leading-relaxed">
-          {lines.length ? (
-            lines.map((event) => {
-              const body =
-                event.detail && event.detail !== event.title && !/^Pass \d+$/i.test(event.detail.trim())
-                  ? event.detail
-                  : event.title;
-              return (
-                <p key={event.id} className="whitespace-pre-wrap">
-                  {body}
-                </p>
-              );
-            })
-          ) : (
-            <p className="italic">Working through the request…</p>
-          )}
+        <div className="mt-1.5 ml-1 border-l border-violet-500/30 pl-3 space-y-1.5 text-[12.5px] text-muted-foreground leading-relaxed">
+          <AnimatePresence initial={false}>
+            {lines.length ? (
+              lines.map((event, index) => {
+                const isTool = event.type === "tool_start";
+                const isLatest = index === lines.length - 1;
+                const body =
+                  event.detail && event.detail !== event.title && !/^Pass \d+$/i.test(event.detail.trim())
+                    ? event.detail
+                    : event.title;
+                return (
+                  <motion.p
+                    key={event.id}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className={cn("whitespace-pre-wrap", isTool && "flex items-start gap-1.5 not-italic text-foreground/75")}
+                  >
+                    {isTool ? <Wrench className="mt-1 size-3 shrink-0 text-sky-500" /> : null}
+                    <span className={cn(isTool && "font-mono text-[11.5px]")}>
+                      {isTool ? body : body}
+                      {live && isLatest ? (
+                        <span className="ml-0.5 inline-block h-3.5 w-[6px] translate-y-[2px] animate-pulse rounded-[1px] bg-violet-500/70" />
+                      ) : null}
+                    </span>
+                  </motion.p>
+                );
+              })
+            ) : (
+              <motion.p key="placeholder" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="italic">
+                Working through the request
+                <span className="ml-0.5 inline-block h-3.5 w-[6px] translate-y-[2px] animate-pulse rounded-[1px] bg-violet-500/70" />
+              </motion.p>
+            )}
+          </AnimatePresence>
         </div>
       ) : null}
     </div>
@@ -1204,6 +1249,18 @@ export function AgentChatThread({
     (item) => item.projectId === project?.id && isLinkedGithubRepo(item),
   );
   const githubAccountConnected = Boolean(context && hasGithubAccount(context));
+  const { openGithubConnect } = useAgentUi();
+  const githubDialogShownRef = useRef<string | null>(null);
+  const githubPendingKey =
+    awaitingPlugin && pendingPlugin && isGithubCapability(pendingPlugin.capability) && !githubAccountConnected
+      ? `${run.id}:${pendingPlugin.summary}`
+      : null;
+  useEffect(() => {
+    // Never leave the user with a "GitHub is not connected" dead end: pop the connect dialog once per request.
+    if (!githubPendingKey || githubDialogShownRef.current === githubPendingKey) return;
+    githubDialogShownRef.current = githubPendingKey;
+    openGithubConnect({ runId: run.id, projectId: project?.id, reason: pendingPlugin?.summary });
+  }, [githubPendingKey, openGithubConnect, pendingPlugin?.summary, project?.id, run.id]);
   const currentAction = [...events].reverse().find(
     (event) =>
       event.type !== "context_meter" &&

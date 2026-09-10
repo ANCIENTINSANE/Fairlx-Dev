@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
-  AlertCircle,
   Loader2,
   Pin,
   Trash2,
@@ -16,7 +15,6 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
-  Copy,
   Eye,
   Layers,
   PanelRightClose,
@@ -54,36 +52,38 @@ import {
   useStopAgentRun,
 } from "../api/use-agent-runs";
 import { useAgentMutationSync } from "../hooks/use-agent-mutation-sync";
-import { clockTime, relativeTime } from "../lib/agent-ui";
+import { relativeTime } from "../lib/agent-ui";
+import { crewModelHints } from "../lib/client-defaults";
 import { extractBoardProject, withWorkspaceFallback } from "../lib/project-launch";
+import { summarizeRunLive } from "../lib/run-live";
 import { looksLikeLlmUsageEvent } from "../lib/run-usage";
-import type { AgentRun, AgentToolEvent, CodingSession } from "../types";
+import { buildAgentCrew } from "../lib/subagent-tree";
+import type { AgentRun, AgentSessionMode, AgentToolEvent } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
 import { AgentCommandInput } from "./agent-command-input";
 import { AgentCrewPanel } from "./agent-crew-panel";
 import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 import { DiffViewer, type CheckRun, type DiffFile } from "./diff-viewer";
-import { CodingSessionPanel } from "./coding-session-panel";
+import { ChangesTree } from "./changes-tree";
+import { CrewStage } from "./crew-stage";
+import { LiveActivityTimeline } from "./live-activity-timeline";
+import { RunStatusStrip, SandboxPill } from "./run-status-strip";
+import { SandboxPreviewPanel } from "./sandbox-preview-panel";
 import { SessionArtifacts } from "./session-artifacts";
+import { TerminalPanel } from "./terminal-panel";
 import { ImplementationPlanCard } from "./implementation-plan-card";
 import { resolveRunImplementationPlan } from "../lib/implementation-plan";
 import { describeCodingPreview } from "../lib/sandbox-preview";
 import { shouldRecoverInterruptedTurn } from "../lib/optimistic-run";
 import { tabTone, type WorkflowSidebarTab } from "../lib/sidebar-theme";
+import { SidebarEmptyState } from "./workflow-sidebar-ui";
 import {
-  AccentCard,
-  SidebarEmptyState,
-  SidebarIconWell,
-  StatusPill,
-} from "./workflow-sidebar-ui";
-import { useCommentCodingSession, useGetCodingSession, useMergeCodingSession, useStartCodingSession } from "../api/use-coding-session";
-import { toast } from "sonner";
-
-/** Most recent error recorded on the coding session (Azure RBAC, clone, install…). */
-function lastSessionError(session: CodingSession): string {
-  const errors = (session.events ?? []).filter((event) => event.type === "error" && event.detail);
-  return errors[errors.length - 1]?.detail ?? "";
-}
+  useCommentCodingSession,
+  useGetCodingSession,
+  useMergeCodingSession,
+  useRestartCodingSession,
+  useStartCodingSession,
+} from "../api/use-coding-session";
 
 const SIDEBAR_MIN = 280;
 const SIDEBAR_MAX = 760;
@@ -100,16 +100,29 @@ const SIDEBAR_TABS: ReadonlyArray<readonly [WorkflowSidebarTab, string, LucideIc
   ["preview", "Preview", Eye],
 ];
 
+const EMPTY_RUN: AgentRun = {
+  id: "",
+  userId: "",
+  title: "",
+  status: "queued",
+  kind: "chat",
+  messages: [],
+  events: [],
+  createdAt: "",
+  updatedAt: "",
+} as unknown as AgentRun;
+
 function clampSidebarWidth(value: number) {
   const max = typeof window === "undefined" ? SIDEBAR_MAX : Math.min(SIDEBAR_MAX, window.innerWidth * 0.7);
   return Math.min(max, Math.max(SIDEBAR_MIN, value));
 }
 
 
-function FloatingComposer({ children }: { children: React.ReactNode }) {
+function FloatingComposer({ children, above }: { children: React.ReactNode; above?: React.ReactNode }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40">
       <div className="bg-gradient-to-t from-background via-background to-transparent pt-12">
+        <div className="mx-auto w-full max-w-[760px] px-4">{above}</div>
         <div className="pointer-events-auto mx-auto w-full max-w-[760px] px-4 pb-5 bg-background">
           {children}
         </div>
@@ -215,20 +228,14 @@ function ProjectSelectorRow({
   );
 }
 
-function WorkflowSidebar({
-  run,
-  events,
-  tab,
-  onTab,
-}: {
-  run: AgentRun;
-  events: AgentToolEvent[];
-  tab: WorkflowSidebarTab;
-  onTab: (tab: WorkflowSidebarTab) => void;
-}) {
+type WorkflowData = ReturnType<typeof useWorkflowData>;
+
+/** Everything the sidebar tabs and the floating status strip need, derived once per run. */
+function useWorkflowData(run: AgentRun, tab: WorkflowSidebarTab) {
   const { data: context } = useGetAgentContext();
   const { data: harness } = useGetAgentHarness();
   const { data: ai } = useGetAgentAiConfig();
+  const events = useMemo(() => run.events ?? [], [run.events]);
   const workspace = context?.workspaces.find((item) => item.id === run.workspaceId) ?? context?.workspaces[0];
   const workspaceId = run.workspaceId || harness?.settings.defaultWorkspaceId || workspace?.id;
   const workspaceProjects = useMemo(
@@ -261,11 +268,113 @@ function WorkflowSidebar({
     runId: run.id,
     projectId: project?.id,
     runLive: activityLive,
+    // Having the preview open counts as using the sandbox — keeps the 15 min idle timer fresh.
+    touch: tab === "preview",
   });
+  const session = sessionPayload?.session;
+  const diffFiles = useMemo(
+    () => (Array.isArray(sessionPayload?.diff?.files) ? sessionPayload.diff.files : []) as DiffFile[],
+    [sessionPayload?.diff?.files],
+  );
+  const checks = (Array.isArray(sessionPayload?.diff?.checks) ? sessionPayload.diff.checks : []) as CheckRun[];
+  const walkthrough = typeof sessionPayload?.walkthrough === "string" ? sessionPayload.walkthrough : undefined;
+  const workItemId = context?.workItems.find((item) => item.projectId === project?.id)?.id;
+  const staging = harness?.gitStaging?.items;
+  const repo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
+  const githubUrl = repo?.githubUrl || (repo?.owner && repo.repositoryName ? `https://github.com/${repo.owner}/${repo.repositoryName}` : "");
+  const changeFiles = useMemo(() => {
+    const stagingFiles = (staging ?? [])
+      .filter((item) => !diffFiles.some((file) => file.filename === item.path))
+      .map((item) => ({
+        filename: item.path,
+        status: "modified",
+        additions: 0,
+        deletions: 0,
+        changes: 0,
+        patch: item.content,
+      })) as DiffFile[];
+    return [...diffFiles, ...stagingFiles];
+  }, [diffFiles, staging]);
+  const live = useMemo(() => summarizeRunLive(run, session, changeFiles), [run, session, changeFiles]);
+  const crew = useMemo(() => buildAgentCrew(events, run.status, crewModelHints(ai, run)), [events, run, ai]);
+  const activityEvents = useMemo(
+    () => events.filter((event) => event.type !== "context_meter" && !looksLikeLlmUsageEvent(event)),
+    [events],
+  );
+  const knownPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const event of events) {
+      if (event.type !== "github_list_files") continue;
+      const payload = event.payload && typeof event.payload === "object" ? (event.payload as { files?: unknown; entries?: unknown }) : {};
+      const list = Array.isArray(payload.files) ? payload.files : Array.isArray(payload.entries) ? payload.entries : [];
+      for (const item of list) {
+        if (typeof item === "string") paths.add(item);
+        else if (item && typeof item === "object") {
+          const path = (item as { path?: string; name?: string }).path || (item as { name?: string }).name;
+          if (typeof path === "string" && (item as { type?: string }).type !== "dir" && (item as { type?: string }).type !== "tree") paths.add(path);
+        }
+      }
+    }
+    return [...paths];
+  }, [events]);
+
+  return {
+    context,
+    harness,
+    ai,
+    workspace,
+    project,
+    projectsForSelect,
+    activityLive,
+    session,
+    sessionPayload,
+    changeFiles,
+    checks,
+    walkthrough,
+    workItemId,
+    repo,
+    githubUrl,
+    live,
+    crew,
+    activityEvents,
+    knownPaths,
+  };
+}
+
+function WorkflowSidebar({
+  run,
+  events,
+  tab,
+  onTab,
+  data,
+}: {
+  run: AgentRun;
+  events: AgentToolEvent[];
+  tab: WorkflowSidebarTab;
+  onTab: (tab: WorkflowSidebarTab) => void;
+  data: WorkflowData;
+}) {
+  const {
+    ai,
+    workspace,
+    project,
+    projectsForSelect,
+    activityLive,
+    session,
+    changeFiles,
+    checks,
+    walkthrough,
+    workItemId,
+    repo,
+    githubUrl,
+    live,
+    activityEvents,
+    knownPaths,
+  } = data;
   const startSession = useStartCodingSession();
+  const restartSession = useRestartCodingSession();
   const commentSession = useCommentCodingSession();
   const mergeSession = useMergeCodingSession();
-  const session = sessionPayload?.session;
   const previewMeta = describeCodingPreview({
     previewUrl: session?.previewUrl,
     status: session?.status,
@@ -281,21 +390,8 @@ function WorkflowSidebar({
     previewShownRef.current = previewKey;
     onTab("preview");
   }, [previewKey, previewMeta.live, previewMeta.stub, onTab]);
-  const diffFiles = (Array.isArray(sessionPayload?.diff?.files) ? sessionPayload.diff.files : []) as DiffFile[];
-  const checks = (Array.isArray(sessionPayload?.diff?.checks) ? sessionPayload.diff.checks : []) as CheckRun[];
-  const walkthrough = typeof sessionPayload?.walkthrough === "string" ? sessionPayload.walkthrough : undefined;
-  const workItemId = context?.workItems.find((item) => item.projectId === project?.id)?.id;
-  const staging = harness?.gitStaging?.items ?? [];
-  const live = events
-    .filter((event) => event.type !== "context_meter" && !looksLikeLlmUsageEvent(event))
-    .slice(-40);
-  const [activityOpen, setActivityOpen] = useState(activityLive);
-  useEffect(() => {
-    setActivityOpen(activityLive);
-  }, [activityLive]);
-  const repo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
-  const terminals = events.filter((event) => event.type === "terminal" || event.type === "coding_session_exec");
-  const githubUrl = repo?.githubUrl || (repo?.owner && repo.repositoryName ? `https://github.com/${repo.owner}/${repo.repositoryName}` : "");
+  const [crewDetailsOpen, setCrewDetailsOpen] = useState(false);
+  const [focusFile, setFocusFile] = useState<string | null>(null);
   const prLinks = events
     .filter((event) => event.type === "github_open_pr" || event.type === "github_write_file" || event.type === "github_create_repo" || event.type === "github_update_repo" || event.type === "github_create_issue")
     .map((event) => {
@@ -354,17 +450,14 @@ function WorkflowSidebar({
     document.addEventListener("mouseup", onUp);
   };
 
-  const stagingFiles = staging
-    .filter((item) => !diffFiles.some((file) => file.filename === item.path))
-    .map((item) => ({
-      filename: item.path,
-      status: "modified",
-      additions: 0,
-      deletions: 0,
-      changes: 0,
-      patch: item.content,
-    })) as DiffFile[];
-  const changeFiles = [...diffFiles, ...stagingFiles];
+  const startSandbox = () =>
+    startSession.mutate({ workItemId: session?.workItemId || workItemId, projectId: project?.id, runId: run.id });
+  const restartSandbox = () => (session ? restartSession.mutate(session.id) : startSandbox());
+  const tabBadge = (id: WorkflowSidebarTab): number => {
+    if (id === "changes") return live.files.length;
+    if (id === "terminal") return live.terminals.running.length;
+    return 0;
+  };
 
   return (
     <aside
@@ -393,11 +486,12 @@ function WorkflowSidebar({
           {SIDEBAR_TABS.map(([id, label, Icon]) => {
             const tone = tabTone(id);
             const active = tab === id;
+            const badge = tabBadge(id);
             return (
               <button
                 key={id}
                 type="button"
-                title={id === "changes" && changeFiles.length ? `${label} · ${changeFiles.length}` : label}
+                title={badge ? `${label} · ${badge}` : label}
                 onClick={() => {
                   onTab(id);
                   setCollapsed(false);
@@ -408,9 +502,14 @@ function WorkflowSidebar({
                 )}
               >
                 <Icon className="size-4" />
-                {id === "changes" && changeFiles.length ? (
-                  <span className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-emerald-500 px-0.5 text-center text-[9px] font-semibold leading-[14px] text-white">
-                    {changeFiles.length}
+                {badge ? (
+                  <span
+                    className={cn(
+                      "absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full px-0.5 text-center text-[9px] font-semibold leading-[14px] text-white",
+                      id === "terminal" ? "bg-amber-500" : "bg-emerald-500",
+                    )}
+                  >
+                    {badge}
                   </span>
                 ) : null}
               </button>
@@ -424,6 +523,8 @@ function WorkflowSidebar({
           {SIDEBAR_TABS.map(([id, label, Icon]) => {
             const tone = tabTone(id);
             const active = tab === id;
+            const badge = tabBadge(id);
+            const previewLive = id === "preview" && previewMeta.live;
             return (
           <button
             key={id}
@@ -436,17 +537,24 @@ function WorkflowSidebar({
               active && tone.bg,
             )}
           >
-            <Icon className="size-3.5" />
+            <span className="relative">
+              <Icon className="size-3.5" />
+              {previewLive ? <span className="absolute -right-1 -top-1 size-1.5 animate-pulse rounded-full bg-cyan-500" /> : null}
+            </span>
             <span className="inline-flex items-center gap-0.5">
               {label}
-              {id === "changes" && changeFiles.length ? (
+              {badge ? (
                 <span
                   className={cn(
                     "inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-semibold tabular-nums",
-                    active ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" : "bg-muted text-muted-foreground",
+                    id === "terminal"
+                      ? "bg-amber-500/20 text-amber-800 dark:text-amber-300"
+                      : active
+                        ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                        : "bg-muted text-muted-foreground",
                   )}
                 >
-                  {changeFiles.length}
+                  {badge}
                 </span>
               ) : null}
             </span>
@@ -477,7 +585,7 @@ function WorkflowSidebar({
               <ImplementationPlanCard plan={implementationPlan} />
             ) : (
               <SidebarEmptyState icon={ClipboardList} tone="blue" title="No plan yet">
-                The agent submits an implementation plan here before coding. Accept it to start the Azure session.
+                Ask in Plan mode (or let Auto pick it) and the agent drafts an implementation plan here with a proposed name and stack. Accept it to start the Azure session.
               </SidebarEmptyState>
             )}
           </div>
@@ -485,22 +593,29 @@ function WorkflowSidebar({
 
         {tab === "context" ? (
           <>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-4">
               <ProjectSelectorRow
                 run={run}
                 projects={projectsForSelect}
                 selectedProject={project}
                 workspaceId={workspace?.id}
               />
-              <AgentCrewPanel run={run} ai={ai} />
-              <CodingSessionPanel
-                session={session}
-                onStart={
-                  workItemId
-                    ? () => startSession.mutate({ workItemId, projectId: project?.id, runId: run.id })
-                    : undefined
-                }
-              />
+              <CrewStage run={run} ai={ai} route={live.route} />
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setCrewDetailsOpen((value) => !value)}
+                  className="flex w-full items-center gap-1 px-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground/70"
+                >
+                  {crewDetailsOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                  Crew details &amp; models
+                </button>
+                {crewDetailsOpen ? (
+                  <div className="mt-3">
+                    <AgentCrewPanel run={run} ai={ai} />
+                  </div>
+                ) : null}
+              </div>
               {project && !repo && project.workspaceId ? (
                 <GitHubOptionalPrompt projectId={project.id} workspaceId={project.workspaceId} compact />
               ) : null}
@@ -508,83 +623,21 @@ function WorkflowSidebar({
 
             <hr className="border-sidebar-border" />
 
-            <div>
-              <div className="flex items-center justify-between mb-3 px-1">
-                <button
-                  type="button"
-                  onClick={() => setActivityOpen((value) => !value)}
-                  className="flex items-center gap-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider hover:text-sidebar-foreground/70 transition-colors"
-                >
-                  {activityOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                  Live Activity
-                </button>
-                {activityLive ? (
-                  <div className="flex items-center gap-1.5 text-xs text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full font-medium">
-                    <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
-                    Live
-                  </div>
-                ) : (
-                  <span className="text-xs text-muted-foreground capitalize font-medium">{run.status.replace(/_/g, " ")}</span>
-                )}
-              </div>
-              {live.length === 0 ? (
-                <p className="text-xs text-muted-foreground px-1">No activity yet.</p>
-              ) : activityOpen ? (
-                <div className="relative pl-3 border-l-2 border-sidebar-border flex flex-col gap-3 ml-2">
-                  {live.map((event, index) => {
-                    const latest = index === live.length - 1 && activityLive;
-                    const failed = event.type === "error" || /fail/i.test(event.title);
-                    const thinking = event.type === "thought" || event.type === "subagent_progress";
-                    return (
-                      <div key={event.id} className="relative">
-                        <div
-                          className={cn(
-                            "absolute -left-[18px] top-1.5 size-2 rounded-full",
-                            latest
-                              ? "bg-primary shadow-[0_0_6px_rgba(59,130,246,0.8)]"
-                              : failed
-                                ? "bg-destructive"
-                                : thinking
-                                  ? "bg-primary/50"
-                                  : "bg-muted-foreground/50"
-                          )}
-                        />
-                        <div className="flex items-start text-xs">
-                          <span className={cn("w-14 shrink-0 text-[11px]", latest ? "text-primary font-medium" : "text-muted-foreground")}>
-                            {clockTime(event.createdAt, true)}
-                          </span>
-                          <div className="flex-1 ml-1.5 min-w-0">
-                            <span
-                              className={cn(
-                                "block",
-                                latest ? "text-primary font-medium" : failed ? "text-destructive font-medium" : "text-foreground"
-                              )}
-                            >
-                              {event.title}
-                            </span>
-                            {event.detail ? (
-                              <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-3 whitespace-pre-wrap">
-                                {event.detail}
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground px-1">
-                  {live.length} {live.length === 1 ? "event" : "events"} · expand to review
-                </p>
-              )}
-            </div>
-
+            <LiveActivityTimeline events={activityEvents} live={activityLive} status={run.status} />
           </>
         ) : null}
 
         {tab === "changes" ? (
           <div className="flex min-h-0 flex-1 flex-col">
+            {live.files.length ? (
+              <ChangesTree
+                files={live.files}
+                knownPaths={knownPaths}
+                activePath={focusFile}
+                onSelect={(path) => setFocusFile(path)}
+                repoName={repo ? `${repo.owner}/${repo.repositoryName}` : project?.name}
+              />
+            ) : null}
             {changeFiles.length ? (
               <div className="min-h-0 flex-1">
                 <DiffViewer
@@ -592,6 +645,7 @@ function WorkflowSidebar({
                   checks={checks}
                   walkthrough={walkthrough}
                   branch={session?.headBranch || repo?.branch || "main"}
+                  focusFile={focusFile}
                   onComment={
                     session
                       ? (path, line, body) => commentSession.mutate({ sessionId: session.id, path, line, body })
@@ -606,10 +660,12 @@ function WorkflowSidebar({
               <SidebarEmptyState
                 icon={GitBranch}
                 tone="emerald"
-                title={repo ? "No changes yet" : "Connect GitHub"}
+                title={repo ? (live.files.length ? "Diff is on its way" : "No changes yet") : "Connect GitHub"}
               >
                 {repo
-                  ? "No pull requests yet. After the sandbox pushes fairlx/{key}, the in-app diff appears here."
+                  ? live.files.length
+                    ? "Files above were just edited in the sandbox. The line-by-line diff appears once the branch is pushed."
+                    : "No pull requests yet. After the sandbox pushes fairlx/{key}, the in-app diff appears here."
                   : "Connect your GitHub account to edit code and review diffs in this panel."}
               </SidebarEmptyState>
               </div>
@@ -649,224 +705,20 @@ function WorkflowSidebar({
         ) : null}
 
         {tab === "terminal" ? (
-          <div className="space-y-2">
-            {terminals.length === 0 ? (
-              <SidebarEmptyState icon={SquareTerminal} tone="amber" title="No terminal output">
-                {session?.sandboxId
-                  ? "No sandbox output yet. The agent’s terminal and coding_session_exec results appear here."
-                  : "No recorded commands. Start a coding session so commands run in Azure, not on the Fairlx host."}
-              </SidebarEmptyState>
-            ) : (
-              terminals.map((event) => (
-                <div
-                  key={event.id}
-                  className="overflow-hidden rounded-xl border border-amber-500/25 bg-zinc-50 text-[11px] text-zinc-800 shadow-sm dark:border-amber-500/20 dark:bg-zinc-950 dark:text-zinc-100"
-                >
-                  <div className="flex items-center gap-2 border-b border-zinc-200 bg-zinc-100 px-3 py-1.5 dark:border-white/10 dark:bg-zinc-900">
-                    <span className="flex items-center gap-1">
-                      <span className="size-2 rounded-full bg-rose-400/90" />
-                      <span className="size-2 rounded-full bg-amber-400/90" />
-                      <span className="size-2 rounded-full bg-emerald-400/90" />
-                    </span>
-                    <SquareTerminal className="size-3 text-amber-600 dark:text-amber-300" />
-                    <span className="min-w-0 flex-1 truncate font-medium text-zinc-700 dark:text-zinc-200">{event.title}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-zinc-500">{clockTime(event.createdAt, true)}</span>
-                  </div>
-                  {event.detail ? (
-                    <pre className="custom-scrollbar max-h-56 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed text-emerald-700 dark:text-emerald-300/90">
-                      {event.detail}
-                    </pre>
-                  ) : (
-                    <p className="px-3 py-2 text-zinc-500">No output captured.</p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
+          <TerminalPanel running={live.terminals.running} closed={live.terminals.closed} hasSandbox={Boolean(session?.sandboxId)} />
         ) : null}
 
         {tab === "preview" ? (
-          <div className="space-y-3">
-            {session ? (
-              <AccentCard tone={previewMeta.live ? "cyan" : previewMeta.stub ? "amber" : "sky"}>
-                <div className="space-y-2 p-3">
-                  <div className="flex items-start gap-2">
-                    <SidebarIconWell icon={Eye} tone={previewMeta.live ? "cyan" : previewMeta.stub ? "amber" : "sky"} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-[12px] font-semibold text-foreground">Sandbox preview</p>
-                        <StatusPill
-                          kind={
-                            previewMeta.live
-                              ? "live"
-                              : previewMeta.stub
-                                ? "warn"
-                                : previewMeta.preparing || session.status === "preparing" || session.status === "queued"
-                                  ? "info"
-                                  : "idle"
-                          }
-                        >
-                          {previewMeta.live
-                            ? "live"
-                            : previewMeta.stub
-                              ? "not live"
-                              : session.status.replace(/_/g, " ")}
-                        </StatusPill>
-                      </div>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {previewMeta.driver !== "none" ? `${previewMeta.driver} · ` : ""}
-                        {session.status.replace(/_/g, " ")}
-                      </p>
-                    </div>
-                  </div>
-                {session.codingAgent ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    Coder: {session.codingAgent === "claude_code" ? "Claude Code in sandbox" : session.codingAgent === "codex" ? "Codex in sandbox" : "Fairlx specialists (CLI credentials missing)"}
-                  </p>
-                ) : null}
-                {session.status !== "failed" && (previewMeta.preparing || session.status === "preparing" || session.status === "queued") ? (
-                  <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-700 dark:text-sky-300">
-                    <Loader2 className="size-3.5 animate-spin" />
-                    {previewMeta.note || "Preparing clone, install, and dev server…"}
-                  </div>
-                ) : null}
-                {previewMeta.stub ? (
-                  <p className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">{previewMeta.note}</p>
-                ) : null}
-                {session.status === "failed" ? (
-                  <div className="space-y-2 rounded-lg border border-red-500/25 bg-red-500/[0.07] dark:bg-red-500/10 p-3 text-[11.5px]">
-                    <div className="flex items-center gap-1.5 font-semibold text-red-700 dark:text-red-300">
-                      <AlertCircle className="size-4 text-red-500 dark:text-red-400 shrink-0" />
-                      <span>Sandbox could not start</span>
-                    </div>
-                    <p className="font-mono text-[10.5px] text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-all leading-relaxed max-h-40 overflow-y-auto rounded bg-black/5 dark:bg-black/25 p-2 border border-red-500/10">
-                      {lastSessionError(session) || "The Azure sandbox failed before the app started."}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="secondary"
-                        disabled={startSession.isPending}
-                        onClick={() =>
-                          startSession.mutate({ workItemId: session.workItemId, projectId: session.projectId, runId: run.id })
-                        }
-                      >
-                        {startSession.isPending ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
-                        Retry in Azure
-                      </Button>
-                      <span className="text-[10px] text-muted-foreground">Fairlx re-checks Azure access live before retrying.</span>
-                    </div>
-                  </div>
-                ) : null}
-                {!previewMeta.live && previewMeta.url && session.status !== "failed" ? (
-                  <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-800 dark:text-sky-200">
-                    <span className="min-w-0 flex-1 truncate font-mono text-[10px]">{previewMeta.url}</span>
-                    <span className="shrink-0">public URL reserved · app still starting</span>
-                  </div>
-                ) : null}
-                {previewMeta.live && previewMeta.url ? (
-                  <>
-                    <p className="text-[11px] text-muted-foreground">
-                      In-app browser for the Azure sandbox app (not github.dev).
-                    </p>
-                    <div className="overflow-hidden rounded-xl border border-cyan-500/25 bg-zinc-50 dark:bg-zinc-950">
-                      <div className="flex items-center gap-2 border-b border-zinc-200 bg-zinc-100 px-2.5 py-1.5 dark:border-white/10 dark:bg-zinc-900">
-                        <span className="flex items-center gap-1">
-                          <span className="size-2 rounded-full bg-rose-400/90" />
-                          <span className="size-2 rounded-full bg-amber-400/90" />
-                          <span className="size-2 rounded-full bg-emerald-400/90" />
-                        </span>
-                        <a
-                          href={previewMeta.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open preview in a new tab"
-                          className="min-w-0 flex-1 truncate rounded-md bg-white px-2 py-0.5 font-mono text-[10px] text-zinc-600 hover:text-zinc-900 hover:underline dark:bg-zinc-800 dark:text-zinc-300 dark:hover:text-white"
-                        >
-                          {previewMeta.url}
-                        </a>
-                      </div>
-                      <iframe
-                        title="Sandbox app preview"
-                        src={previewMeta.url}
-                        className="w-full min-h-[28rem] bg-background"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={previewMeta.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="min-w-0 flex-1 truncate text-[11px] font-medium text-cyan-700 dark:text-cyan-300"
-                      >
-                        {previewMeta.url}
-                      </a>
-                      <Button type="button" size="xs" variant="secondary" asChild>
-                        <a href={previewMeta.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="size-3" /> Open
-                        </a>
-                      </Button>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="secondary"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(previewMeta.url);
-                            toast.success("Preview link copied. Anyone with the link can open it while the sandbox runs.");
-                          } catch {
-                            /* ignore */
-                          }
-                        }}
-                      >
-                        <Copy className="size-3" /> Copy share link
-                      </Button>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      Public Azure sandbox URL — shareable without a Fairlx login while the sandbox is running.
-                    </p>
-                  </>
-                ) : null}
-                <SessionArtifacts session={session} embedded />
-                </div>
-              </AccentCard>
-            ) : (
-              <SidebarEmptyState icon={Eye} tone="cyan" title="No sandbox yet">
-                After you Accept the implementation plan, Fairlx clones the repo in Azure, installs, starts the app, and the live preview appears here.
-              </SidebarEmptyState>
-            )}
-            {githubUrl ? (
-              <>
-                <p className="px-1 text-[11px] text-muted-foreground">
-                  Linked GitHub repository (source remote, not the running preview).
-                </p>
-                <a
-                  href={githubUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] p-3 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <GitBranch className="size-3.5" />
-                    Open Repository
-                  </span>
-                  <ExternalLink className="size-3.5" />
-                </a>
-              </>
-            ) : project ? (
-              <Link
-                href={`/workspaces/${project.workspaceId}/projects/${project.id}/github`}
-                className="block rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-medium text-amber-800 dark:text-amber-300"
-              >
-                Connect GitHub so Fairlx can clone the repo in Azure.
-              </Link>
-            ) : (
-              <p className="rounded-xl border border-dashed border-border bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground">
-                Select a project to preview the sandbox app.
-              </p>
-            )}
-          </div>
+          <SandboxPreviewPanel
+            session={session}
+            project={project}
+            repo={repo}
+            githubUrl={githubUrl}
+            onStart={project ? startSandbox : undefined}
+            startPending={startSession.isPending}
+            onRestart={restartSandbox}
+            restartPending={restartSession.isPending}
+          />
         ) : null}
       </div>
         </>
@@ -898,6 +750,7 @@ function WorkflowViewInner() {
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [tab, setTab] = useState<WorkflowSidebarTab>("context");
+  const workflow = useWorkflowData(run ?? EMPTY_RUN, tab);
   const [DeleteDialog, confirmDelete] = useConfirm(
     "Delete Run",
     "Are you sure you want to delete this chat run? This action cannot be undone.",
@@ -1072,6 +925,7 @@ function WorkflowViewInner() {
     <span className="capitalize">{running ? "Running" : awaiting ? "Needs approval" : awaitingPlugin ? "Needs plugin" : run.status === "awaiting_question" ? "Waiting for answer" : run.status}</span>
               </span>
               <span className="text-muted-foreground">• Started {relativeTime(run.createdAt)}</span>
+              <SandboxPill session={workflow.session} onClick={() => setTab("preview")} />
             </div>
           </div>
 
@@ -1161,7 +1015,21 @@ function WorkflowViewInner() {
             />
           </div>
 
-          <FloatingComposer>
+          <FloatingComposer
+            above={
+              <RunStatusStrip
+                run={run}
+                sessionMode={harness?.settings.sessionMode as AgentSessionMode | undefined}
+                route={workflow.live.route}
+                crewLive={workflow.crew.live + (workflow.crew.orchestratorStatus === "working" ? 1 : 0)}
+                terminals={workflow.live.terminals}
+                filesChanged={workflow.live.files.length}
+                session={workflow.session}
+                thought={workflow.live.thought}
+                onTab={setTab}
+              />
+            }
+          >
             <AgentCommandInput
               run={run}
               variant="followup"
@@ -1188,7 +1056,7 @@ function WorkflowViewInner() {
       </div>
 
       {/* Right Sidebar: Context, Changes, Terminal, Preview (Positioned below navbar on the right side) */}
-      <WorkflowSidebar run={run} events={run.events ?? []} tab={tab} onTab={setTab} />
+      <WorkflowSidebar run={run} events={run.events ?? []} tab={tab} onTab={setTab} data={workflow} />
     </div>
   );
 }
