@@ -4,68 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `packages/fairlx-mcp/src/runtime/types.ts`
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/work-item-status.test.ts`
-- `packages/fairlx-mcp/src/tools/work-item-status.ts`
-- `packages/fairlx-mcp/src/tools/write-team.test.ts`
-- `packages/fairlx-mcp/src/tools/write-team.ts`
-- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
-- `packages/fairlx-mcp/src/tools/write.ts`
-- `packages/fairlx-multi-agent/src/context.test.ts`
-- `packages/fairlx-multi-agent/src/context.ts`
-- `packages/fairlx-multi-agent/src/fairlx.ts`
-- `packages/fairlx-multi-agent/src/types.ts`
-- `src/features/agent/api/use-agent-briefing.ts`
-- `src/features/agent/components/agent-app-shell.tsx`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-context-meter.tsx`
-- `src/features/agent/components/agent-home.tsx`
-- `src/features/agent/components/agent-ops-screens.tsx`
-- `src/features/agent/components/agent-run-hud.tsx`
-- `src/features/agent/components/agent-scope-bar.tsx`
-- `src/features/agent/components/agent-work-item-table.tsx`
-- `src/features/agent/components/daily-cockpit.tsx`
-- `src/features/agent/lib/agent-core.test.ts`
-- `src/features/agent/lib/ai-usage-billing.ts`
-- `src/features/agent/lib/assigned-work.test.ts`
-- `src/features/agent/lib/assigned-work.ts`
-- `src/features/agent/lib/brain/select.ts`
-- `src/features/agent/lib/context-meter.ts`
-- `src/features/agent/lib/context.ts`
-- `src/features/agent/lib/multi-agent.ts`
-- `src/features/agent/lib/parse-tool-calls.test.ts`
-- `src/features/agent/lib/parse-tool-calls.ts`
-- `src/features/agent/lib/prompt-budget.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/run-groups.test.ts`
-- `src/features/agent/lib/run-groups.ts`
-- `src/features/agent/lib/run-usage.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/tools-scope.test.ts`
-- `src/features/agent/lib/tools.ts`
-- `src/features/agent/lib/transcript.ts`
-- `src/features/agent/lib/work-item-table.test.ts`
-- `src/features/agent/lib/work-item-table.ts`
-- `src/features/agent/lib/write-guard.test.ts`
-- `src/features/agent/lib/write-guard.ts`
-- `src/features/billing/api/use-get-billing-account.ts`
-- `src/features/project-members/server/route.ts`
-- `src/features/projects/lib/utils.ts`
-- `src/features/usage/api/use-get-usage-events.ts`
-- `src/features/usage/api/use-get-usage-summary.ts`
-- `src/features/workflows/lib/validate-status-transition.ts`
-- `src/lib/usage-ledger.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-10 | `4357ff6` | feat: implement default project roles and permissions system with automated role seeding | Happyesss |
 | 2026-09-09 | `2d59f93` | chore: bump version to 0.2.119 [skip ci] | github-actions[bot] |
 | 2026-09-10 | `d52ca96` | feat: enhance idempotency handling and add project creation event | Happyesss |
 | 2026-09-09 | `6b2114e` | chore: bump version to 0.2.118 [skip ci] | github-actions[bot] |
@@ -147,6 +90,5 @@ Files in this commit:
 | 2026-09-03 | `6661845` | feat: introduce personal agent functionality with new tools, update environment configurations, and enhance agent run management | Happyesss |
 | 2026-09-01 | `9f29adb` | chore: bump version to 0.2.89 [skip ci] | github-actions[bot] |
 | 2026-09-02 | `3481abe` | Merge pull request #297 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-01 | `b14b78f` | chore: bump version to 0.2.88 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-10T12:21:44.300Z
+Last generated: 2026-09-10T12:21:48.673Z

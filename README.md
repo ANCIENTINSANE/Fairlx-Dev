@@ -18,43 +18,19 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-10T12:21:44.313Z
+**Last updated:** 2026-09-10T12:21:48.685Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `packages/fairlx-mcp/src/runtime/types.ts`
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/work-item-status.test.ts`
-- `packages/fairlx-mcp/src/tools/work-item-status.ts`
-- `packages/fairlx-mcp/src/tools/write-team.test.ts`
-- `packages/fairlx-mcp/src/tools/write-team.ts`
-- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
-- `packages/fairlx-mcp/src/tools/write.ts`
-- `packages/fairlx-multi-agent/src/context.test.ts`
-- `packages/fairlx-multi-agent/src/context.ts`
-- `packages/fairlx-multi-agent/src/fairlx.ts`
-- `packages/fairlx-multi-agent/src/types.ts`
-- `src/features/agent/api/use-agent-briefing.ts`
-- `src/features/agent/components/agent-app-shell.tsx`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-command-input.tsx`
-- `src/features/agent/components/agent-context-meter.tsx`
-- `src/features/agent/components/agent-home.tsx`
-- `src/features/agent/components/agent-ops-screens.tsx`
-- `src/features/agent/components/agent-run-hud.tsx`
-- …and 33 more files
-
 **Latest commits**
 
+- `4357ff6` feat: implement default project roles and permissions system with automated role seeding (2026-09-10)
 - `2d59f93` chore: bump version to 0.2.119 [skip ci] (2026-09-09)
 - `d52ca96` feat: enhance idempotency handling and add project creation event (2026-09-10)
 - `6b2114e` chore: bump version to 0.2.118 [skip ci] (2026-09-09)
 - `728b3e4` Merge pull request #315 from Happyesss/main (2026-09-09)
 - `dd73a75` chore: bump version to 0.2.117 [skip ci] (2026-09-09)
 - `e998198` refactor: overhaul implementation plan handling with robust clamping, merging logic, and improved persistence limits (2026-09-09)
-- `103a794` chore: bump version to 0.2.116 [skip ci] (2026-09-09)
 <!-- docs:latest:end -->
 
 ---
