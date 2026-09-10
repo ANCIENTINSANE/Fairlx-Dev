@@ -18,26 +18,13 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-10T19:35:19.461Z
+**Last updated:** 2026-09-10T19:35:59.855Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `src/features/agent/lib/composer-shortcuts.test.ts`
-- `src/features/agent/lib/composer-shortcuts.ts`
-- `src/features/agent/lib/implementation-plan.test.ts`
-- `src/features/agent/lib/implementation-plan.ts`
-- `src/features/agent/lib/mode-router.test.ts`
-- `src/features/agent/lib/mode-router.ts`
-- `src/features/agent/lib/prompt-budget.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/tool-loop.test.ts`
-- `src/features/agent/lib/tool-loop.ts`
-
 **Latest commits**
 
+- `502e381` fix: stop replanning when the user asks the agent to code (2026-09-11)
 - `57825f5` feat: add automation loops, Slack agent ops, sandbox lifecycle, and live run workspace (2026-09-11)
 - `b1e88d5` chore: bump version to 0.2.123 [skip ci] (2026-09-10)
 - `4ff1179` Merge pull request #318 from Happyesss/main (2026-09-10)
