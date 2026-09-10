@@ -519,6 +519,12 @@ export const AGENT_TOOL_CATALOG = [
     description: "Send email through a connected mail plugin after Accept.",
   },
   {
+    id: "notify_channel",
+    name: "Notify channel",
+    icon: "fa-brands fa-slack",
+    description: "Post to the project's Slack / Discord / Teams channel or a Fairlx user (automation loops, supervisors).",
+  },
+  {
     id: "github_list_files",
     name: "List repo files",
     icon: "fa-solid fa-folder-tree",
@@ -706,6 +712,7 @@ export const NEW_AGENT_TOOL_IDS = [
   "request_capability",
   "persist_memory",
   "mail_send",
+  "notify_channel",
   "github_list_files",
   "github_read_file",
   "github_write_file",

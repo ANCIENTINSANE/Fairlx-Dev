@@ -24,7 +24,6 @@ import {
 } from "../schemas";
 import { ProjectIntegration, McpApiToken } from "../types";
 import {
-  decryptIntegrationToken,
   generateMcpToken,
   getAppBaseUrl,
   getProjectIntegration,
@@ -188,14 +187,8 @@ const app = new Hono()
         JSON.stringify({ projectId, workspaceId, userId: user.$id })
       ).toString("base64url");
 
-      const scopes = [
-        "chat:write",
-        "channels:read",
-        "commands",
-        "links:read",
-        "links:write",
-        "incoming-webhook",
-      ].join(",");
+      const { SLACK_REQUIRED_BOT_SCOPES } = await import("@/features/agent/plugins/slack");
+      const scopes = SLACK_REQUIRED_BOT_SCOPES.join(",");
 
       const url = new URL("https://slack.com/oauth/v2/authorize");
       url.searchParams.set("client_id", clientId);
@@ -249,6 +242,7 @@ const app = new Hono()
       ok: boolean;
       error?: string;
       access_token?: string;
+      bot_user_id?: string;
       team?: { id: string; name: string };
       incoming_webhook?: { channel: string; channel_id: string; url: string };
     };
@@ -280,6 +274,7 @@ const app = new Hono()
       channelId: tokenJson.incoming_webhook?.channel_id || null,
       channelName: tokenJson.incoming_webhook?.channel || null,
       webhookUrl: tokenJson.incoming_webhook?.url || null,
+      configJson: JSON.stringify({ botUserId: tokenJson.bot_user_id || null, teamName: tokenJson.team?.name || null }),
       createdBy: state.userId,
     };
 
@@ -295,201 +290,198 @@ const app = new Hono()
   })
 
   /**
-   * POST /api/integrations/slack/events — slash commands + link unfurl
+   * POST /api/integrations/slack/events — Events API (mentions, thread replies, link unfurl)
+   * and `/fairlx` slash commands. Verified with SLACK_SIGNING_SECRET; retries are ignored;
+   * long work happens after the 3-second ack.
    */
   .post("/slack/events", async (c) => {
     const contentType = c.req.header("content-type") || "";
+    const rawBody = await c.req.text();
+    const {
+      verifySlackSignature,
+      slackIntegrationForTeam,
+      postSlackMessage,
+      respondToSlackCommand,
+      slackUserEmail,
+      slackTextMentionsBot,
+    } = await import("@/features/agent/plugins/slack");
+    if (
+      !verifySlackSignature({
+        rawBody,
+        timestamp: c.req.header("x-slack-request-timestamp"),
+        signature: c.req.header("x-slack-signature"),
+      })
+    ) {
+      return c.json({ error: "invalid signature" }, 401);
+    }
+    if (c.req.header("x-slack-retry-num")) {
+      // Slack retries when we take >3s; we already handled the first delivery.
+      return c.json({ ok: true });
+    }
     const { databases: adminDb } = await createAdminClient();
+    const deferred = (task: () => Promise<void>) => {
+      setTimeout(() => {
+        task().catch((err) => console.warn("[Slack] deferred task failed:", err));
+      }, 0);
+    };
 
-    // URL verification (JSON)
     if (contentType.includes("application/json")) {
-      const body = await c.req.json<{
+      let body: {
         type?: string;
         challenge?: string;
+        team_id?: string;
+        authorizations?: Array<{ user_id?: string; is_bot?: boolean }>;
         event?: {
           type: string;
+          subtype?: string;
           text?: string;
           user?: string;
-          links?: Array<{ url: string }>;
+          bot_id?: string;
           channel: string;
-          message_ts: string;
+          ts?: string;
+          thread_ts?: string;
+          message_ts?: string;
+          links?: Array<{ url: string }>;
         };
-        team_id?: string;
-      }>();
+      };
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        return c.json({ error: "invalid json" }, 400);
+      }
 
       if (body.type === "url_verification" && body.challenge) {
         return c.json({ challenge: body.challenge });
       }
+      const event = body.event;
+      if (!event || !body.team_id) return c.json({ ok: true });
+      const slack = await slackIntegrationForTeam(adminDb, body.team_id);
+      if (!slack?.enabled || !slack.token) return c.json({ ok: true });
+      const token = slack.token;
+      const botUserId =
+        body.authorizations?.find((entry) => entry.is_bot)?.user_id ||
+        (() => {
+          try {
+            return (JSON.parse(slack.configJson || "{}") as { botUserId?: string }).botUserId || undefined;
+          } catch {
+            return undefined;
+          }
+        })();
 
-      // Link unfurl
-      if (body.event?.type === "link_shared" && body.event.links?.length) {
-        const link = body.event.links[0].url;
+      if (event.type === "link_shared" && event.links?.length) {
+        const link = event.links[0].url;
         const match = link.match(/\/workspaces\/([^/]+)\/tasks\/([^/?#]+)/);
         if (match) {
-          const [, , taskId] = match;
-          try {
-            const item = await adminDb.getDocument(DATABASE_ID, WORK_ITEMS_ID, taskId);
-            // Find slack integration for this project to get token
-            const integrations = await adminDb.listDocuments<ProjectIntegration>(
-              DATABASE_ID,
-              PROJECT_INTEGRATIONS_ID,
-              [
-                Query.equal("projectId", item.projectId as string),
-                Query.equal("provider", "slack"),
-                Query.limit(1),
-              ]
-            );
-            const slack = integrations.documents[0];
-            const token = decryptIntegrationToken(slack?.accessToken);
-            if (token) {
-              await fetch("https://slack.com/api/chat.unfurl", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  channel: body.event.channel,
-                  ts: body.event.message_ts,
-                  unfurls: {
-                    [link]: {
-                      title: `${item.key}: ${item.title}`,
-                      text: (item.description as string) || "Fairlx work item",
-                      color: "#4F46E5",
-                    },
+          deferred(async () => {
+            const item = await adminDb.getDocument(DATABASE_ID, WORK_ITEMS_ID, match[2]);
+            await fetch("https://slack.com/api/chat.unfurl", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({
+                channel: event.channel,
+                ts: event.message_ts,
+                unfurls: {
+                  [link]: {
+                    title: `${item.key}: ${item.title}`,
+                    text: (item.description as string) || "Fairlx work item",
+                    color: "#4F46E5",
                   },
-                }),
-              });
-            }
-          } catch (err) {
-            console.warn("[Slack] unfurl failed:", err);
-          }
+                },
+              }),
+            });
+          });
         }
+        return c.json({ ok: true });
       }
 
-      if (
-        (body.event?.type === "app_mention" || body.event?.type === "message") &&
-        body.event.text &&
-        body.team_id
-      ) {
-        try {
-          const { handleInboundFairlxMention } = await import("@/features/agent/lib/inbound-mentions");
-          const { parseFairlxMention } = await import("@/features/agent/lib/mentions");
-          if (parseFairlxMention(body.event.text)) {
-            const integrations = await adminDb.listDocuments<ProjectIntegration>(
-              DATABASE_ID,
-              PROJECT_INTEGRATIONS_ID,
-              [Query.equal("provider", "slack"), Query.equal("externalTeamId", body.team_id), Query.limit(1)],
-            );
-            const slack = integrations.documents[0];
-            if (slack?.enabled) {
-              const result = await handleInboundFairlxMention({
-                databases: adminDb,
-                source: "slack",
-                text: body.event.text,
-                userId: slack.createdBy || process.env.FAIRLX_AGENT_USER_ID || "fairlx-agent",
-                projectId: slack.projectId,
-                workspaceId: slack.workspaceId,
-              });
-              if (result.ok && slack.channelId) {
-                const token = decryptIntegrationToken(slack.accessToken);
-                if (token) {
-                  await fetch("https://slack.com/api/chat.postMessage", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({
-                      channel: body.event.channel || slack.channelId,
-                      text: result.auto
-                        ? `Fairlx started an autonomous coding session${result.workItemId ? ` for the linked work item` : ""}.`
-                        : `Fairlx attached this thread to the coding session.`,
-                    }),
-                  });
-                }
-              }
-            }
-          }
-        } catch (err) {
-          console.warn("[Slack] Fairlx mention failed:", err);
-        }
+      const isMessage = event.type === "app_mention" || event.type === "message";
+      const fromBot = Boolean(event.bot_id) || (botUserId && event.user === botUserId) || event.subtype === "bot_message";
+      if (isMessage && event.text && !fromBot && !event.subtype) {
+        if (!slackTextMentionsBot(event.text, botUserId)) return c.json({ ok: true });
+        deferred(async () => {
+          const { handleSlackThreadMention } = await import("@/features/agent/plugins/slack-commands");
+          const who: { email?: string; name?: string } = event.user
+            ? await slackUserEmail(token, event.user).catch(() => ({}))
+            : {};
+          const result = await handleSlackThreadMention({
+            databases: adminDb,
+            slack,
+            text: event.text || "",
+            channel: event.channel,
+            threadTs: event.thread_ts,
+            messageTs: event.ts || "",
+            slackUserId: event.user,
+            slackUserName: who.name,
+            actorUserId: slack.createdBy || process.env.FAIRLX_AGENT_USER_ID || "fairlx-agent",
+            botUserId,
+          });
+          await postSlackMessage({
+            token,
+            channel: event.channel,
+            text: result.text,
+            threadTs: event.thread_ts || event.ts,
+          });
+        });
       }
-
       return c.json({ ok: true });
     }
 
     // Slash command (form-urlencoded)
-    const form = await c.req.parseBody();
+    const form = Object.fromEntries(new URLSearchParams(rawBody).entries());
     const command = String(form.command || "");
     const text = String(form.text || "").trim();
     const teamId = String(form.team_id || "");
     const channelId = String(form.channel_id || "");
-
-    if (command === "/fairlx" && text.toLowerCase().startsWith("create ")) {
-      const title = text.slice(7).trim();
-      if (!title) {
-        return c.json({
-          response_type: "ephemeral",
-          text: "Usage: `/fairlx create <title>`",
-        });
-      }
-
-      // Resolve project from Slack team mapping
-      const integrations = await adminDb.listDocuments<ProjectIntegration>(
-        DATABASE_ID,
-        PROJECT_INTEGRATIONS_ID,
-        [
-          Query.equal("provider", "slack"),
-          Query.equal("externalTeamId", teamId),
-          Query.limit(1),
-        ]
-      );
-      const slack = integrations.documents[0];
-      if (!slack) {
-        return c.json({
-          response_type: "ephemeral",
-          text: "No Fairlx project is linked to this Slack workspace.",
-        });
-      }
-
-      const project = await adminDb.getDocument(DATABASE_ID, PROJECTS_ID, slack.projectId);
-      const keyBase = ((project.name as string) || "ITEM")
-        .toUpperCase()
-        .replace(/[^A-Z0-9]/g, "")
-        .slice(0, 4) || "ITEM";
-
-      const existing = await adminDb.listDocuments(DATABASE_ID, WORK_ITEMS_ID, [
-        Query.equal("projectId", slack.projectId),
-        Query.limit(1),
-        Query.orderDesc("$createdAt"),
-      ]);
-      const nextNum = (existing.total || 0) + 1;
-
-      const workItem = await adminDb.createDocument(DATABASE_ID, WORK_ITEMS_ID, ID.unique(), {
-        workspaceId: slack.workspaceId,
-        projectId: slack.projectId,
-        title,
-        key: `${keyBase}-${nextNum}`,
-        type: "TASK",
-        status: "TODO",
-        priority: "MEDIUM",
-        assigneeIds: [],
-        reporterId: slack.createdBy || "slack",
-      });
-
+    const responseUrl = String(form.response_url || "");
+    if (!/^\/fairlx/i.test(command)) {
+      return c.json({ response_type: "ephemeral", text: "Unknown command." });
+    }
+    const { handleSlackCommand, SLACK_COMMAND_HELP } = await import("@/features/agent/plugins/slack-commands");
+    const slack = await slackIntegrationForTeam(adminDb, teamId);
+    if (!slack?.enabled) {
       return c.json({
-        response_type: "in_channel",
-        text: `Created *${workItem.key}*: ${title}${channelId ? ` (from <#${channelId}>)` : ""}`,
+        response_type: "ephemeral",
+        text: `No Fairlx project is linked to this Slack workspace yet. In Fairlx open Project → Settings → Integrations → Slack → Connect, then run \`/fairlx link\`.\n\n${SLACK_COMMAND_HELP}`,
       });
     }
-
-    return c.json({
-      response_type: "ephemeral",
-      text: "Fairlx Slack commands: `/fairlx create <title>`",
-    });
+    const verb = text.split(/\s+/)[0]?.toLowerCase() || "help";
+    if (verb === "help" || verb === "") {
+      return c.json({ response_type: "ephemeral", text: SLACK_COMMAND_HELP });
+    }
+    const actorUserId = slack.createdBy || process.env.FAIRLX_AGENT_USER_ID || "fairlx-agent";
+    const slackUserName = String(form.user_name || "");
+    const run = () =>
+      handleSlackCommand({
+        databases: adminDb,
+        slack,
+        text,
+        slackUserId: String(form.user_id || ""),
+        slackUserName,
+        channelId,
+        actorUserId,
+      });
+    // Agent-starting commands can take longer than Slack's 3s window → ack, then use response_url.
+    const slow = /^(fix|build|implement|do|start|run|assign)$/.test(verb);
+    if (slow && responseUrl) {
+      deferred(async () => {
+        const reply: { text: string; inChannel?: boolean } = await run().catch((err) => ({
+          text: `Fairlx could not run that: ${err instanceof Error ? err.message : "unknown error"}`,
+        }));
+        await respondToSlackCommand(responseUrl, reply.text, Boolean(reply.inChannel));
+      });
+      return c.json({ response_type: "ephemeral", text: `Working on \`/fairlx ${text}\`…` });
+    }
+    try {
+      const reply = await run();
+      return c.json({ response_type: reply.inChannel ? "in_channel" : "ephemeral", text: reply.text });
+    } catch (err) {
+      console.warn("[Slack] command failed:", err);
+      return c.json({
+        response_type: "ephemeral",
+        text: `Fairlx could not run that: ${err instanceof Error ? err.message : "unknown error"}`,
+      });
+    }
   })
-
   /**
    * POST /api/integrations/discord/interactions — Discord slash (application commands)
    * Also supports simple webhook-style connect via POST body for channel webhook.

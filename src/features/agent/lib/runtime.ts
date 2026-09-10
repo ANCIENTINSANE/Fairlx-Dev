@@ -2,13 +2,12 @@ import type { Databases } from "node-appwrite";
 
 import {
   DEEPSEEK_FLASH_MODEL_ID,
-  DEEPSEEK_PRO_MODEL_ID,
-  FOUNDRY_GPT_LUNA_MODEL_ID,
   GROK_46_MODEL_ID,
   getPlatformDefaultModelId,
   isPlatformGrokEnabled,
   resolveExtraFoundrySpec,
 } from "../constants";
+import { ROUTER_TASK_LABEL, routeModel, scoreModelForTask, type RouteDecision } from "./fairlx-router";
 import type {
   AgentAiConfigStored,
   AgentCapability,
@@ -107,19 +106,25 @@ import {
   blockedBuildGateResult,
   blockedErrorDumpResult,
   blockedSandboxWaitResult,
+  buildGateBlockMessage,
   buildGateShouldBlock,
   codingSessionArgsFromPlan,
   compactImplementationPlan,
   conversationLooksLikeError,
+  conversationLooksLikeUiFollowUp,
+  conversationWantsNewPlanSlice,
+  describePlanSituation,
   filterCallsForBuildGate,
   filterCallsForErrorDump,
   filterCallsUntilSandbox,
+  firstIncompletePhase,
+  followUpImplementPrompt,
   parseImplementationPlan,
+  phaseImplementPrompt,
   planIsAccepted,
   resolveRunImplementationPlan,
   runHasAcceptedPlan,
   runIsWaitingForSandbox,
-  shouldUseInspectModel,
 } from "./implementation-plan";
 import {
   blockedSandboxAuthResult,
@@ -148,6 +153,67 @@ function thoughtEvent(runId: string, title: string, detail?: string, payload?: u
     type: "thought",
     title,
     detail,
+    payload,
+    createdAt: new Date().toISOString(),
+    runId,
+  };
+}
+
+function lastToolMessageContent(messages: AgentChatMessage[], toolName: string): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "tool" && message.toolName === toolName) return message.content || "";
+  }
+  return "";
+}
+
+function sandboxStartLooksReady(content: string): boolean {
+  if (!content) return false;
+  try {
+    const parsed = JSON.parse(content) as { sandboxId?: string; error?: string };
+    return Boolean(parsed.sandboxId) && !parsed.error;
+  } catch {
+    return false;
+  }
+}
+
+function sandboxStartLooksResumed(content: string): boolean {
+  if (!content) return false;
+  try {
+    const parsed = JSON.parse(content) as { resumed?: boolean; sandboxId?: string; error?: string };
+    return parsed.resumed === true && Boolean(parsed.sandboxId) && !parsed.error;
+  } catch {
+    return false;
+  }
+}
+
+function summarizeToolArgs(call: AgentToolCall): string {
+  const args = call.arguments && typeof call.arguments === "object" ? (call.arguments as Record<string, unknown>) : {};
+  const pick = ["command", "cmd", "query", "path", "url", "task", "name", "title", "sql", "capability"];
+  for (const key of pick) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 200);
+  }
+  return "";
+}
+
+export type ToolStartPayload = {
+  calls: Array<{ id: string; name: string; summary: string }>;
+};
+
+function toolStartEvent(runId: string, calls: AgentToolCall[]): AgentToolEvent {
+  const payload: ToolStartPayload = {
+    calls: calls.map((call) => ({ id: call.id, name: call.name, summary: summarizeToolArgs(call) })),
+  };
+  const first = payload.calls[0];
+  return {
+    id: crypto.randomUUID(),
+    type: "tool_start",
+    title:
+      calls.length === 1 && first
+        ? `Running ${first.name}${first.summary ? `: ${first.summary.slice(0, 80)}` : ""}`
+        : `Running ${calls.length} tools in parallel`,
+    detail: calls.length > 1 ? payload.calls.map((call) => call.name).join(", ") : undefined,
     payload,
     createdAt: new Date().toISOString(),
     runId,
@@ -186,6 +252,8 @@ export type ChatTarget = {
   maxInputTokens?: number;
   isPlatform?: boolean;
   api?: AgentLlmApi;
+  /** Why the Fairlx Router picked this model (absent for direct resolveChatTarget calls). */
+  route?: RouteDecision;
 };
 
 function withParallelToolCalls(body: Record<string, unknown>): Record<string, unknown> {
@@ -284,46 +352,49 @@ export function resolveChatTarget(stored: AgentAiConfigStored): ChatTarget {
   };
 }
 
-export function resolveWorkerTarget(stored: AgentAiConfigStored): ChatTarget {
-  const flash = stored.models.find((item) => item.id === DEEPSEEK_FLASH_MODEL_ID && item.isEnabled);
-  if (flash) {
+/**
+ * Resolve a ChatTarget for a router decision. Falls back through the enabled catalog when the
+ * chosen model has no usable credentials so one misconfigured overlay never fails the turn.
+ */
+function targetForDecision(stored: AgentAiConfigStored, decision: RouteDecision): ChatTarget {
+  if (decision.modelId) {
     try {
-      return resolveChatTarget({ ...stored, mode: "manual", selectedModelId: flash.id });
-    } catch {
-      // fall through
+      const target = resolveChatTarget({ ...stored, mode: "manual", selectedModelId: decision.modelId });
+      return { ...target, route: decision };
+    } catch (error) {
+      // A pinned model that cannot be reached is a hard error — the user asked for it explicitly.
+      if (decision.pinned) throw error;
     }
   }
-  return resolveChatTarget(stored);
+  if (!decision.pinned) {
+    // Auto mode: walk the remaining models by score for this task.
+    const ranked = stored.models
+      .filter((model) => model.isEnabled && model.id !== decision.modelId)
+      .map((model) => ({ model, score: scoreModelForTask(model, decision.task) }))
+      .sort((a, b) => b.score - a.score);
+    for (const { model } of ranked) {
+      try {
+        const target = resolveChatTarget({ ...stored, mode: "manual", selectedModelId: model.id });
+        return { ...target, route: { ...decision, modelId: model.id, displayName: model.displayName, reason: `${decision.reason} Fallback to ${model.displayName}.` } };
+      } catch {
+        // try next
+      }
+    }
+  }
+  const target = resolveChatTarget(stored);
+  return { ...target, route: { ...decision, modelId: target.modelId, displayName: target.displayName || target.modelId } };
 }
 
-export function resolveSessionBuilderTarget(stored: AgentAiConfigStored): ChatTarget {
-  const preferred = [
-    process.env.AGENT_FOUNDRY_GPT54_AZURE_DEPLOYMENT?.trim() ? "gpt-5.4" : "",
-    process.env.AGENT_FOUNDRY_SOL_AZURE_DEPLOYMENT?.trim() ? "gpt-5.6-sol" : "",
-    DEEPSEEK_PRO_MODEL_ID,
-  ].filter(Boolean);
-  for (const id of preferred) {
-    const model = stored.models.find((item) => item.id === id && item.isEnabled);
-    if (!model) continue;
-    try {
-      return resolveChatTarget({ ...stored, mode: "manual", selectedModelId: model.id });
-    } catch {
-      // try next overlay
-    }
-  }
-  return resolveWorkerTarget(stored);
+export function resolveWorkerTarget(stored: AgentAiConfigStored): ChatTarget {
+  return targetForDecision(stored, routeModel(stored, { role: "worker" }));
+}
+
+export function resolveSessionBuilderTarget(stored: AgentAiConfigStored, planAccepted = true): ChatTarget {
+  return targetForDecision(stored, routeModel(stored, { role: "builder", planAccepted }));
 }
 
 export function resolveReviewerTarget(stored: AgentAiConfigStored): ChatTarget {
-  const luna = stored.models.find((item) => item.id === FOUNDRY_GPT_LUNA_MODEL_ID && item.isEnabled);
-  if (luna) {
-    try {
-      return resolveChatTarget({ ...stored, mode: "manual", selectedModelId: luna.id });
-    } catch {
-      // fall through
-    }
-  }
-  return resolveChatTarget(stored);
+  return targetForDecision(stored, routeModel(stored, { role: "reviewer" }));
 }
 
 export function resolveOrchestratorTarget(
@@ -331,10 +402,7 @@ export function resolveOrchestratorTarget(
   userText: string,
   planAccepted: boolean,
 ): ChatTarget {
-  if (shouldUseInspectModel(userText, planAccepted)) {
-    return resolveWorkerTarget(stored);
-  }
-  return resolveChatTarget(stored);
+  return targetForDecision(stored, routeModel(stored, { role: "orchestrator", userText, planAccepted }));
 }
 
 export function specialistChatTarget(
@@ -342,11 +410,26 @@ export function specialistChatTarget(
   targets: { worker: ChatTarget; builder: ChatTarget; reviewer: ChatTarget },
   planAccepted: boolean,
 ): ChatTarget {
+  // Pinned mode: every target is the same model already, so any branch is correct.
   if (specialist === "builder" || specialist === "git") {
     return planAccepted ? targets.builder : targets.worker;
   }
   if (specialist === "reviewer") return targets.reviewer;
   return targets.worker;
+}
+
+function modelRouteEvent(runId: string, decision: RouteDecision): AgentToolEvent {
+  return {
+    id: crypto.randomUUID(),
+    type: "model_route",
+    title: decision.pinned
+      ? `Using ${decision.displayName} (pinned)`
+      : `Fairlx Router → ${decision.displayName} for ${ROUTER_TASK_LABEL[decision.task]}`,
+    detail: decision.reason,
+    payload: decision,
+    createdAt: new Date().toISOString(),
+    runId,
+  };
 }
 
 type OpenAiMessage = {
@@ -624,9 +707,23 @@ export async function runAgentTurn(params: {
             ? ("training" as const)
             : (run.kind ?? latest?.kind ?? "chat"),
       sessionId: run.sessionId || latest?.sessionId,
+      // Keep automation identity + autonomous flag across turns; extraJson is replaced, not merged.
+      ...(run.autonomousCoding || latest?.autonomousCoding ? { autonomousCoding: true } : {}),
+      ...(run.automationId || latest?.automationId ? { automationId: run.automationId || latest?.automationId } : {}),
       ...(plan ? { implementationPlan: compactImplementationPlan(plan) } : {}),
     };
     const updated = await updateRun(databases, run.id, { ...patch, extra });
+    if (
+      (run.kind === "automation" || latest?.kind === "automation") &&
+      (patch.status === "completed" || patch.status === "failed")
+    ) {
+      // Dynamic import: automation-runner → schedule-turn → runtime would otherwise be a static cycle.
+      void import("./automation-runner")
+        .then(({ notifyAutomationOutcome }) =>
+          notifyAutomationOutcome(databases, { ...updated, messages: patch.messages ?? run.messages }, patch.status as "completed" | "failed", patch.error),
+        )
+        .catch(() => undefined);
+    }
     return {
       ...updated,
       messages: patch.messages ?? run.messages,
@@ -703,8 +800,10 @@ export async function runAgentTurn(params: {
   const restoredPlan = resolveRunImplementationPlan(run);
   if (restoredPlan) run.implementationPlan = restoredPlan;
   const planAccepted = () => runHasAcceptedPlan(run) || planIsAccepted(run.implementationPlan);
-  const buildGateActive = () => buildGateShouldBlock(intentText, lastUserText, planAccepted());
+  const currentPlan = () => resolveRunImplementationPlan(run) ?? restoredPlan;
+  const buildGateActive = () => buildGateShouldBlock(intentText, lastUserText, planAccepted(), currentPlan());
   const sandboxWaitActive = () => planAccepted() && runIsWaitingForSandbox(run);
+  const planSituation = describePlanSituation(restoredPlan, lastUserText);
 
   let target: ChatTarget;
   let workerTarget: ChatTarget;
@@ -712,9 +811,11 @@ export async function runAgentTurn(params: {
   let reviewerTarget: ChatTarget;
   try {
     workerTarget = resolveWorkerTarget(stored);
-    builderTarget = resolveSessionBuilderTarget(stored);
+    builderTarget = resolveSessionBuilderTarget(stored, planAccepted());
     reviewerTarget = resolveReviewerTarget(stored);
-    target = resolveOrchestratorTarget(stored, intentText, planAccepted());
+    // Route on what the user just said, not the whole history: a quick follow-up after a big
+    // build request should still get the fast lane.
+    target = resolveOrchestratorTarget(stored, lastUserText || intentText, planAccepted());
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to resolve model.";
     return persistUnlessStopped({ status: "failed", error: message });
@@ -753,7 +854,14 @@ export async function runAgentTurn(params: {
     status: "running",
     modelId: target.modelId,
     error: "",
-    events: resume ? run.events : [...run.events, thoughtEvent(run.id, "Working")],
+    events: resume
+      ? run.events
+      : [
+          ...run.events,
+          ...(target.route ? [modelRouteEvent(run.id, target.route)] : []),
+          thoughtEvent(run.id, "Working"),
+          ...(planSituation ? [thoughtEvent(run.id, "Plan status", planSituation)] : []),
+        ],
   });
   if (run.status === "stopped") return run;
 
@@ -857,6 +965,7 @@ export async function runAgentTurn(params: {
     userAccepted: Boolean(opts?.userAccepted),
     permissionType: permissionType(),
     turnLimits,
+    implementationPlan: run.implementationPlan,
   });
 
   const runTool = async (name: string, args: unknown, options?: { userAccepted?: boolean }) => {
@@ -926,7 +1035,10 @@ export async function runAgentTurn(params: {
       // non-JSON tool content
     }
   };
+  const sessionBoundAtTurnStart = Boolean(run.sessionId);
   let launchedCodingSessionFromPlan = false;
+  let resumedCodingSessionThisTurn = false;
+  let implementedFollowUpThisTurn = false;
 
   const applyCallGate = (
     calls: AgentToolCall[],
@@ -990,11 +1102,14 @@ export async function runAgentTurn(params: {
       return gated.allowed;
     }
     if (buildGateActive()) {
+      const plan = currentPlan();
+      const slice = conversationWantsNewPlanSlice(lastUserText, plan);
       const gated = filterCallsForBuildGate(calls);
-      recordBlocked(gated.blocked, blockedBuildGateResult, {
-        title: "Waiting for an accepted plan",
-        detail:
-          "Specialists, GitHub writes, PRs, and coding sessions stay blocked until you Accept the implementation plan.",
+      recordBlocked(gated.blocked, (call) => blockedBuildGateResult(call, buildGateBlockMessage(lastUserText, plan)), {
+        title: slice ? "Plan this change first" : "Waiting for an accepted plan",
+        detail: slice
+          ? "This is a new focused request. Submit a short implementation plan for it before implementing leftover phases."
+          : "Specialists, GitHub writes, PRs, and coding sessions stay blocked until you Accept the implementation plan.",
       });
       return gated.allowed;
     }
@@ -1067,7 +1182,7 @@ export async function runAgentTurn(params: {
       harness = await upsertHarness(databases, user.$id, result.harnessPatch);
     }
     noteCapabilityGap(result);
-    nextEvents.push(result.event);
+    nextEvents.push({ ...result.event, toolCallId: call.id });
     let toolContent = compactJsonString(result.content, 4000);
     let pendingWrites: AgentToolCall[] = [];
     if (result.delegate) {
@@ -1134,6 +1249,7 @@ export async function runAgentTurn(params: {
       }
     }
     if (!isFailedToolContent(result.content)) {
+      const priorPlan = run.implementationPlan;
       if (canonical.name === "submit_implementation_plan") {
         let parsedPlan: unknown = null;
         try {
@@ -1150,14 +1266,108 @@ export async function runAgentTurn(params: {
       if (canonical.name === "coding_session_start") {
         launchedCodingSessionFromPlan = true;
         try {
-          const parsed = JSON.parse(result.content) as { sessionId?: string };
+          const parsed = JSON.parse(result.content) as { sessionId?: string; resumed?: boolean };
           if (parsed.sessionId) run.sessionId = parsed.sessionId;
+          if (parsed.resumed === true) resumedCodingSessionThisTurn = true;
         } catch {
           /* ignore */
         }
       }
       if (run.implementationPlan && planIsAccepted(run.implementationPlan)) {
         run.implementationPlan = applyPlanProgressFromTool(run.implementationPlan, canonical.name);
+      }
+      if (
+        canonical.name === "submit_implementation_plan" &&
+        planIsAccepted(run.implementationPlan) &&
+        hasProjectGithubRepo(context, run.projectId) &&
+        !launchedCodingSessionFromPlan
+      ) {
+        const args = run.implementationPlan
+          ? codingSessionArgsFromPlan(
+              run.implementationPlan,
+              context.workItems.find((item) => item.projectId === run.projectId)?.id ||
+                context.workItems[0]?.id,
+            )
+          : null;
+        if (args) {
+          const startCall: AgentToolCall = {
+            id: crypto.randomUUID(),
+            name: "coding_session_start",
+            arguments: JSON.stringify({ workItemId: args.workItemId, exposePort: args.exposePort }),
+          };
+          nextMessages.push({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "",
+            toolCalls: [startCall],
+            createdAt: new Date().toISOString(),
+          });
+          await applyToolCall(startCall, nextMessages, nextEvents, { userAccepted: true });
+        }
+      }
+      const startContent = lastToolMessageContent(nextMessages, "coding_session_start");
+      const followUpOnLivePreview =
+        !implementedFollowUpThisTurn &&
+        conversationLooksLikeUiFollowUp(lastUserText) &&
+        (sandboxStartLooksReady(startContent) || Boolean(run.sessionId)) &&
+        (sessionBoundAtTurnStart ||
+          resumedCodingSessionThisTurn ||
+          sandboxStartLooksResumed(startContent) ||
+          Boolean(priorPlan && conversationWantsNewPlanSlice(lastUserText, priorPlan)));
+      if (
+        followUpOnLivePreview &&
+        (canonical.name === "submit_implementation_plan" || canonical.name === "coding_session_start")
+      ) {
+        implementedFollowUpThisTurn = true;
+        nextEvents.push(
+          thoughtEvent(
+            run.id,
+            "Applying your change in the live sandbox",
+            "The existing preview is still the previous site until coding_session_implement edits /workspace.",
+          ),
+        );
+        const implementCall: AgentToolCall = {
+          id: crypto.randomUUID(),
+          name: "coding_session_implement",
+          arguments: JSON.stringify({
+            prompt: followUpImplementPrompt(lastUserText, run.implementationPlan),
+          }),
+        };
+        nextMessages.push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "",
+          toolCalls: [implementCall],
+          createdAt: new Date().toISOString(),
+        });
+        await applyToolCall(implementCall, nextMessages, nextEvents, { userAccepted: true });
+      } else if (
+        canonical.name === "coding_session_start" &&
+        !implementedFollowUpThisTurn &&
+        !sessionBoundAtTurnStart &&
+        sandboxStartLooksReady(startContent) &&
+        planIsAccepted(run.implementationPlan) &&
+        firstIncompletePhase(run.implementationPlan)
+      ) {
+        // Fresh sandbox + accepted plan: go straight into the first phase instead of spending a
+        // whole orchestrator round deciding to call implement.
+        implementedFollowUpThisTurn = true;
+        nextEvents.push(
+          thoughtEvent(run.id, "Sandbox ready — implementing the first phase", "Chaining coding_session_implement without another model round."),
+        );
+        const implementCall: AgentToolCall = {
+          id: crypto.randomUUID(),
+          name: "coding_session_implement",
+          arguments: JSON.stringify({ prompt: phaseImplementPrompt(run.implementationPlan, lastUserText) }),
+        };
+        nextMessages.push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "",
+          toolCalls: [implementCall],
+          createdAt: new Date().toISOString(),
+        });
+        await applyToolCall(implementCall, nextMessages, nextEvents, { userAccepted: true });
       }
     }
     const launch = extractBoardProjectFromTool(canonical.name, toolContent, canonical.arguments);
@@ -1175,35 +1385,6 @@ export async function runAgentTurn(params: {
             ...(workspaceId ? { defaultWorkspaceId: workspaceId } : {}),
           },
         });
-      }
-    }
-    if (
-      canonical.name === "submit_implementation_plan" &&
-      planIsAccepted(run.implementationPlan) &&
-      !launchedCodingSessionFromPlan &&
-      hasProjectGithubRepo(context, run.projectId)
-    ) {
-      const args = run.implementationPlan
-        ? codingSessionArgsFromPlan(
-            run.implementationPlan,
-            context.workItems.find((item) => item.projectId === run.projectId)?.id ||
-              context.workItems[0]?.id,
-          )
-        : null;
-      if (args) {
-        const startCall: AgentToolCall = {
-          id: crypto.randomUUID(),
-          name: "coding_session_start",
-          arguments: JSON.stringify({ workItemId: args.workItemId, exposePort: args.exposePort }),
-        };
-        nextMessages.push({
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: "",
-          toolCalls: [startCall],
-          createdAt: new Date().toISOString(),
-        });
-        await applyToolCall(startCall, nextMessages, nextEvents, { userAccepted: true });
       }
     }
     return pendingWrites;
@@ -1941,6 +2122,13 @@ export async function runAgentTurn(params: {
         for (const group of groupParallelizable(restCalls, (call) => !isWriteToolCall(call))) {
           const stoppedBeforeTool = await haltIfStopped();
           if (stoppedBeforeTool) return stoppedBeforeTool;
+          const starting = group.items.filter((call) => !skipIds.has(call.id));
+          if (starting.length) {
+            // Announce what is about to run so the UI can show live terminals / tools before results land.
+            nextEvents.push(toolStartEvent(run.id, starting));
+            run = await persistUnlessStopped({ messages: nextMessages, events: nextEvents, status: "running" });
+            if (run.status === "stopped") return run;
+          }
           if (group.parallel && group.items.length > 1) {
             const settled = await Promise.all(
               group.items.map(async (call) => {

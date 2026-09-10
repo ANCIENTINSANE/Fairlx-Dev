@@ -152,6 +152,7 @@ export const AGENT_DEFINITIONS: Record<
     model: "worker",
     tools: [
       "mail_send",
+      "notify_channel",
       "fairlx_work_item_get",
       "fairlx_work_item_list",
       "fairlx_work_item_update",

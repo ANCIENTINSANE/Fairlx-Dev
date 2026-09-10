@@ -121,6 +121,33 @@ export function createSandboxBranchShell(headBranch: string): string {
   return `if command -v git >/dev/null 2>&1 && [ -d ${SANDBOX_WORKSPACE}/.git ]; then (git checkout -b ${name} || git checkout ${name}) && echo "branch=${headBranch.replace(/["\\$`]/g, "")}"; else echo "git unavailable in this sandbox; branch ${headBranch.replace(/["\\$`]/g, "")} not created (preview only)"; fi`;
 }
 
+export const SANDBOX_BRANCH_MARKER = "FAIRLX_BRANCH_BEGIN";
+
+/**
+ * Clone and create the working branch in a single Azure exec (each round-trip costs ~1 s and
+ * the clone shell has to finish before the branch can exist anyway). The branch half only runs
+ * when the clone succeeded; the clone exit code is preserved for the caller.
+ */
+export function cloneAndBranchShell(cloneUrl: string, cloneBranch: string | undefined, headBranch: string): string {
+  return [
+    `( ${cloneIntoWorkspaceShell(cloneUrl, cloneBranch)} )`,
+    `FAIRLX_CLONE_EXIT=$?`,
+    `if [ "$FAIRLX_CLONE_EXIT" -eq 0 ]; then echo ${SANDBOX_BRANCH_MARKER}; cd ${SANDBOX_WORKSPACE} && ${createSandboxBranchShell(headBranch)}; fi`,
+    `exit $FAIRLX_CLONE_EXIT`,
+  ].join("\n");
+}
+
+export function splitCloneAndBranchOutput(result: { stdout: string; stderr: string; exitCode: number }): {
+  clone: { stdout: string; stderr: string; exitCode: number };
+  branch: { stdout: string; stderr: string; exitCode: number };
+} {
+  const [cloneOut = "", branchOut = ""] = result.stdout.split(new RegExp(`^${SANDBOX_BRANCH_MARKER}\\s*$`, "m"));
+  return {
+    clone: { stdout: cloneOut.trim(), stderr: result.stderr, exitCode: result.exitCode },
+    branch: { stdout: branchOut.trim(), stderr: "", exitCode: 0 },
+  };
+}
+
 /** "yes" when the repo already landed in /workspace (marker or .git). */
 export function sandboxHasSourceShell(): string {
   return `( test -f ${SANDBOX_SOURCE_MARKER} || test -d ${SANDBOX_WORKSPACE}/.git ) && echo yes || echo no`;

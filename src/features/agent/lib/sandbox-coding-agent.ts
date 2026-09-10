@@ -140,13 +140,49 @@ export function resolveSandboxCodingAgent(override?: string): SandboxCodingAgent
   };
 }
 
+const CLI_PACKAGE: Record<Exclude<SandboxCodingAgentId, "specialists">, { pkg: string; bin: string }> = {
+  claude_code: { pkg: "@anthropic-ai/claude-code", bin: "claude" },
+  codex: { pkg: "@openai/codex", bin: "codex" },
+};
+
+export const SANDBOX_CLI_READY_MARKER = "/tmp/fairlx-cli-ready";
+export const SANDBOX_CLI_INSTALLING_MARKER = "/tmp/fairlx-cli-installing";
+
+/**
+ * Install the coding CLI globally in the background while `npm install` runs, so the first
+ * `coding_session_implement` does not pay the `npx --yes` download + cold start. Returns "" when
+ * there is nothing to prefetch. Safe to run repeatedly: it exits early once the binary exists.
+ */
+export function sandboxCliPrefetchShell(agent: SandboxCodingAgent): string {
+  if (agent.id === "specialists") return "";
+  const { pkg, bin } = CLI_PACKAGE[agent.id];
+  const inner = [
+    `if command -v ${bin} >/dev/null 2>&1; then touch ${SANDBOX_CLI_READY_MARKER}; exit 0; fi`,
+    `touch ${SANDBOX_CLI_INSTALLING_MARKER}`,
+    `npm install -g --no-audit --no-fund --loglevel=error ${pkg} >/tmp/fairlx-cli.log 2>&1 || true`,
+    `rm -f ${SANDBOX_CLI_INSTALLING_MARKER}`,
+    `command -v ${bin} >/dev/null 2>&1 && touch ${SANDBOX_CLI_READY_MARKER}`,
+  ].join("; ");
+  return `if ! command -v ${bin} >/dev/null 2>&1 && [ ! -f ${SANDBOX_CLI_INSTALLING_MARKER} ]; then nohup sh -c ${JSON.stringify(inner)} >/dev/null 2>&1 < /dev/null & fi`;
+}
+
+/** Wait (bounded) for an in-flight prefetch, then run the global binary if present, else `npx`. */
+function cliInvocation(agent: SandboxCodingAgent, args: string): string {
+  if (agent.id === "specialists") return "";
+  const { bin } = CLI_PACKAGE[agent.id];
+  return [
+    `i=0; while [ -f ${SANDBOX_CLI_INSTALLING_MARKER} ] && [ $i -lt 45 ]; do sleep 2; i=$((i+1)); done`,
+    `if command -v ${bin} >/dev/null 2>&1; then ${bin} ${args}; else ${agent.cli} ${args}; fi`,
+  ].join("\n");
+}
+
 export function sandboxImplementShell(agent: SandboxCodingAgent, prompt: string): string {
   const escaped = prompt.replace(/'/g, `'\\''`);
   if (agent.id === "claude_code") {
-    return `${agent.cli} -p --dangerously-skip-permissions --output-format text '${escaped}'`;
+    return cliInvocation(agent, `-p --dangerously-skip-permissions --output-format text '${escaped}'`);
   }
   if (agent.id === "codex") {
-    return `${agent.cli} exec --full-auto -C /workspace '${escaped}'`;
+    return cliInvocation(agent, `exec --full-auto -C /workspace '${escaped}'`);
   }
   return `echo ${JSON.stringify(agent.reason)}`;
 }

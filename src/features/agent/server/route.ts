@@ -5,8 +5,10 @@ import { z } from "zod";
 
 import { sessionMiddleware } from "@/lib/session-middleware";
 import { createAdminClient } from "@/lib/appwrite";
+import { DATABASE_ID, WORK_ITEMS_ID } from "@/config";
 
 import type { AgentAiConfigStored, AgentModel, AgentRun } from "../types";
+import type { AutomationEvent } from "../lib/automation-flow";
 import {
   defaultAiStoredConfig,
   defaultMcpConfig,
@@ -99,6 +101,16 @@ import {
   guidedWalkthrough,
 } from "../lib/coding-sessions";
 import { startOrResumeCodingSession } from "../lib/coding-session-start";
+import {
+  describeSandboxLifecycle,
+  destroySessionSandbox,
+  maybeReapIdleSandboxes,
+  maybeRecheckPreviewHealth,
+  reapIdleSandboxes,
+  shouldTouchOnPreviewPoll,
+  touchCodingSession,
+} from "../lib/sandbox-lifecycle";
+import { describeSandboxPhases } from "../lib/sandbox-phases";
 import { getCodingEnvironment, upsertCodingEnvironment } from "../lib/coding-environment";
 import {
   deleteProjectSecret,
@@ -204,6 +216,30 @@ const skillSchema = z.object({
   createdAt: z.string().optional().default(""),
 });
 
+const automationNodeSchema = z.object({
+  id: z.string().min(1).max(40),
+  kind: z.enum(["trigger", "agent", "test", "deploy", "notify", "supervisor", "close"]),
+  label: z.string().max(60).optional(),
+  x: z.number(),
+  y: z.number(),
+  config: z.record(z.union([z.string().max(2000), z.number(), z.boolean(), z.array(z.string().max(120)).max(30)])),
+});
+
+const automationFlowSchema = z.object({
+  version: z.literal(1),
+  nodes: z.array(automationNodeSchema).max(40),
+  edges: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(40),
+        from: z.string().min(1).max(40),
+        to: z.string().min(1).max(40),
+        when: z.enum(["always", "pass", "fail"]).optional(),
+      }),
+    )
+    .max(80),
+});
+
 const automationSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(120),
@@ -212,6 +248,11 @@ const automationSchema = z.object({
   action: z.string().max(2000).optional().default(""),
   enabled: z.boolean(),
   createdAt: z.string().optional().default(""),
+  flow: automationFlowSchema.optional(),
+  workspaceId: z.string().max(64).optional(),
+  projectId: z.string().max(64).optional(),
+  lastRunAt: z.string().optional(),
+  runCount: z.number().int().nonnegative().optional(),
 });
 
 const knowledgeSchema = z.object({
@@ -264,7 +305,7 @@ const harnessSchema = z.object({
       enabledTools: z.array(z.string()).optional(),
       defaultWorkspaceId: z.string().optional(),
       defaultProjectId: z.string().optional(),
-      sessionMode: z.enum(["agent", "personal", "plan", "debug", "multitask", "ask"]).optional(),
+      sessionMode: z.enum(["auto", "agent", "personal", "plan", "debug", "multitask", "ask"]).optional(),
       permissionType: z.enum(["staged", "all_access"]).optional(),
       autonomousCoding: z.boolean().optional(),
     })
@@ -705,6 +746,45 @@ const app = new Hono()
       const harness = await getOrCreateHarness(databases, user.$id);
       const automation = harness.automations.find((item) => item.id === automationId);
       if (!automation) return c.json({ error: "Automation not found." }, 404);
+      if (automation.flow) {
+        const body = await c.req.json<{ workItemId?: string; text?: string }>().catch(() => ({}) as { workItemId?: string; text?: string });
+        const { fireAutomation } = await import("../lib/automation-runner");
+        const { triggerNode } = await import("../lib/automation-flow");
+        let workItem: Record<string, unknown> | null = null;
+        if (body.workItemId) {
+          try {
+            workItem = (await databases.getDocument(DATABASE_ID, WORK_ITEMS_ID, body.workItemId)) as unknown as Record<string, unknown>;
+          } catch {
+            workItem = null;
+          }
+        }
+        const kind = (String(triggerNode(automation.flow)?.config.kind || "manual") || "manual") as AutomationEvent["kind"];
+        const event: AutomationEvent = {
+          kind,
+          workspaceId: String(workItem?.workspaceId || automation.workspaceId || harness.settings.defaultWorkspaceId || ""),
+          projectId: String(workItem?.projectId || automation.projectId || harness.settings.defaultProjectId || ""),
+          text: body.text,
+          source: "fairlx",
+          actor: { id: user.$id, name: user.name },
+          ...(workItem
+            ? {
+                workItem: {
+                  id: String(workItem.$id || ""),
+                  key: workItem.key ? String(workItem.key) : undefined,
+                  title: workItem.title ? String(workItem.title) : undefined,
+                  description: workItem.description ? String(workItem.description) : undefined,
+                  type: workItem.type ? String(workItem.type) : undefined,
+                  status: workItem.status ? String(workItem.status) : undefined,
+                  priority: workItem.priority ? String(workItem.priority) : undefined,
+                },
+              }
+            : {}),
+        };
+        const result = await fireAutomation(databases, { harness, automation }, event, { force: true });
+        const run = result.runId ? await getRun(databases, user.$id, result.runId) : null;
+        if (!run) return c.json({ error: "Failed to start the automation run." }, 500);
+        return c.json({ data: run });
+      }
       const prompt = [
         `Run automation "${automation.name}".`,
         automation.trigger ? `Trigger: ${automation.trigger}` : "",
@@ -1465,6 +1545,7 @@ const app = new Hono()
         workItemId: z.string().optional(),
         projectId: z.string().optional(),
         sessionId: z.string().optional(),
+        touch: z.string().optional(),
       }),
     ),
     async (c) => {
@@ -1481,10 +1562,17 @@ const app = new Hono()
           const listed = await listCodingSessionsForProject(databases, query.projectId, 1);
           session = listed[0] ?? null;
         }
+        maybeReapIdleSandboxes(databases, getSandboxDriver());
         if (!session) return c.json({ data: null });
         if (session.userId !== user.$id) {
           const access = await resolveUserProjectAccess(databases, user.$id, session.projectId);
           if (!access.hasAccess) return c.json({ error: "Coding session not found." }, 404);
+        }
+        maybeRecheckPreviewHealth(databases, getSandboxDriver(), session);
+        // The Preview tab polls with touch=1 while it is open; that counts as using the sandbox
+        // only while it is actually live or still genuinely preparing — not when it is stuck.
+        if (query.touch === "1" && shouldTouchOnPreviewPoll(session)) {
+          session = await touchCodingSession(databases, session);
         }
         let diff: Record<string, unknown> | null = null;
         // Only sessions whose branch exists on GitHub can have a diff. A session that failed
@@ -1529,7 +1617,15 @@ const app = new Hono()
               }>;
             }).files ?? [])
           : [];
-        return c.json({ data: { session, diff, walkthrough: guidedWalkthrough(files) } });
+        return c.json({
+          data: {
+            session,
+            diff,
+            walkthrough: guidedWalkthrough(files),
+            lifecycle: describeSandboxLifecycle(session),
+            phases: describeSandboxPhases(session),
+          },
+        });
       } catch (error) {
         console.error("[agent] failed to load coding session", error);
         return c.json({ error: "Failed to load coding session." }, 500);
@@ -1542,7 +1638,7 @@ const app = new Hono()
     zValidator(
       "json",
       z.object({
-        workItemId: z.string().min(1),
+        workItemId: z.string().optional(),
         projectId: z.string().optional(),
         runId: z.string().optional(),
         exposePort: z.number().optional(),
@@ -1557,16 +1653,23 @@ const app = new Hono()
           loadAgentContext(databases, user),
           getOrCreateHarness(databases, user.$id),
         ]);
+        const projectId = json.projectId || harness.settings.defaultProjectId;
+        if (!json.workItemId && !projectId) {
+          return c.json({ error: "Pick a project first so Fairlx knows which repo to run." }, 400);
+        }
+        const label = json.workItemId || context.projects.find((item) => item.id === projectId)?.name || "project";
         const runId =
           json.runId ||
           (
             await createRun(databases, {
               userId: user.$id,
-              prompt: `Start a coding session for ${json.workItemId}. Call coding_session_start.`,
+              prompt: json.workItemId
+                ? `Start a coding session for ${json.workItemId}. Call coding_session_start.`
+                : `Run the ${label} repo in a sandbox and give me the live preview. Call coding_session_start.`,
               mode: harness.settings.mode,
               workspaceId: harness.settings.defaultWorkspaceId,
-              projectId: json.projectId || harness.settings.defaultProjectId,
-              title: `Session ${json.workItemId}`,
+              projectId,
+              title: json.workItemId ? `Session ${json.workItemId}` : `Preview · ${label}`,
             })
           ).id;
         const result = await startOrResumeCodingSession({
@@ -1587,6 +1690,70 @@ const app = new Hono()
       }
     },
   )
+  .post("/coding-sessions/:sessionId/touch", sessionMiddleware, async (c) => {
+    const user = sessionUser(c);
+    const sessionId = c.req.param("sessionId");
+    const { databases } = await createAdminClient();
+    const session = await getCodingSession(databases, sessionId);
+    if (!session) return c.json({ error: "Session not found." }, 404);
+    if (session.userId !== user.$id) {
+      const access = await resolveUserProjectAccess(databases, user.$id, session.projectId);
+      if (!access.hasAccess) return c.json({ error: "Session not found." }, 404);
+    }
+    const touched = await touchCodingSession(databases, session, { force: true });
+    return c.json({ data: { lifecycle: describeSandboxLifecycle(touched) } });
+  })
+  /** Restart a paused / destroyed sandbox and regenerate its preview link. */
+  .post("/coding-sessions/:sessionId/restart", sessionMiddleware, async (c) => {
+    const user = sessionUser(c);
+    const sessionId = c.req.param("sessionId");
+    const { databases } = await createAdminClient();
+    const session = await getCodingSession(databases, sessionId);
+    if (!session) return c.json({ error: "Session not found." }, 404);
+    if (session.userId !== user.$id) {
+      const access = await resolveUserProjectAccess(databases, user.$id, session.projectId);
+      if (!access.hasAccess) return c.json({ error: "Session not found." }, 404);
+    }
+    try {
+      const driver = getSandboxDriver();
+      // A paused Azure sandbox cannot be un-stopped through the API we use; recreate it cleanly.
+      if (session.sandboxId && session.meta?.lifecycle !== "destroyed") {
+        await destroySessionSandbox(databases, driver, session, "Restart requested — replacing the sandbox with a fresh one.");
+      }
+      const [context, harness] = await Promise.all([
+        loadAgentContext(databases, user),
+        getOrCreateHarness(databases, user.$id),
+      ]);
+      const result = await startOrResumeCodingSession({
+        databases,
+        userId: user.$id,
+        runId: session.runId || "",
+        context,
+        harness,
+        plugins: harness.plugins,
+        workItemId: session.workItemId,
+        projectId: session.projectId,
+        repoId: session.repoId,
+        baseBranch: session.baseBranch,
+      });
+      return c.json({ data: { ...result, runId: session.runId } });
+    } catch (error) {
+      console.error("[agent] failed to restart coding session", error);
+      return c.json({ error: "Failed to restart the sandbox." }, 500);
+    }
+  })
+  /** External cron: pause sandboxes idle 15 min, destroy idle 30 min. */
+  .post("/coding-sessions/reap", async (c) => {
+    const secret = process.env.CRON_SECRET || "";
+    const header = c.req.header("authorization") || c.req.header("x-cron-secret") || "";
+    const provided = header.startsWith("Bearer ") ? header.slice(7) : header;
+    if (secret ? provided !== secret : process.env.NODE_ENV !== "development") {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    const { databases } = await createAdminClient();
+    const result = await reapIdleSandboxes(databases, getSandboxDriver());
+    return c.json({ data: result });
+  })
   .post(
     "/coding-sessions/:sessionId/comment",
     sessionMiddleware,

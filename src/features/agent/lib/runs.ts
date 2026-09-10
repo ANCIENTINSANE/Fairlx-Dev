@@ -34,6 +34,7 @@ type RunExtra = {
   kind?: string;
   sessionId?: string;
   autonomousCoding?: boolean;
+  automationId?: string;
   implementationPlan?: ImplementationPlan;
   contextPeak?: {
     conversation: number;
@@ -47,9 +48,11 @@ export function parseRun(doc: RunDocument): AgentRun {
   const kind =
     extra.kind === "coding_session"
       ? "coding_session"
-      : isTrainingRun({ kind: extra.kind, prompt })
-        ? "training"
-        : "chat";
+      : extra.kind === "automation"
+        ? "automation"
+        : isTrainingRun({ kind: extra.kind, prompt })
+          ? "training"
+          : "chat";
   const attachments = parseJson<Array<{ name: string; body: string }>>(doc.attachmentsJson, []);
   const messages = parseJson<AgentChatMessage[]>(doc.messagesJson, []).map((message, index) => {
     if (index !== 0 || message.role !== "user" || !attachments.length) return message;
@@ -72,6 +75,7 @@ export function parseRun(doc: RunDocument): AgentRun {
     kind,
     sessionId: extra.sessionId,
     autonomousCoding: extra.autonomousCoding === true,
+    automationId: extra.automationId,
     implementationPlan:
       parseImplementationPlan(extra.implementationPlan) ?? planAcceptanceStub(extra.implementationPlan) ?? undefined,
     contextPeak:
@@ -101,6 +105,7 @@ export function stringifyRunExtra(extra: RunExtra, max = AGENT_EXTRA_JSON_MAX): 
       kind: extra.kind,
       sessionId: extra.sessionId,
       ...(extra.autonomousCoding ? { autonomousCoding: true } : {}),
+      ...(extra.automationId ? { automationId: extra.automationId } : {}),
       ...(plan ? { implementationPlan: plan } : {}),
       ...(includePeak && extra.contextPeak ? { contextPeak: extra.contextPeak } : {}),
     };
@@ -133,7 +138,7 @@ export async function getRun(databases: Databases, userId: string, runId: string
     const doc = await databases.getDocument(DATABASE_ID, AGENT_RUNS_ID, runId);
     const run = parseRun(doc as unknown as RunDocument);
     if (run.userId === userId) return run;
-    if (run.kind === "coding_session" && run.projectId) {
+    if ((run.kind === "coding_session" || run.kind === "automation") && run.projectId) {
       const { resolveUserProjectAccess } = await import("@/lib/permissions/resolveUserProjectAccess");
       const access = await resolveUserProjectAccess(databases, userId, run.projectId);
       if (access.hasAccess) return run;
@@ -154,9 +159,10 @@ export async function createRun(
     projectId?: string;
     modelId?: string;
     messages?: AgentChatMessage[];
-    kind?: "chat" | "training" | "coding_session";
+    kind?: "chat" | "training" | "coding_session" | "automation";
     title?: string;
     autonomousCoding?: boolean;
+    automationId?: string;
     id?: string;
   },
 ): Promise<AgentRun> {
@@ -193,8 +199,10 @@ export async function createRun(
     eventsJson: stringifyBounded([], AGENT_EVENTS_JSON_MAX),
     extraJson: stringifyBounded(
       {
-        kind: input.kind === "coding_session" ? "coding_session" : kind,
+        kind:
+          input.kind === "coding_session" || input.kind === "automation" ? input.kind : kind,
         ...(input.autonomousCoding ? { autonomousCoding: true } : {}),
+        ...(input.automationId ? { automationId: input.automationId } : {}),
       },
       AGENT_EXTRA_JSON_MAX,
     ),
@@ -250,6 +258,7 @@ export async function updateRun(
       kind?: string;
       sessionId?: string;
       autonomousCoding?: boolean;
+      automationId?: string;
       implementationPlan?: ImplementationPlan;
       contextPeak?: {
         conversation: number;

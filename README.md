@@ -18,18 +18,43 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-09T18:43:40.657Z
+**Last updated:** 2026-09-10T18:54:23.979Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
+**This commit**
+
+- `src/features/agent/api/use-agent-search.ts`
+- `src/features/agent/api/use-coding-session.ts`
+- `src/features/agent/components/agent-automations-screen.tsx`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-mode-selector.tsx`
+- `src/features/agent/components/agent-screens.tsx`
+- `src/features/agent/components/agent-ui-context.tsx`
+- `src/features/agent/components/automation-flow-editor.tsx`
+- `src/features/agent/components/changes-tree.tsx`
+- `src/features/agent/components/composer-shortcut-menu.tsx`
+- `src/features/agent/components/crew-stage.tsx`
+- `src/features/agent/components/diff-viewer.tsx`
+- `src/features/agent/components/github-connect-dialog.tsx`
+- `src/features/agent/components/live-activity-timeline.tsx`
+- `src/features/agent/components/manage-mcp-dialog.tsx`
+- `src/features/agent/components/mcp-catalog-picker.tsx`
+- `src/features/agent/components/mcp-servers-card.tsx`
+- `src/features/agent/components/run-status-strip.tsx`
+- `src/features/agent/components/sandbox-preview-panel.tsx`
+- …and 54 more files
+
 **Latest commits**
 
-- `17fcd6e` Rueq (Build): Build Retuntion and stable:Yes (2026-09-10)
-- `e35bfff` Rueq (Build): Build Retuntion and stable:Yes (2026-09-09)
-- `6b2114e` chore: bump version to 0.2.118 [skip ci] (2026-09-09)
-- `728b3e4` Merge pull request #315 from Happyesss/main (2026-09-09)
-- `dd73a75` chore: bump version to 0.2.117 [skip ci] (2026-09-09)
-- `e998198` refactor: overhaul implementation plan handling with robust clamping, merging logic, and improved persistence limits (2026-09-09)
+- `b1e88d5` chore: bump version to 0.2.123 [skip ci] (2026-09-10)
+- `4ff1179` Merge pull request #318 from Happyesss/main (2026-09-10)
+- `0b3ff99` chore: bump version to 0.2.122 [skip ci] (2026-09-10)
+- `675695a` Merge branch 'main' into main (2026-09-10)
+- `4d447b4` chore: bump version to 0.2.120 [skip ci] (2026-09-10)
+- `4357ff6` feat: implement default project roles and permissions system with automated role seeding (2026-09-10)
+- `569a63a` chore: bump version to 0.2.121 [skip ci] (2026-09-09)
 <!-- docs:latest:end -->
 
 ---

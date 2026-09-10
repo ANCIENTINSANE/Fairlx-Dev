@@ -116,7 +116,7 @@ export type AgentRunStatus =
   | "awaiting_plugin"
   | "awaiting_question";
 export type AgentRunMode = "agent" | "manual";
-export type AgentSessionMode = "agent" | "personal" | "plan" | "debug" | "multitask" | "ask";
+export type AgentSessionMode = "auto" | "agent" | "personal" | "plan" | "debug" | "multitask" | "ask";
 export type AgentChatRole = "user" | "assistant" | "tool";
 
 export type AgentToolCall = {
@@ -290,6 +290,8 @@ export type CodingSession = {
   updatedAt: string;
 };
 
+export type SandboxLifecycleState = "active" | "paused" | "destroyed";
+
 export type CodingSessionMeta = {
   driver?: "azure" | "sessions" | "stub";
   previewLive?: boolean;
@@ -299,6 +301,12 @@ export type CodingSessionMeta = {
   startCommand?: string;
   packageManager?: string;
   autoMode?: boolean;
+  /** Last time a human or the agent used this sandbox (exec, preview open, chat turn). */
+  lastActivityAt?: string;
+  /** Idle lifecycle: active → paused (15 min idle) → destroyed (30 min idle). */
+  lifecycle?: SandboxLifecycleState;
+  pausedAt?: string;
+  destroyedAt?: string;
   artifacts?: Array<{
     id: string;
     kind: "screenshot" | "recording";
@@ -403,6 +411,7 @@ export type AgentToolEventType =
   | "ask_user_resolved"
   | "page_ui"
   | "mail_send"
+  | "notify_channel"
   | "github_read_file"
   | "github_list_files"
   | "github_write_file"
@@ -437,6 +446,8 @@ export type AgentToolEventType =
   | "plugin_connected"
   | "job_progress"
   | "thought"
+  | "model_route"
+  | "tool_start"
   | "subagent_started"
   | "subagent_progress"
   | "subagent_done"
@@ -454,6 +465,8 @@ export type AgentToolEvent = {
   payload?: unknown;
   createdAt: string;
   runId: string;
+  /** Set on tool result events so the UI can pair them with the preceding `tool_start`. */
+  toolCallId?: string;
 };
 
 export type AgentLlmUsagePayload = {
@@ -494,9 +507,10 @@ export type AgentRun = {
   messages: AgentChatMessage[];
   events: AgentToolEvent[];
   error?: string;
-  kind?: "chat" | "training" | "coding_session";
+  kind?: "chat" | "training" | "coding_session" | "automation";
   sessionId?: string;
   autonomousCoding?: boolean;
+  automationId?: string;
   implementationPlan?: ImplementationPlan;
   contextPeak?: {
     conversation: number;
@@ -515,6 +529,49 @@ export type AgentSkill = {
   createdAt: string;
 };
 
+export type AutomationTriggerKind =
+  | "work_item_created"
+  | "work_item_status"
+  | "work_item_assigned"
+  | "comment_mention"
+  | "chat_mention"
+  | "manual";
+
+export type AutomationNodeKind =
+  | "trigger"
+  | "agent"
+  | "test"
+  | "deploy"
+  | "notify"
+  | "supervisor"
+  | "close";
+
+export type AutomationNotifyChannel = "slack" | "discord" | "teams" | "email" | "in_app";
+
+/** One node on the automation canvas. `config` is kind-specific and kept flat for the 16KB harness column. */
+export type AutomationNode = {
+  id: string;
+  kind: AutomationNodeKind;
+  label?: string;
+  x: number;
+  y: number;
+  config: Record<string, string | number | boolean | string[]>;
+};
+
+export type AutomationEdge = {
+  id: string;
+  from: string;
+  to: string;
+  /** Which outcome of `from` follows this edge. Default `always`. */
+  when?: "always" | "pass" | "fail";
+};
+
+export type AutomationFlow = {
+  version: 1;
+  nodes: AutomationNode[];
+  edges: AutomationEdge[];
+};
+
 export type AgentAutomation = {
   id: string;
   name: string;
@@ -523,6 +580,13 @@ export type AgentAutomation = {
   action: string;
   enabled: boolean;
   createdAt: string;
+  /** React-Flow style loop. When present it replaces the free-text trigger/action. */
+  flow?: AutomationFlow;
+  /** Scope the trigger. Empty = every workspace/project this user can see. */
+  workspaceId?: string;
+  projectId?: string;
+  lastRunAt?: string;
+  runCount?: number;
 };
 
 export type AgentKnowledgeItem = {

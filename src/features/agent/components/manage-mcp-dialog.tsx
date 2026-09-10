@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { useGetAgentMcpConfig } from "../api/use-agent-mcp-config";
 import { useUpdateAgentMcpConfig } from "../api/use-update-agent-mcp-config";
+import { McpCatalogPicker } from "./mcp-catalog-picker";
 import { getMcpServerIcon, isInternalMcpServer } from "../constants";
 import { defaultMcpConfig } from "../lib/client-defaults";
 import type { McpConfig, McpServerConfig, McpTransport } from "../types";
@@ -333,11 +334,13 @@ export function ManageMcpDialog({ open, onOpenChange }: ManageMcpDialogProps) {
                 <div className="py-6 px-4 text-center rounded-lg border border-dashed border-border bg-muted/20">
                   <p className="text-sm font-medium text-foreground">No external MCP servers configured</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Built-in workspace and personal tools are active in the background. Click &quot;Add server&quot; below to connect external tools (e.g. GitHub, PostgreSQL, Linear).
+                    Built-in workspace and personal tools are active in the background. Pick a recommended server or click &quot;Add server&quot; for a custom one.
                   </p>
                 </div>
               )}
             </div>
+
+            {!form ? <McpCatalogPicker /> : null}
 
             {form ? (
               <div className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-sm">

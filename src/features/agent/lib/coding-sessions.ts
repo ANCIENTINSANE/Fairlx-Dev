@@ -237,6 +237,55 @@ export async function findActiveCodingSessionForWorkItem(
   }
 }
 
+const LIVE_SESSION_STATUSES: CodingSessionStatus[] = ["running", "awaiting_review", "iterating", "merging"];
+
+/**
+ * The one sandbox this user owns in this project. Enforces "one live sandbox per user per
+ * project": ten teammates can each have one; nobody gets duplicates.
+ */
+export async function findActiveCodingSessionForUserProject(
+  databases: Databases,
+  userId: string,
+  projectId: string,
+): Promise<CodingSession | null> {
+  try {
+    const listed = await databases.listDocuments(DATABASE_ID, AGENT_CODING_SESSIONS_ID, [
+      Query.equal("userId", userId),
+      Query.equal("projectId", projectId),
+      Query.orderDesc("$createdAt"),
+      Query.limit(12),
+    ]);
+    const sessions = listed.documents.map((doc) => parseSession(doc as unknown as SessionDocument));
+    return (
+      sessions.find(
+        (session) =>
+          Boolean(session.sandboxId) &&
+          LIVE_SESSION_STATUSES.includes(session.status) &&
+          session.meta?.lifecycle !== "destroyed",
+      ) ??
+      sessions.find((session) => ["queued", "preparing"].includes(session.status)) ??
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Every session that may still own a sandbox (for the idle reaper). */
+export async function listActiveCodingSessions(databases: Databases, limit = 100): Promise<CodingSession[]> {
+  try {
+    const listed = await databases.listDocuments(DATABASE_ID, AGENT_CODING_SESSIONS_ID, [
+      Query.equal("status", LIVE_SESSION_STATUSES),
+      Query.notEqual("sandboxId", ""),
+      Query.orderAsc("$updatedAt"),
+      Query.limit(Math.min(limit, 200)),
+    ]);
+    return listed.documents.map((doc) => parseSession(doc as unknown as SessionDocument));
+  } catch {
+    return [];
+  }
+}
+
 export async function listCodingSessionsForProject(
   databases: Databases,
   projectId: string,

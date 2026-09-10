@@ -392,7 +392,7 @@ export class AzureSandboxDriver implements SandboxDriver {
   private async request(
     method: string,
     path: string,
-    init?: { json?: unknown; bytes?: Uint8Array; headers?: Record<string, string> },
+    init?: { json?: unknown; bytes?: Uint8Array; headers?: Record<string, string>; timeoutMs?: number },
   ): Promise<{ status: number; text: string; json: Record<string, unknown> }> {
     const url = `${this.config.endpoint}${path}${path.includes("?") ? "&" : "?"}api-version=${API_VERSION}`;
     const headers: Record<string, string> = {
@@ -407,7 +407,7 @@ export class AzureSandboxDriver implements SandboxDriver {
       headers["Content-Type"] = "application/octet-stream";
       body = Buffer.from(init.bytes);
     }
-    const response = await fetch(url, { method, headers, body });
+    const response = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(init?.timeoutMs ?? 120_000) });
     const text = await response.text();
     let json: Record<string, unknown> = {};
     try {
@@ -556,9 +556,11 @@ export class AzureSandboxDriver implements SandboxDriver {
   }
 
   private async waitUntilReady(sandboxId: string): Promise<void> {
-    for (let attempt = 0; attempt < 12; attempt += 1) {
+    // Poll quickly (≤1.5 s apart) for the same ~40 s budget; the old 0.5→6 s back-off routinely
+    // left a ready VM idle for several seconds before the clone started.
+    for (let attempt = 0; attempt < 32; attempt += 1) {
       if (await this.exists(sandboxId)) return;
-      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1500, 300 * (attempt + 1))));
     }
     throw new Error(
       `Azure sandbox ${sandboxId} was created but never became ready (GlobalSandboxNotFound). Retry coding_session_start to create a new sandbox.`,
@@ -581,7 +583,7 @@ export class AzureSandboxDriver implements SandboxDriver {
       } catch (error) {
         last = error;
         if (isSandboxGoneError(error)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1200, 300 * (attempt + 1))));
       }
     }
     throw last instanceof Error ? last : new Error("Could not create /workspace in the Azure sandbox.");
@@ -598,7 +600,7 @@ export class AzureSandboxDriver implements SandboxDriver {
     const result = await this.request(
       "POST",
       `${groupPath(this.config)}/sandboxes/${encodeURIComponent(sandboxId)}/executeShellCommand`,
-      { json: { command } },
+      { json: { command }, timeoutMs: 10 * 60_000 },
     );
     return this.parseExecResult(result.json, result.text);
   }

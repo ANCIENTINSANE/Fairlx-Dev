@@ -237,6 +237,7 @@ export function DiffViewer({
   onComment,
   onMerge,
   merging,
+  focusFile,
 }: {
   files: DiffFile[];
   checks?: CheckRun[];
@@ -245,9 +246,20 @@ export function DiffViewer({
   onComment?: (file: string, line: number, body: string) => void;
   onMerge?: () => void;
   merging?: boolean;
+  /** Externally requested file (from the project tree): opened and scrolled into view when it changes. */
+  focusFile?: string | null;
 }) {
   const [openFiles, setOpenFiles] = useState<Set<string>>(() => new Set(files[0]?.filename ? [files[0].filename] : []));
   const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusFile) return;
+    setOpenFiles((current) => (current.has(focusFile) ? current : new Set([...current, focusFile])));
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById(`diff-file-${encodeURIComponent(focusFile)}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [focusFile]);
 
   const fileNames = files.map((file) => file.filename).join("\0");
   useEffect(() => {
@@ -359,7 +371,7 @@ export function DiffViewer({
           const open = openFiles.has(file.filename);
           const isNew = isNewFileStatus(file.status);
           return (
-            <div key={file.filename} className="border-b border-sidebar-border">
+            <div key={file.filename} id={`diff-file-${encodeURIComponent(file.filename)}`} className="border-b border-sidebar-border">
               <div
                 className={cn(
                   "group/file flex items-center gap-2 px-3 py-1.5 text-[12px]",

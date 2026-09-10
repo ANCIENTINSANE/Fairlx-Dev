@@ -4,10 +4,101 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `src/features/agent/api/use-agent-search.ts`
+- `src/features/agent/api/use-coding-session.ts`
+- `src/features/agent/components/agent-automations-screen.tsx`
+- `src/features/agent/components/agent-chat-thread.tsx`
+- `src/features/agent/components/agent-command-input.tsx`
+- `src/features/agent/components/agent-mode-selector.tsx`
+- `src/features/agent/components/agent-screens.tsx`
+- `src/features/agent/components/agent-ui-context.tsx`
+- `src/features/agent/components/automation-flow-editor.tsx`
+- `src/features/agent/components/changes-tree.tsx`
+- `src/features/agent/components/composer-shortcut-menu.tsx`
+- `src/features/agent/components/crew-stage.tsx`
+- `src/features/agent/components/diff-viewer.tsx`
+- `src/features/agent/components/github-connect-dialog.tsx`
+- `src/features/agent/components/live-activity-timeline.tsx`
+- `src/features/agent/components/manage-mcp-dialog.tsx`
+- `src/features/agent/components/mcp-catalog-picker.tsx`
+- `src/features/agent/components/mcp-servers-card.tsx`
+- `src/features/agent/components/run-status-strip.tsx`
+- `src/features/agent/components/sandbox-preview-panel.tsx`
+- `src/features/agent/components/slack-setup-guide.tsx`
+- `src/features/agent/components/terminal-panel.tsx`
+- `src/features/agent/components/workflow-view.tsx`
+- `src/features/agent/constants.ts`
+- `src/features/agent/lib/automation-flow.test.ts`
+- `src/features/agent/lib/automation-flow.ts`
+- `src/features/agent/lib/automation-runner.ts`
+- `src/features/agent/lib/brain/definitions.ts`
+- `src/features/agent/lib/brain/select.ts`
+- `src/features/agent/lib/coding-session-start.ts`
+- `src/features/agent/lib/coding-sessions.ts`
+- `src/features/agent/lib/composer-shortcuts.test.ts`
+- `src/features/agent/lib/composer-shortcuts.ts`
+- `src/features/agent/lib/context-meter.ts`
+- `src/features/agent/lib/detect-start-command.ts`
+- `src/features/agent/lib/fairlx-router.ts`
+- `src/features/agent/lib/harness.ts`
+- `src/features/agent/lib/implementation-plan.test.ts`
+- `src/features/agent/lib/implementation-plan.ts`
+- `src/features/agent/lib/mcp-catalog.ts`
+- `src/features/agent/lib/mode-router.test.ts`
+- `src/features/agent/lib/mode-router.ts`
+- `src/features/agent/lib/model-router.test.ts`
+- `src/features/agent/lib/prompt-budget.ts`
+- `src/features/agent/lib/prompt.ts`
+- `src/features/agent/lib/run-live.test.ts`
+- `src/features/agent/lib/run-live.ts`
+- `src/features/agent/lib/runs.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/sandbox-browser.ts`
+- `src/features/agent/lib/sandbox-coding-agent.ts`
+- `src/features/agent/lib/sandbox-lifecycle-view.ts`
+- `src/features/agent/lib/sandbox-lifecycle.test.ts`
+- `src/features/agent/lib/sandbox-lifecycle.ts`
+- `src/features/agent/lib/sandbox-phases.ts`
+- `src/features/agent/lib/sandbox-prepare.ts`
+- `src/features/agent/lib/sandbox-preview.test.ts`
+- `src/features/agent/lib/sandbox-preview.ts`
+- `src/features/agent/lib/sandbox/azure.ts`
+- `src/features/agent/lib/sandbox/workspace.ts`
+- `src/features/agent/lib/session-context.ts`
+- `src/features/agent/lib/tool-schemas.ts`
+- `src/features/agent/lib/tools.ts`
+- `src/features/agent/lib/transcript.ts`
+- `src/features/agent/lib/write-guard.ts`
+- `src/features/agent/plugins/notify-channel.ts`
+- `src/features/agent/plugins/slack-commands.ts`
+- `src/features/agent/plugins/slack.test.ts`
+- `src/features/agent/plugins/slack.ts`
+- `src/features/agent/server/route.ts`
+- `src/features/agent/types.ts`
+- `src/features/comments/server/route.ts`
+- `src/features/integrations/server/route.ts`
+- `src/features/sprints/server/work-items-route.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-10 | `b1e88d5` | chore: bump version to 0.2.123 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `4ff1179` | Merge pull request #318 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-10 | `0b3ff99` | chore: bump version to 0.2.122 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `675695a` | Merge branch 'main' into main | Shashank Kumar Rathour |
+| 2026-09-10 | `4d447b4` | chore: bump version to 0.2.120 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `4357ff6` | feat: implement default project roles and permissions system with automated role seeding | Happyesss |
+| 2026-09-09 | `569a63a` | chore: bump version to 0.2.121 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `dfd1574` | Merge pull request #317 from ANCIENTINSANE/main | Shashank Kumar Rathour |
+| 2026-09-09 | `320b423` | chore: bump version to 0.2.120 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `bff92ef` | Merge pull request #316 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-09 | `2d59f93` | chore: bump version to 0.2.119 [skip ci] | github-actions[bot] |
+| 2026-09-10 | `d52ca96` | feat: enhance idempotency handling and add project creation event | Happyesss |
 | 2026-09-10 | `17fcd6e` | Rueq (Build): Build Retuntion and stable:Yes | ANCIENTINSANE |
 | 2026-09-09 | `e35bfff` | Rueq (Build): Build Retuntion and stable:Yes | ANCIENTINSANE |
 | 2026-09-09 | `6b2114e` | chore: bump version to 0.2.118 [skip ci] | github-actions[bot] |
@@ -75,19 +166,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-04 | `94a5580` | Merge pull request #299 from Happyesss/main | Shashank Kumar Rathour |
 | 2026-09-04 | `715640b` | chore: bump version to 0.2.95 [skip ci] | github-actions[bot] |
 | 2026-09-04 | `05a058b` | Merge branch 'main' into main | Shashank Kumar Rathour |
-| 2026-09-04 | `cfd443d` | chore: bump version to 0.2.94 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `40b9db9` | refactor: optimize message and event retrieval using useMemo for performance | Happyesss |
-| 2026-09-04 | `e805894` | chore: bump version to 0.2.93 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `7901b84` | feat: add AgentFloatingChat component for interactive agent communication | Happyesss |
-| 2026-09-03 | `3426bbe` | chore: bump version to 0.2.93 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `5c99783` | Merge pull request #298 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-03 | `5c24ef5` | chore: bump version to 0.2.92 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `16f1b6d` | feat: implement personalized agent training workflows, task prioritization, and project team management tools. | Happyesss |
-| 2026-09-03 | `ab595ff` | chore: bump version to 0.2.91 [skip ci] | github-actions[bot] |
-| 2026-09-03 | `b8eb6dd` | refactor: standardize priority UI logic and introduce modular project-based quick actions for agent commands | Happyesss |
-| 2026-09-02 | `7cf95d2` | chore: bump version to 0.2.90 [skip ci] | github-actions[bot] |
-| 2026-09-03 | `6661845` | feat: introduce personal agent functionality with new tools, update environment configurations, and enhance agent run management | Happyesss |
-| 2026-09-01 | `9f29adb` | chore: bump version to 0.2.89 [skip ci] | github-actions[bot] |
-| 2026-09-02 | `3481abe` | Merge pull request #297 from Happyesss/main | Shashank Kumar Rathour |
 
-Last generated: 2026-09-09T18:43:40.636Z
+Last generated: 2026-09-10T18:54:23.954Z

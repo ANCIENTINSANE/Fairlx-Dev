@@ -78,7 +78,8 @@ function nodeInstallCommand(manager: PackageManager): string {
   if (manager === "pnpm") return "pnpm install --frozen-lockfile || pnpm install";
   if (manager === "yarn") return "yarn install --frozen-lockfile || yarn install";
   if (manager === "bun") return "bun install";
-  return "npm ci || npm install";
+  // --prefer-offline reuses the npm cache when the VM survived; audit/fund add seconds of noise.
+  return "npm ci --no-audit --no-fund --prefer-offline || npm install --no-audit --no-fund";
 }
 
 function nodeRunScript(manager: PackageManager, script: "dev" | "start" | "preview" | "serve"): string {
@@ -307,7 +308,8 @@ export function backgroundStartShell(startCommand: string, logPath = "/tmp/fairl
   return `nohup sh -c ${wrapped} > ${logPath} 2>&1 < /dev/null & echo $!`;
 }
 
-export function healthCheckShell(port: number, attempts = 16, sleepSeconds = 2): string {
+/** First Vite/Next compile after install often needs ~1–2 min, not 30s. */
+export function healthCheckShell(port: number, attempts = 40, sleepSeconds = 3): string {
   return [
     `ok=0`,
     `i=0`,
@@ -320,6 +322,17 @@ export function healthCheckShell(port: number, attempts = 16, sleepSeconds = 2):
     `  fi`,
     `  sleep ${sleepSeconds}`,
     `done`,
-    `if [ $ok -ne 1 ]; then echo FAIRLX_HEALTH_FAIL; tail -n 40 /tmp/fairlx-dev.log 2>/dev/null || true; fi`,
+    `if [ $ok -ne 1 ]; then echo FAIRLX_HEALTH_FAIL; tail -n 80 /tmp/fairlx-dev.log 2>/dev/null || true; fi`,
+  ].join("\n");
+}
+
+/** One-shot curl used when re-checking a sandbox that already finished prepare. */
+export function quickHealthShell(port: number): string {
+  return [
+    `if curl -sf -o /dev/null --max-time 3 http://127.0.0.1:${port} || curl -sf -o /dev/null --max-time 3 http://127.0.0.1:${port}/health || wget -q -O /dev/null --timeout=3 http://127.0.0.1:${port}; then`,
+    `  echo FAIRLX_HEALTH_OK`,
+    `else`,
+    `  echo FAIRLX_HEALTH_FAIL`,
+    `fi`,
   ].join("\n");
 }

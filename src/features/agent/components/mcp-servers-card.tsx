@@ -4,6 +4,7 @@ import { ChevronRight, Server } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentUi } from "./agent-ui-context";
 import { useGetAgentMcpConfig } from "../api/use-agent-mcp-config";
+import { McpCatalogPicker } from "./mcp-catalog-picker";
 import { getMcpServerIcon, isInternalMcpServer } from "../constants";
 import type { McpConfig } from "../types";
 
@@ -70,16 +71,16 @@ export function McpServersCard() {
         )}
         {!isLoading && servers.length === 0 && (
           <div className="py-3 px-3 rounded-lg border border-dashed border-border text-center bg-muted/20">
-            <p className="text-xs text-muted-foreground">No external MCP servers added.</p>
+            <p className="text-xs text-muted-foreground">No external MCP servers added yet.</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Add an HTTP server so mcp_list / mcp_call can reach Sentry, Datadog, or other tools inside Fairlx.
+              Pick one below or add your own HTTP server so mcp_list / mcp_call can reach it from inside Fairlx.
             </p>
             <button
               type="button"
               onClick={openMcp}
               className="text-xs font-medium text-primary hover:underline mt-1 inline-block"
             >
-              + Add external server
+              + Add a custom server
             </button>
           </div>
         )}
@@ -124,6 +125,7 @@ export function McpServersCard() {
           );
         })}
       </div>
+      {!isLoading ? <McpCatalogPicker compact className="mt-4" /> : null}
     </div>
   );
 }

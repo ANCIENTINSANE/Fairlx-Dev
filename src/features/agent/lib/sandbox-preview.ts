@@ -108,3 +108,13 @@ export function describeCodingPreview(input: {
   }
   return { url, driver, stub, live, preparing, note };
 }
+
+export function codingSessionResumeNote(
+  resumed: boolean | undefined,
+  preview: { live: boolean; note: string },
+): string {
+  if (resumed && preview.live) {
+    return "Existing sandbox preview is still the previous site. Call coding_session_implement with the user's latest request so the live preview actually changes. Do not treat this URL as proof the new work is done.";
+  }
+  return preview.note;
+}
