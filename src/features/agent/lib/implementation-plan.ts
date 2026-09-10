@@ -18,7 +18,7 @@ export type {
 };
 
 const BUILD_OR_CHANGE_RE =
-  /\b(start building|build the project|build this|rebuild|from scratch|implement|scaffold|coding sessions?|make changes? in (the )?project|edit the code|ship (this|the|it)|fix .{0,60} in (the )?(repo|codebase|project)|how (do you|to) start|where to start)\b/i;
+  /\b(start building|start coding|code now|build the project|build this|rebuild|from scratch|implement|scaffold|coding sessions?|make changes? in (the )?project|edit the code|ship (this|the|it)|fix .{0,60} in (the )?(repo|codebase|project)|how (do you|to) start|where to start)\b/i;
 
 const INSPECT_RE =
   /\b(what is this|tell me about|describe (this|the) (project|repo|repository)|what does this (project|repo)|explain this (project|repo)|read( the)? readme)\b/i;
@@ -316,8 +316,32 @@ function significantTokens(text: string): Set<string> {
 
 const CONTINUE_PLAN_RE =
   /\b(continue|keep going|next phase|finish (the )?(plan|phase)|same plan|phase\s*\d+|carry on)\b/i;
+const IMPLEMENT_NUDGE_RE =
+  /\b(start coding|start implementing|code now|just code|just (do|implement) it|begin coding|please code|please implement|implement now|build it now|go ahead( and (code|implement|build))?|keep (on )?coding)\b/i;
+const IMPLEMENT_STATUS_RE =
+  /\b((did|have) you (code|coded|implement|implemented|build|built|finish|finished|start(ed)?)|are you (coding|implementing)|why didn'?t you code)\b/i;
+const IMPLEMENT_CONFIRM_RE =
+  /^(yes|ok|okay|yep|sure)[,.]?\s+((please )?(start( coding)?|code( now)?|implement( now)?|build( it| now)?|go( ahead)?|do it))$/i;
 const FOCUSED_SLICE_RE =
   /\b(hamburger|burger menu|nav(igation)? menu|mobile menu|responsive|small devices?|media quer(?:y|ies)|add (a |the )?(button|link|icon|banner|modal|toast|tooltip|footer|header)|tweak|polish|rename|restyle)\b/i;
+
+/** True when the user is asking to execute / continue coding, not to change the slice of work. */
+export function conversationLooksLikeCodingNudge(text: string): boolean {
+  const source = (text || "").trim();
+  if (!source) return false;
+  if (CONTINUE_PLAN_RE.test(source)) return true;
+  if (IMPLEMENT_NUDGE_RE.test(source)) return true;
+  if (IMPLEMENT_STATUS_RE.test(source)) return true;
+  return IMPLEMENT_CONFIRM_RE.test(source);
+}
+
+/** Accepted leftover plan + a coding nudge: execute the current phase instead of replanning. */
+export function shouldExecuteAcceptedPlan(text: string, plan?: ImplementationPlan | null): boolean {
+  if (!planIsAccepted(plan)) return false;
+  if (!firstIncompletePhase(plan)) return false;
+  if (conversationWantsNewPlanSlice(text, plan)) return false;
+  return conversationLooksLikeCodingNudge(text);
+}
 
 export function conversationLooksLikeUiFollowUp(text: string): boolean {
   return FOCUSED_SLICE_RE.test(text || "");
@@ -405,7 +429,7 @@ export function planCoversPrompt(plan: ImplementationPlan | null | undefined, te
  */
 export function conversationWantsNewPlanSlice(text: string, plan?: ImplementationPlan | null): boolean {
   if (!plan || !planIsAccepted(plan)) return false;
-  if (CONTINUE_PLAN_RE.test(text || "")) return false;
+  if (conversationLooksLikeCodingNudge(text)) return false;
   if (conversationLooksLikeError(text)) return false;
   if (conversationWantsSessionPreview(text)) return false;
   const incomplete = firstIncompletePhase(plan);

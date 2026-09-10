@@ -16,6 +16,15 @@ describe("mode router", () => {
     expect(detectSessionMode("the login button is not working after deploy").mode).toBe("debug");
   });
 
+  it("auto mode treats coding nudges as agent, not ask or plan", () => {
+    expect(detectSessionMode("code now").mode).toBe("agent");
+    expect(detectSessionMode("yes start coding").mode).toBe("agent");
+    expect(detectSessionMode("did you code?").mode).toBe("agent");
+    const content = composeUserPrompt("code now", [], "auto", null, { hasRepo: true });
+    expect(sessionModeFromContent(content)).toBe("agent");
+    expect(content).toMatch(/Do not submit another implementation plan/);
+  });
+
   it("asks for questions, acts for actions, plans for roadmaps", () => {
     expect(detectSessionMode("what is the status of sprint 3?").mode).toBe("ask");
     expect(detectSessionMode("create a bug for the broken login").mode).toBe("debug");

@@ -8,6 +8,7 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-11 | `502e381` | fix: stop replanning when the user asks the agent to code | ANCIENTINSANE |
 | 2026-09-11 | `57825f5` | feat: add automation loops, Slack agent ops, sandbox lifecycle, and live run workspace | ANCIENTINSANE |
 | 2026-09-10 | `b1e88d5` | chore: bump version to 0.2.123 [skip ci] | github-actions[bot] |
 | 2026-09-10 | `4ff1179` | Merge pull request #318 from Happyesss/main | Shashank Kumar Rathour |
@@ -85,7 +86,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-04 | `5374c1c` | chore: bump version to 0.2.97 [skip ci] | github-actions[bot] |
 | 2026-09-04 | `dd9c18e` | feat: enhance pending confirmation handling and improve write tool call detection | Happyesss |
 | 2026-09-04 | `a49f12d` | chore: bump version to 0.2.96 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `94a5580` | Merge pull request #299 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-04 | `715640b` | chore: bump version to 0.2.95 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-10T18:54:38.476Z
+Last generated: 2026-09-10T19:35:59.804Z

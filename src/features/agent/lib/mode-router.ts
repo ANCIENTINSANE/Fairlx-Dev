@@ -1,4 +1,5 @@
 import type { AgentSessionMode } from "../types";
+import { conversationLooksLikeCodingNudge } from "./implementation-plan";
 
 /**
  * Mode router — reads the user's words and picks the session mode the agent should adopt.
@@ -67,6 +68,14 @@ export function detectSessionMode(text: string, options?: { hasProject?: boolean
   }
   if (DEBUG_RE.test(source) && !/\b(plan|roadmap)\b/i.test(source)) {
     return { mode: "debug", confidence: 0.8, reason: "describes something broken", hints: ["Ask for the exact error only if it is not already in the message."] };
+  }
+  if (conversationLooksLikeCodingNudge(source) && count <= 16) {
+    return {
+      mode: "agent",
+      confidence: 0.9,
+      reason: "asked to implement or continue coding",
+      hints: ["Execute the accepted plan in the sandbox. Do not submit another implementation plan."],
+    };
   }
   if (PLAN_RE.test(source)) {
     const hints = buildHints(source);

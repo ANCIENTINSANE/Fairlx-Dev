@@ -18,19 +18,19 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-10T18:54:38.500Z
+**Last updated:** 2026-09-10T19:35:59.855Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
 **Latest commits**
 
+- `502e381` fix: stop replanning when the user asks the agent to code (2026-09-11)
 - `57825f5` feat: add automation loops, Slack agent ops, sandbox lifecycle, and live run workspace (2026-09-11)
 - `b1e88d5` chore: bump version to 0.2.123 [skip ci] (2026-09-10)
 - `4ff1179` Merge pull request #318 from Happyesss/main (2026-09-10)
 - `0b3ff99` chore: bump version to 0.2.122 [skip ci] (2026-09-10)
 - `675695a` Merge branch 'main' into main (2026-09-10)
 - `4d447b4` chore: bump version to 0.2.120 [skip ci] (2026-09-10)
-- `4357ff6` feat: implement default project roles and permissions system with automated role seeding (2026-09-10)
 <!-- docs:latest:end -->
 
 ---

@@ -65,6 +65,17 @@ export function toolCallFingerprint(name: string, args: string): string {
   return `${name}:${stableToolArgs(args)}`;
 }
 
+const NO_REUSE_TOOLS = new Set([
+  "coding_session_implement",
+  "coding_session_exec",
+  "submit_implementation_plan",
+]);
+
+/** Implement / plan-submit retries must actually run; a prior identical call is not a substitute. */
+export function toolCallAllowsReuse(name: string): boolean {
+  return !NO_REUSE_TOOLS.has(name);
+}
+
 function parseObject(raw: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(raw || "{}") as unknown;

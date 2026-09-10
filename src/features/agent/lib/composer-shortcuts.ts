@@ -36,7 +36,7 @@ export const SLASH_SHORTCUTS: ComposerShortcut[] = [
     label: "/build",
     hint: "Implement in the Azure sandbox",
     instruction:
-      "Implement this request in the coding session. Finish the current plan phase (or submit a short plan for this slice) before later phases.",
+      "Implement in the coding session now. If an accepted plan already covers this request, execute that phase with coding_session_implement — do not submit another plan.",
     mode: "agent",
   },
   {

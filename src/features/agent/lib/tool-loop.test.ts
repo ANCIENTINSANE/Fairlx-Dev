@@ -16,6 +16,7 @@ import {
   resolveListSliceCall,
   shouldForceAnswer,
   stableToolArgs,
+  toolCallAllowsReuse,
   toolCallFingerprint,
 } from "./tool-loop";
 
@@ -31,6 +32,13 @@ describe("toolCallFingerprint", () => {
     );
     expect(left).toBe(right);
     expect(stableToolArgs('{"b":1,"a":2}')).toBe(stableToolArgs('{"a":2,"b":1}'));
+  });
+
+  it("does not short-circuit implement or plan-submit retries", () => {
+    expect(toolCallAllowsReuse("github_list_files")).toBe(true);
+    expect(toolCallAllowsReuse("coding_session_implement")).toBe(false);
+    expect(toolCallAllowsReuse("coding_session_exec")).toBe(false);
+    expect(toolCallAllowsReuse("submit_implementation_plan")).toBe(false);
   });
 });
 
