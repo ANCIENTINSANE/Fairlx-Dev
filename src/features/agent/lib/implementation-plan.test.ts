@@ -10,6 +10,7 @@ import {
   compactImplementationPlan,
   conversationLooksLikeError,
   conversationLooksLikeInspect,
+  conversationLooksLikeCodingNudge,
   conversationLooksLikeUiFollowUp,
   conversationWantsBuildOrChange,
   conversationWantsNewPlanSlice,
@@ -29,6 +30,7 @@ import {
   planPanelModel,
   resolveRunImplementationPlan,
   runHasAcceptedPlan,
+  shouldExecuteAcceptedPlan,
   shouldUseInspectModel,
 } from "./implementation-plan";
 
@@ -75,6 +77,8 @@ describe("build/change intent", () => {
     );
     expect(buildGateShouldBlock("how to start", "go on", false)).toBe(true);
     expect(buildGateShouldBlock("start building", "start building", true)).toBe(false);
+    expect(conversationWantsBuildOrChange("code now")).toBe(true);
+    expect(conversationWantsBuildOrChange("yes start coding")).toBe(true);
   });
 
   it("keeps inspect/plan on the cheap model until Accept", () => {
@@ -416,6 +420,33 @@ describe("new focused slice vs leftover accepted plan", () => {
     expect(conversationWantsNewPlanSlice("continue", plan)).toBe(false);
     expect(conversationWantsNewPlanSlice("finish the plan", plan)).toBe(false);
     expect(buildGateShouldBlock("start building\ncontinue", "continue", true, plan)).toBe(false);
+  });
+
+  it("executes an accepted leftover plan when the user asks to code, instead of replanning", () => {
+    const plan: ImplementationPlan = {
+      title: "Add Chemcha About Us page and navigation link",
+      summary: "Add an About Us route and a navbar link on the existing Chemcha site.",
+      status: "accepted",
+      phases: [
+        {
+          id: "phase-1",
+          title: "About page and nav",
+          tasks: [
+            { id: "t1", title: "Add About Us page", status: "pending" },
+            { id: "t2", title: "Add navbar link", status: "pending" },
+            { id: "t3", title: "Verify desktop and mobile", status: "pending" },
+          ],
+        },
+      ],
+    };
+    for (const prompt of ["yes start coding", "code now", "did you code?", "Did you code ?", "start coding"]) {
+      expect(conversationLooksLikeCodingNudge(prompt)).toBe(true);
+      expect(conversationWantsNewPlanSlice(prompt, plan)).toBe(false);
+      expect(shouldExecuteAcceptedPlan(prompt, plan)).toBe(true);
+      expect(buildGateShouldBlock("I want to build a product\n" + prompt, prompt, true, plan)).toBe(false);
+      expect(describePlanSituation(plan, prompt)).not.toMatch(/new focused change/i);
+      expect(describePlanSituation(plan, prompt)).toMatch(/Stay on Phase 1/i);
+    }
   });
 
   it("does not mark a later-phase implement task while phase 1 is still open", () => {

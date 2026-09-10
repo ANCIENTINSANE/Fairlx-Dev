@@ -31,6 +31,7 @@ import {
   implementationPlanMarkdown,
   planIsAccepted,
   resolveRunImplementationPlan,
+  shouldExecuteAcceptedPlan,
 } from "./implementation-plan";
 import { conversationWantsAzureSandbox, lastSandboxAccessFailure } from "./sandbox/azure";
 
@@ -243,13 +244,16 @@ export function buildSystemPrompt(params: {
   const lastUserPlain = displayUserContent(lastUser?.content || run.prompt || "");
   if (storedPlan && !(sandboxAuthFailed && azurePreviewAsk)) {
     const leftoverSlice = planIsAccepted(storedPlan) && conversationWantsNewPlanSlice(lastUserPlain, storedPlan);
+    const executeNow = shouldExecuteAcceptedPlan(lastUserPlain, storedPlan);
     lines.push(
       "",
       leftoverSlice
         ? "Leftover accepted plan — do NOT execute leftover phases. The latest message is a new focused request: call submit_implementation_plan for THIS request (one phase is enough)."
-        : planIsAccepted(storedPlan)
-          ? "Accepted implementation plan — finish the current incomplete phase this turn. Do not skip to a later phase:"
-          : "Draft implementation plan (waiting for Accept):",
+        : executeNow
+          ? "The user asked to implement the accepted plan now. Do not call submit_implementation_plan again. If a coding session sandbox is bound, call coding_session_implement for the current phase. If it is not bound yet, call coding_session_start then implement."
+          : planIsAccepted(storedPlan)
+            ? "Accepted implementation plan — finish the current incomplete phase this turn. Do not skip to a later phase:"
+            : "Draft implementation plan (waiting for Accept):",
       implementationPlanMarkdown(storedPlan),
     );
     if (planIsAccepted(storedPlan)) {

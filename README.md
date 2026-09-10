@@ -18,9 +18,23 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-10T18:54:38.500Z
+**Last updated:** 2026-09-10T19:35:19.461Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
+
+**This commit**
+
+- `src/features/agent/lib/composer-shortcuts.test.ts`
+- `src/features/agent/lib/composer-shortcuts.ts`
+- `src/features/agent/lib/implementation-plan.test.ts`
+- `src/features/agent/lib/implementation-plan.ts`
+- `src/features/agent/lib/mode-router.test.ts`
+- `src/features/agent/lib/mode-router.ts`
+- `src/features/agent/lib/prompt-budget.ts`
+- `src/features/agent/lib/prompt.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/tool-loop.test.ts`
+- `src/features/agent/lib/tool-loop.ts`
 
 **Latest commits**
 
@@ -30,7 +44,6 @@ This block and [changelog.md](changelog.md) refresh on every `git commit` and `g
 - `0b3ff99` chore: bump version to 0.2.122 [skip ci] (2026-09-10)
 - `675695a` Merge branch 'main' into main (2026-09-10)
 - `4d447b4` chore: bump version to 0.2.120 [skip ci] (2026-09-10)
-- `4357ff6` feat: implement default project roles and permissions system with automated role seeding (2026-09-10)
 <!-- docs:latest:end -->
 
 ---

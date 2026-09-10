@@ -52,6 +52,7 @@ import {
   resolveListSliceCall,
   forgetListCachesAfterMutation,
   toolCallFingerprint,
+  toolCallAllowsReuse,
   unwrapListCall,
   toolsWhenContextIsTight,
 } from "./tool-loop";
@@ -125,6 +126,7 @@ import {
   resolveRunImplementationPlan,
   runHasAcceptedPlan,
   runIsWaitingForSandbox,
+  shouldExecuteAcceptedPlan,
 } from "./implementation-plan";
 import {
   blockedSandboxAuthResult,
@@ -801,6 +803,8 @@ export async function runAgentTurn(params: {
   if (restoredPlan) run.implementationPlan = restoredPlan;
   const planAccepted = () => runHasAcceptedPlan(run) || planIsAccepted(run.implementationPlan);
   const currentPlan = () => resolveRunImplementationPlan(run) ?? restoredPlan;
+  const codingUnlockedByPlan = (name: string) =>
+    planAccepted() && (name === "coding_session_start" || name === "coding_session_implement");
   const buildGateActive = () => buildGateShouldBlock(intentText, lastUserText, planAccepted(), currentPlan());
   const sandboxWaitActive = () => planAccepted() && runIsWaitingForSandbox(run);
   const planSituation = describePlanSituation(restoredPlan, lastUserText);
@@ -1146,7 +1150,7 @@ export async function runAgentTurn(params: {
     }
     const fingerprint = toolCallFingerprint(canonical.name, canonical.arguments);
     const previous = seenCalls.get(fingerprint);
-    if (previous !== undefined) {
+    if (previous !== undefined && toolCallAllowsReuse(canonical.name)) {
       nextEvents.push(thoughtEvent(run.id, options?.coalesced ? "Combined overlapping lists" : "Reused previous result"));
       nextMessages.push({
         id: crypto.randomUUID(),
@@ -1306,15 +1310,45 @@ export async function runAgentTurn(params: {
         }
       }
       const startContent = lastToolMessageContent(nextMessages, "coding_session_start");
+      const sandboxReadyForImplement =
+        (sandboxStartLooksReady(startContent) || Boolean(run.sessionId)) && !runIsWaitingForSandbox(run);
+      const executeAcceptedNow =
+        shouldExecuteAcceptedPlan(lastUserText, run.implementationPlan) && sandboxReadyForImplement;
       const followUpOnLivePreview =
         !implementedFollowUpThisTurn &&
         conversationLooksLikeUiFollowUp(lastUserText) &&
-        (sandboxStartLooksReady(startContent) || Boolean(run.sessionId)) &&
+        sandboxReadyForImplement &&
         (sessionBoundAtTurnStart ||
           resumedCodingSessionThisTurn ||
           sandboxStartLooksResumed(startContent) ||
           Boolean(priorPlan && conversationWantsNewPlanSlice(lastUserText, priorPlan)));
       if (
+        !implementedFollowUpThisTurn &&
+        executeAcceptedNow &&
+        (canonical.name === "submit_implementation_plan" || canonical.name === "coding_session_start")
+      ) {
+        implementedFollowUpThisTurn = true;
+        nextEvents.push(
+          thoughtEvent(
+            run.id,
+            "Implementing the accepted plan",
+            "User asked to code; chaining coding_session_implement without another planning turn.",
+          ),
+        );
+        const implementCall: AgentToolCall = {
+          id: crypto.randomUUID(),
+          name: "coding_session_implement",
+          arguments: JSON.stringify({ prompt: phaseImplementPrompt(run.implementationPlan, lastUserText) }),
+        };
+        nextMessages.push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "",
+          toolCalls: [implementCall],
+          createdAt: new Date().toISOString(),
+        });
+        await applyToolCall(implementCall, nextMessages, nextEvents, { userAccepted: true });
+      } else if (
         followUpOnLivePreview &&
         (canonical.name === "submit_implementation_plan" || canonical.name === "coding_session_start")
       ) {
@@ -1604,7 +1638,7 @@ export async function runAgentTurn(params: {
         }
         if (
           needsConfirmation(call, permissionType(), { autonomousCoding: autonomousCoding() }) &&
-          !(planAccepted() && call.name === "coding_session_start")
+          !codingUnlockedByPlan(call.name)
         ) {
           pendingWrites.push(call);
           messages.push({
@@ -1920,6 +1954,46 @@ export async function runAgentTurn(params: {
       }
     }
 
+    if (
+      !resume &&
+      !training &&
+      run.mode === "agent" &&
+      !implementedFollowUpThisTurn &&
+      !sandboxWaitActive() &&
+      sessionBoundAtTurnStart &&
+      shouldExecuteAcceptedPlan(lastUserText, currentPlan())
+    ) {
+      const nextMessages: AgentChatMessage[] = [...run.messages];
+      const nextEvents = [...run.events];
+      implementedFollowUpThisTurn = true;
+      nextEvents.push(
+        thoughtEvent(
+          run.id,
+          "Implementing the accepted plan",
+          "Sandbox is already live; chaining coding_session_implement without another planning turn.",
+        ),
+      );
+      const implementCall: AgentToolCall = {
+        id: crypto.randomUUID(),
+        name: "coding_session_implement",
+        arguments: JSON.stringify({ prompt: phaseImplementPrompt(currentPlan(), lastUserText) }),
+      };
+      nextMessages.push({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "",
+        toolCalls: [implementCall],
+        createdAt: new Date().toISOString(),
+      });
+      await applyToolCall(implementCall, nextMessages, nextEvents, { userAccepted: true });
+      run = await persistUnlessStopped({
+        messages: nextMessages,
+        events: nextEvents,
+        status: "running",
+      });
+      if (run.status === "stopped") return run;
+    }
+
     const maxIterations = training ? 2 : MAX_TOOL_ITERATIONS;
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       const stopped = await haltIfStopped();
@@ -2082,7 +2156,7 @@ export async function runAgentTurn(params: {
         }
         const nextEvents = run.events;
         const confirmNeeded = (call: AgentToolCall) => {
-          if (planAccepted() && call.name === "coding_session_start") return false;
+          if (codingUnlockedByPlan(call.name)) return false;
           return needsConfirmation(call, permissionType(), { autonomousCoding: autonomousCoding() });
         };
         const workingCalls = applyCallGate(allowedCalls, nextMessages, nextEvents);

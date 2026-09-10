@@ -4,6 +4,22 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `src/features/agent/lib/composer-shortcuts.test.ts`
+- `src/features/agent/lib/composer-shortcuts.ts`
+- `src/features/agent/lib/implementation-plan.test.ts`
+- `src/features/agent/lib/implementation-plan.ts`
+- `src/features/agent/lib/mode-router.test.ts`
+- `src/features/agent/lib/mode-router.ts`
+- `src/features/agent/lib/prompt-budget.ts`
+- `src/features/agent/lib/prompt.ts`
+- `src/features/agent/lib/runtime.ts`
+- `src/features/agent/lib/tool-loop.test.ts`
+- `src/features/agent/lib/tool-loop.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
@@ -86,6 +102,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-04 | `dd9c18e` | feat: enhance pending confirmation handling and improve write tool call detection | Happyesss |
 | 2026-09-04 | `a49f12d` | chore: bump version to 0.2.96 [skip ci] | github-actions[bot] |
 | 2026-09-04 | `94a5580` | Merge pull request #299 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-04 | `715640b` | chore: bump version to 0.2.95 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-10T18:54:38.476Z
+Last generated: 2026-09-10T19:35:19.428Z

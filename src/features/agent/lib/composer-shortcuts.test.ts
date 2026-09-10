@@ -28,6 +28,13 @@ describe("composer shortcuts", () => {
     expect(stripComposerShortcuts(expanded.text)).toBe("add a hamburger menu");
   });
 
+  it("expands /build to implement the accepted plan instead of submitting another", () => {
+    const expanded = expandComposerShortcuts("/build code now");
+    expect(expanded.mode).toBe("agent");
+    expect(expanded.text).toMatch(/do not submit another plan/i);
+    expect(stripComposerShortcuts(expanded.text)).toBe("code now");
+  });
+
   it("keeps unknown tokens and expands several shortcuts", () => {
     const expanded = expandComposerShortcuts("/plan @builder add a hamburger menu /notacommand");
     expect(expanded.mode).toBe("plan");
