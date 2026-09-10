@@ -305,13 +305,14 @@ describe("fairlx_project_team_member_add", () => {
       alreadyOnProject: false,
       member: { name: "fogef", team: "Developers" },
     });
-    expect(projectRoles).toHaveLength(1);
-    expect(projectRoles[0]).toMatchObject({ projectId: "proj_1", name: "MEMBER" });
+    expect(projectRoles.map((role) => role.name).sort()).toEqual(["ADMIN", "MEMBER", "OWNER", "VIEWER"]);
+    expect(projectRoles).toHaveLength(4);
     expect(projectMembers).toHaveLength(1);
     expect(projectMembers[0]).toMatchObject({
       userId: "user_fogef",
       projectId: "proj_1",
-      roleId: projectRoles[0]?.$id,
+      roleId: projectRoles.find((role) => role.name === "MEMBER")?.$id,
+      roleName: "MEMBER",
       status: "ACTIVE",
     });
   });

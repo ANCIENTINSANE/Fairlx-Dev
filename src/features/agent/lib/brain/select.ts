@@ -12,6 +12,7 @@ const ALWAYS = [
   "request_capability",
   "search_harness",
   "persist_memory",
+  "ask_user",
   "mcp_call",
   "mcp_list",
 ];

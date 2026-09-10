@@ -1,5 +1,5 @@
 import type { Databases } from "node-appwrite";
-import type { AuthContext } from "@fairlx/mcp-server";
+import { TOOL_CATALOG, type AuthContext } from "@fairlx/mcp-server";
 
 import type {
   AgentCapability,
@@ -28,6 +28,7 @@ import { compilePersonalPrompt, isPersonalPersonaRole } from "./personal-trainin
 import { upsertPersonalAgent } from "./personal-agent-store";
 import { toPublicMcpConfig } from "./public-mcp";
 import { matchingAutomations, searchAgentIndex } from "./search";
+import { isNativeHarnessTool, resolveToolName } from "./parse-tool-calls";
 import { parsePageUiAction, pageUiEventTitle } from "./page-ui-action";
 import { compactJsonString, unwrapMcpToolContent } from "./truncate";
 import {
@@ -98,6 +99,8 @@ import { isSandboxGoneError, sandboxSessionFailurePresentation } from "./sandbox
 import { describeCodingPreview } from "./sandbox-preview";
 import { captureSandboxPreview } from "./sandbox-browser";
 import { resolveSandboxCodingAgent, sandboxImplementShell } from "./sandbox-coding-agent";
+
+const FAIRLX_MCP_TOOL_NAMES = TOOL_CATALOG.map((tool) => tool.name);
 
 export type ToolExecutionContext = {
   runId: string;
@@ -668,20 +671,28 @@ export async function executeTool(
       };
     }
     case "mcp_call": {
-      const tool = asString(parsed.tool || parsed.name || parsed.method);
+      const tool = resolveToolName(asString(parsed.tool || parsed.name || parsed.method), FAIRLX_MCP_TOOL_NAMES);
       const server = asString(parsed.server) || "fairlx";
-      const callArgs =
-        parsed.arguments && typeof parsed.arguments === "object"
+      const nestedArgs =
+        parsed.arguments && typeof parsed.arguments === "object" && !Array.isArray(parsed.arguments)
           ? (parsed.arguments as Record<string, unknown>)
-          : parsed.args && typeof parsed.args === "object"
+          : parsed.args && typeof parsed.args === "object" && !Array.isArray(parsed.args)
             ? (parsed.args as Record<string, unknown>)
-            : {};
+            : null;
+      const callArgs =
+        nestedArgs ??
+        Object.fromEntries(
+          Object.entries(parsed).filter(([key]) => !["server", "tool", "name", "method"].includes(key)),
+        );
       if (!tool) {
         const payload = { error: "tool is required" };
         return {
           content: JSON.stringify(payload),
           event: event(runId, "mcp_call", "MCP call missing tool", undefined, payload),
         };
+      }
+      if (isNativeHarnessTool(tool)) {
+        return executeTool(tool, callArgs, ctx);
       }
       const effectiveArgs = applyScopeDefaults(callArgs, ctx);
       console.log(`[Fairlx Agent] 🛠️ Calling MCP Tool -> Server: "${server}", Tool: "${tool}", Args:`, JSON.stringify(effectiveArgs));

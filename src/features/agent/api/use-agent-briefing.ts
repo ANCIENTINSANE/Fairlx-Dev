@@ -8,8 +8,9 @@ import { AGENT_BRIEFING_QUERY_KEY } from "../constants";
 export const useGetAgentBriefing = () => {
   return useQuery({
     queryKey: AGENT_BRIEFING_QUERY_KEY,
-    staleTime: QUERY_CONFIG.SEMI_DYNAMIC.staleTime,
-    gcTime: QUERY_CONFIG.SEMI_DYNAMIC.gcTime,
+    staleTime: QUERY_CONFIG.DYNAMIC.staleTime,
+    gcTime: QUERY_CONFIG.DYNAMIC.gcTime,
+    refetchOnMount: "always",
     queryFn: async () => {
       const response = await client.api.agent.briefing.$get();
       if (!response.ok) {

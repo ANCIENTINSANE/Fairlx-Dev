@@ -2,6 +2,7 @@ import { AGENT_TOOL_CATALOG } from "../constants";
 import type { AgentToolCall } from "../types";
 
 const HARNESS_TOOL_IDS = new Set<string>(AGENT_TOOL_CATALOG.map((tool) => tool.id));
+const MCP_BRIDGE_TOOLS = new Set(["mcp_call", "mcp_list", "mcp_resources"]);
 
 export const HARNESS_TO_MCP: Record<string, string> = {
   list_workspaces: "fairlx_workspace_list",
@@ -9,6 +10,11 @@ export const HARNESS_TO_MCP: Record<string, string> = {
   list_work_items: "fairlx_work_item_list",
   create_project: "fairlx_project_create",
 };
+
+/** Native agent tools that execute in Fairlx, not via Fairlx MCP `callTool`. */
+export function isNativeHarnessTool(name: string): boolean {
+  return HARNESS_TOOL_IDS.has(name) && !name.startsWith("fairlx_") && !MCP_BRIDGE_TOOLS.has(name);
+}
 
 function preferMcp(resolved: string, mcpToolNames: string[]): string {
   const mapped = HARNESS_TO_MCP[resolved];
@@ -21,6 +27,12 @@ const ALIASES: Record<string, string> = {
   list_work_items: "list_work_items",
   workitemlist: "list_work_items",
   work_item_list: "fairlx_work_item_list",
+  workitemcreate: "fairlx_work_item_create",
+  work_item_create: "fairlx_work_item_create",
+  workitemupdate: "fairlx_work_item_update",
+  work_item_update: "fairlx_work_item_update",
+  workitemget: "fairlx_work_item_get",
+  work_item_get: "fairlx_work_item_get",
   bulkupdateworkitems: "fairlx_work_item_bulk_update",
   work_item_bulk_update: "fairlx_work_item_bulk_update",
   bulk_update: "fairlx_work_item_bulk_update",
@@ -112,6 +124,13 @@ const ALIASES: Record<string, string> = {
   createproject: "create_project",
   create_project: "create_project",
   project_create: "fairlx_project_create",
+  githublinkrepo: "github_link_repo",
+  github_link_repo: "github_link_repo",
+  github_link_repository: "github_link_repo",
+  github_attach_repo: "github_link_repo",
+  attach_github_repo: "github_link_repo",
+  fairlx_github_link_repo: "github_link_repo",
+  fairlx_github_repo_link: "github_link_repo",
   usagesummary: "fairlx_usage_summary",
   usage_summary: "fairlx_usage_summary",
   orgbill: "fairlx_usage_summary",
@@ -157,6 +176,9 @@ export function resolveToolName(rawName: string, mcpToolNames: string[] = []): s
 
   const fairlxPrefixed = snake.startsWith("fairlx_") ? snake : `fairlx_${snake}`;
   if (mcpToolNames.includes(fairlxPrefixed)) return fairlxPrefixed;
+  // Runtime mcp_call often has no catalog. Keep canonical Fairlx MCP names instead of
+  // stripping fairlx_work_item_create → work_item_create (Method not found).
+  if (!mcpToolNames.length && /^(fairlx)[_:]/i.test(trimmed)) return fairlxPrefixed;
 
   if (snake.startsWith("list_")) {
     const rest = snake.slice(5);
@@ -207,11 +229,18 @@ export function normalizeAgentToolCall(call: AgentToolCall, mcpToolNames: string
     args = {};
   }
   if (call.name === "mcp_call") {
-    const tool = resolveToolName(String(args.tool || args.name || ""), mcpToolNames);
+    const tool = resolveToolName(String(args.tool || args.name || args.method || ""), mcpToolNames);
     const inner =
-      args.arguments && typeof args.arguments === "object"
+      args.arguments && typeof args.arguments === "object" && !Array.isArray(args.arguments)
         ? (args.arguments as Record<string, unknown>)
-        : {};
+        : Object.fromEntries(
+            Object.entries(args).filter(
+              ([key]) => !["server", "tool", "name", "method"].includes(key),
+            ),
+          );
+    if (tool && isNativeHarnessTool(tool)) {
+      return { ...toCall(tool, inner, mcpToolNames, call.id), ...(call.itemId ? { itemId: call.itemId } : {}) };
+    }
     return {
       ...call,
       name: "mcp_call",

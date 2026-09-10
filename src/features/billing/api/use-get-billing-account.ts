@@ -49,5 +49,6 @@ export function useGetBillingAccount(options: UseGetBillingAccountOptions = {}) 
         enabled,
         refetchOnMount,
         refetchOnWindowFocus: true,
+        refetchInterval: 8_000,
     });
 }

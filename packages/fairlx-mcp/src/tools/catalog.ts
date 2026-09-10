@@ -307,7 +307,8 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
         assigneeIds: {
           type: "array",
           items: { type: "string" },
-          description: "Names or emails of workspace members so the item is not Unassigned on the board.",
+          description:
+            "Names or emails of workspace members, or \"me\" for the signed-in user, so the item is not Unassigned on the board.",
         },
         storyPoints: { type: "number" },
         dueDate: { type: "string", description: "ISO date or datetime for the work item deadline" },
@@ -328,7 +329,7 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   {
     name: "fairlx_work_item_update",
     description:
-      "Update a work item. workItemId may be the document id or the item key (SCHO-1). Never pass a project or workspace id. assigneeIds may be names or emails; they are stored as workspace membership ids so Kanban and backlog show the person, not Unassigned. Status changes are validated against the project workflow. Pass epicId (epic key or title) to parent the item under an epic. Pass startDate and dueDate as ISO dates to move the timeline bar.",
+      "Update a work item. workItemId may be the document id or the item key (SCHO-1). Never pass a project or workspace id. assigneeIds may be names or emails; they are stored as workspace membership ids so Kanban and backlog show the person, not Unassigned. status is the Kanban column (TODO, ASSIGNED, IN_PROGRESS) — 'Assigned column' means status ASSIGNED, not a person. Status changes are validated against the project workflow. Pass epicId (epic key or title) to parent the item under an epic. Pass startDate and dueDate as ISO dates to move the timeline bar.",
     inputSchema: {
       type: "object",
       properties: {
@@ -337,14 +338,19 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
           description: "Work item document id or key such as SCHO-1. Never the project or workspace id.",
         },
         title: { type: "string" },
-        status: { type: "string" },
+        status: {
+          type: "string",
+          description:
+            "Kanban column key or name. Assigned / Assigned column maps to ASSIGNED. Not an assignee.",
+        },
         priority: { type: "string" },
         description: { type: "string" },
         sprintId: id,
         assigneeIds: {
           type: "array",
           items: { type: "string" },
-          description: "Names or emails of workspace members. Never a workspace or project id.",
+          description:
+            "Names or emails of workspace members, or \"me\" for the signed-in user. Never a workspace or project id.",
         },
         storyPoints: { type: "number" },
         dueDate: { type: "string", description: "ISO date or datetime for the work item deadline" },
@@ -368,7 +374,7 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   {
     name: "fairlx_work_item_bulk_update",
     description:
-      "Assign or update many work items in one call. Do not list items first. To unassign every work item in every sprint, pass clearAssignees: true and projectId (assignPercent 0 is the same). To assign every item in a sprint to one person, pass sprintId as the sprint name or number (Sprint 1) and assigneeIds: [\"Name\"] — that replaces assignees and does not need workItemIds. For a share of the project (60%, half), pass assignPercent 1-100 and assigneeIds. To parent every story/task under an epic, pass assignEpics: true and projectId. Otherwise pass workItemIds as keys (SCHO-1).",
+      "Assign or update many work items in one call. Do not list or get items first. To move cards to a Kanban column, pass workItemIds as keys and status (Assigned column = ASSIGNED). To unassign every work item in every sprint, pass clearAssignees: true and projectId (assignPercent 0 is the same). To assign every item in a sprint to one person, pass sprintId as the sprint name or number (Sprint 1) and assigneeIds: [\"Name\"] — that replaces assignees and does not need workItemIds. For a share of the project (60%, half), pass assignPercent 1-100 and assigneeIds. To parent every story/task under an epic, pass assignEpics: true and projectId. Otherwise pass workItemIds as keys (SCHO-1).",
     inputSchema: {
       type: "object",
       properties: {
@@ -388,7 +394,11 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
           description:
             "Remove every assignee. With only projectId, clears items in every sprint (not the backlog). With sprintId, clears that sprint. Does not need workItemIds.",
         },
-        status: { type: "string" },
+        status: {
+          type: "string",
+          description:
+            "Kanban column for every listed item. Assigned column = ASSIGNED. Use with workItemIds instead of one update per card.",
+        },
         sprintId: {
           type: "string",
           description:
@@ -397,7 +407,8 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
         assigneeIds: {
           type: "array",
           items: { type: "string" },
-          description: "Names or emails of workspace members so the item is not Unassigned on the board.",
+          description:
+            "Names or emails of workspace members, or \"me\" for the signed-in user, so the item is not Unassigned on the board.",
         },
         epicId: {
           type: "string",

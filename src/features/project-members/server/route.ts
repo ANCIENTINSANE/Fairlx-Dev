@@ -21,6 +21,10 @@ import { requireProjectAuth } from "@/lib/middleware/project-auth";
 import { ProjectMember, ProjectRole, PopulatedProjectMember, ProjectMemberStatus } from "../types";
 import { Project } from "@/features/projects/types";
 import {
+    ensurePrivilegedWorkspaceMembersOnProject,
+    seedProjectRoles,
+} from "@/features/projects/lib/utils";
+import {
     createProjectMemberSchema,
     updateProjectMemberSchema,
     getProjectMembersSchema,
@@ -37,6 +41,26 @@ import {
     createProjectMemberRemovedEvent,
 } from "@/lib/notifications/events";
 import { invalidateCache, invalidateCachePattern, CK, CKPattern } from "@/lib/redis";
+
+async function healProjectRolesAndPrivilegedMembers(
+    databases: Awaited<ReturnType<typeof createAdminClient>>["databases"],
+    projectId: string,
+    workspaceId: string | undefined,
+    actorUserId: string
+) {
+    let resolvedWorkspaceId = workspaceId?.trim() || "";
+    if (!resolvedWorkspaceId) {
+        try {
+            const project = await databases.getDocument(DATABASE_ID, PROJECTS_ID, projectId);
+            resolvedWorkspaceId = String(project.workspaceId ?? "");
+        } catch {
+            return;
+        }
+    }
+    if (!resolvedWorkspaceId) return;
+    await seedProjectRoles(databases, projectId, resolvedWorkspaceId, actorUserId);
+    await ensurePrivilegedWorkspaceMembersOnProject(databases, projectId, resolvedWorkspaceId);
+}
 
 const app = new Hono()
     /**
@@ -200,7 +224,7 @@ const app = new Hono()
         async (c) => {
             const { users, databases: adminDb } = await createAdminClient();
             const user = c.get("user");
-            const { projectId, teamId } = c.req.valid("query");
+            const { projectId, teamId, workspaceId } = c.req.valid("query");
 
             // Check if user has permission to view members
             // Use Admin DB for permission check to avoid catch-22
@@ -214,6 +238,8 @@ const app = new Hono()
             if (!auth.success) {
                 return c.json({ error: auth.error }, auth.code);
             }
+
+            await healProjectRolesAndPrivilegedMembers(adminDb, projectId, workspaceId, user.$id);
 
             // Build query
             const queries = [Query.equal("projectId", projectId)];
@@ -585,7 +611,7 @@ const app = new Hono()
         async (c) => {
             const { databases: adminDb } = await createAdminClient();
             const user = c.get("user");
-            const { projectId } = c.req.valid("query");
+            const { projectId, workspaceId } = c.req.valid("query");
 
             const auth = await requireProjectAuth(
                 adminDb,
@@ -598,10 +624,12 @@ const app = new Hono()
                 return c.json({ error: auth.error }, auth.code);
             }
 
+            await healProjectRolesAndPrivilegedMembers(adminDb, projectId, workspaceId, user.$id);
+
             const roles = await adminDb.listDocuments<ProjectRole>(
                 DATABASE_ID,
                 PROJECT_ROLES_ID,
-                [Query.equal("projectId", projectId)]
+                [Query.equal("projectId", projectId), Query.limit(100)]
             );
 
             return c.json({ data: roles });

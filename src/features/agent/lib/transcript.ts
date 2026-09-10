@@ -217,7 +217,7 @@ function turnFromSlice(
     user,
     thoughts: leftoverEvents.filter((event) => THINKING_EVENT_TYPES.has(event.type)),
     activity: leftoverEvents.filter((event) => !isHiddenActivityEvent(event)),
-    usage: leftoverEvents.filter((event) => looksLikeLlmUsageEvent(event) || event.type === "context_meter"),
+    usage: leftoverEvents.filter((event) => looksLikeLlmUsageEvent(event)),
     blocks: blocks.filter((block) => block.kind !== "user"),
     startedAt: user?.createdAt || events[0]?.createdAt || leftoverEvents[0]?.createdAt || new Date().toISOString(),
     endedAt: last?.createdAt || lastEvent?.createdAt,
@@ -443,8 +443,11 @@ export type WorkItemListRow = AgentWorkItem;
 
 export function workItemListRows(content?: string): WorkItemListRow[] {
   const parsed = asRecord(content ?? "");
-  if (!parsed || !Array.isArray(parsed.workItems)) return [];
-  return parsed.workItems.filter((item): item is WorkItemListRow => Boolean(item) && typeof item === "object");
+  if (!parsed) return [];
+  const rows: unknown[] = [];
+  if (Array.isArray(parsed.workItems)) rows.push(...parsed.workItems);
+  if (parsed.workItem && typeof parsed.workItem === "object") rows.push(parsed.workItem);
+  return rows.filter((item): item is WorkItemListRow => Boolean(item) && typeof item === "object");
 }
 
 export function collectWorkItemLookup(messages: AgentChatMessage[]): Map<string, AgentWorkItem> {

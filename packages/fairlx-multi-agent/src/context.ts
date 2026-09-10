@@ -143,6 +143,18 @@ function dueSoon(item: BriefingWorkItem, now: Date): boolean {
   return due - now.getTime() <= 48 * 60 * 60 * 1000 && due >= now.getTime() - 24 * 60 * 60 * 1000;
 }
 
+function duePhrase(item: BriefingWorkItem, now: Date): string {
+  if (!item.dueAt) return "";
+  const due = new Date(item.dueAt).getTime();
+  if (Number.isNaN(due)) return "";
+  const days = Math.round((due - now.getTime()) / (24 * 60 * 60 * 1000));
+  if (days < 0) return " · overdue";
+  if (days === 0) return " · due today";
+  if (days === 1) return " · due tomorrow";
+  if (days <= 7) return ` · due in ${days} days`;
+  return "";
+}
+
 export function generateDailyBriefing(input: BriefingInput): DailyBriefing {
   const started = performance.now();
   const personaRole = inferPersonaRole(input);
@@ -156,9 +168,24 @@ export function generateDailyBriefing(input: BriefingInput): DailyBriefing {
   const unassigned = (input.unassigned ?? []).slice(0, 5);
   const urgent = workItems.filter((item) => dueSoon(item, now) || item.priority === "HIGH" || item.priority === "URGENT");
   const activeSprint = (input.sprints ?? []).find((sprint) => /active|current|in_progress/i.test(sprint.status || "")) ?? input.sprints?.[0];
+  const mine = rankAssignedWork(input.assignedWork ?? workItems, 5, now);
+  const overdueMine = mine.filter((item) => dueRank(item.dueAt, now.getTime()) === 0);
+  const soonMine = mine.filter((item) => dueRank(item.dueAt, now.getTime()) === 1);
 
   const priorities: string[] = [];
   const suggested: string[] = [];
+
+  if (mine[0]) {
+    const top = mine[0];
+    const tag = String(top.priority || "").toUpperCase();
+    const lead = tag === "URGENT" || tag === "HIGH" ? tag : "Next";
+    priorities.push(`${lead}: ${itemLabel(top)}${duePhrase(top, now)}`);
+  }
+  if (overdueMine.length) {
+    priorities.push(`${overdueMine.length} assigned item${overdueMine.length === 1 ? "" : "s"} overdue.`);
+  } else if (soonMine.length) {
+    priorities.push(`${soonMine.length} assigned item${soonMine.length === 1 ? "" : "s"} due within 2 days.`);
+  }
 
   if (personaRole === "tech_lead") {
     if (blockers.length) priorities.push(`Unblock ${blockers.length} item${blockers.length === 1 ? "" : "s"} before standup.`);
@@ -174,9 +201,7 @@ export function generateDailyBriefing(input: BriefingInput): DailyBriefing {
     }
     suggested.push("Ask the Personal Agent to decompose the riskiest epic and spawn a planner.");
   } else if (personaRole === "frontend") {
-    const assigned = workItems.slice(0, 3);
-    if (assigned.length) priorities.push(`Ship ${itemLabel(assigned[0]!)} next.`);
-    if (urgent.length) priorities.push(`${urgent.length} high-priority UI item${urgent.length === 1 ? "" : "s"} due soon.`);
+    if (urgent.length && !mine.length) priorities.push(`${urgent.length} high-priority UI item${urgent.length === 1 ? "" : "s"} due soon.`);
     suggested.push("Hand the overflow fix to a Builder sub-agent, then QA.");
   } else if (personaRole === "qa") {
     const ready = workItems.filter((item) => /review|qa|ready/i.test(item.status || ""));
@@ -185,20 +210,24 @@ export function generateDailyBriefing(input: BriefingInput): DailyBriefing {
   } else {
     if (activeSprint?.goal) priorities.push(`Sprint goal: ${activeSprint.goal}`);
     if (activeSprint?.endDate) priorities.push(`Sprint ends ${activeSprint.endDate}.`);
-    priorities.push(`${workItems.length} open items in your view.`);
+    if (!mine.length) priorities.push(`${workItems.length} open items in your view.`);
     suggested.push("Generate stories from the spec and let the swarm execute the cycle.");
   }
 
   if (!priorities.length) priorities.push("No urgent deadlines. Review unassigned work or start the next epic.");
 
-  const topTasks = rankAssignedWork(input.assignedWork ?? workItems, 3, now).map((item) => ({
+  const topTasks = mine.map((item) => ({
     id: item.id,
     key: item.key,
     title: item.title,
     status: item.status,
     priority: item.priority,
+    type: item.type,
     workspaceId: item.workspaceId,
+    projectId: item.projectId,
     dueAt: item.dueAt,
+    labels: item.labels,
+    flagged: item.flagged,
   }));
 
   return {

@@ -87,40 +87,15 @@ export async function resolveAgentChatCharge(params: AgentChatUsageContext): Pro
     };
 }
 
-export async function buildAgentLlmUsageEvent(params: AgentChatUsageContext): Promise<AgentToolEvent | null> {
+export async function recordAgentChatUsage(params: AgentChatUsageContext): Promise<AgentLlmUsagePayload | null> {
     try {
         const payload = await resolveAgentChatCharge(params);
         if (!payload) return null;
-        const who = payload.role === "subagent" ? payload.specialist || "subagent" : "Model call";
-        return {
-            id: crypto.randomUUID(),
-            type: "llm_usage",
-            title: who === "Model call" ? "Model call" : `${who} · model call`,
-            detail: payload.billed
-                ? `${payload.totalTokens.toLocaleString()} tokens · $${payload.costUSD.toFixed(4)} · ${payload.cacheHitPercent.toFixed(0)}% cache`
-                : `${payload.totalTokens.toLocaleString()} tokens · BYOK · not billed`,
-            payload,
-            createdAt: new Date().toISOString(),
-            runId: params.runId,
-        };
-    } catch (error) {
-        console.error("[AgentBilling] Failed to build usage event:", {
-            runId: params.runId,
-            error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-    }
-}
-
-export async function recordAgentChatUsage(params: AgentChatUsageContext): Promise<void> {
-    try {
-        const payload = await resolveAgentChatCharge(params);
-        if (!payload) return;
 
         const workspaceId = params.workspaceId || (await firstWorkspaceId(params.databases, params.userId));
         if (!workspaceId) {
             console.warn("[AgentBilling] Skipping usage write — no workspace for run", params.runId);
-            return;
+            return payload;
         }
 
         await logAIUsage({
@@ -156,12 +131,49 @@ export async function recordAgentChatUsage(params: AgentChatUsageContext): Promi
                 displayName: `Agent ${params.runId.slice(0, 8)}`,
             },
         });
+        return payload;
     } catch (error) {
         console.error("[AgentBilling] Failed to record AI usage:", {
             runId: params.runId,
             error: error instanceof Error ? error.message : String(error),
         });
+        return null;
     }
+}
+
+export async function buildAgentLlmUsageEvent(params: AgentChatUsageContext): Promise<AgentToolEvent | null> {
+    try {
+        const payload = await resolveAgentChatCharge(params);
+        if (!payload) return null;
+        return llmUsageEventFromPayload(params.runId, payload);
+    } catch (error) {
+        console.error("[AgentBilling] Failed to build usage event:", {
+            runId: params.runId,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+    }
+}
+
+function llmUsageEventFromPayload(runId: string, payload: AgentLlmUsagePayload): AgentToolEvent {
+    const who = payload.role === "subagent" ? payload.specialist || "subagent" : "Model call";
+    return {
+        id: crypto.randomUUID(),
+        type: "llm_usage",
+        title: who === "Model call" ? "Model call" : `${who} · model call`,
+        detail: payload.billed
+            ? `${payload.totalTokens.toLocaleString()} tokens · $${payload.costUSD.toFixed(4)} · ${payload.cacheHitPercent.toFixed(0)}% cache`
+            : `${payload.totalTokens.toLocaleString()} tokens · BYOK · not billed`,
+        payload,
+        createdAt: new Date().toISOString(),
+        runId,
+    };
+}
+
+export async function captureAndRecordAgentChatUsage(params: AgentChatUsageContext): Promise<AgentToolEvent | null> {
+    const payload = await recordAgentChatUsage(params);
+    if (!payload) return null;
+    return llmUsageEventFromPayload(params.runId, payload);
 }
 
 async function firstWorkspaceId(databases: Databases, userId: string): Promise<string | undefined> {

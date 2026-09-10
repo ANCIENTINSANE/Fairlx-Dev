@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractToolCallsFromText, resolveToolName, stripToolCallMarkup } from "./parse-tool-calls";
+import { extractToolCallsFromText, isNativeHarnessTool, normalizeAgentToolCall, resolveToolName, stripToolCallMarkup } from "./parse-tool-calls";
 
 const MCP = [
   "fairlx_work_item_list",
@@ -39,6 +39,16 @@ describe("resolveToolName", () => {
       "fairlx_project_team_list",
     );
     expect(resolveToolName("create_project", ["fairlx_project_create"])).toBe("fairlx_project_create");
+    expect(resolveToolName("github_link_repo")).toBe("github_link_repo");
+    expect(resolveToolName("fairlx_github_link_repo")).toBe("github_link_repo");
+    expect(resolveToolName("github_attach_repo")).toBe("github_link_repo");
+    expect(resolveToolName("fairlx_work_item_create")).toBe("fairlx_work_item_create");
+    expect(resolveToolName("fairlx_work_item_update")).toBe("fairlx_work_item_update");
+    expect(resolveToolName("work_item_create")).toBe("fairlx_work_item_create");
+    expect(resolveToolName("work_item_update")).toBe("fairlx_work_item_update");
+    expect(isNativeHarnessTool("github_link_repo")).toBe(true);
+    expect(isNativeHarnessTool("mcp_call")).toBe(false);
+    expect(isNativeHarnessTool("fairlx_work_item_list")).toBe(false);
   });
 });
 
@@ -83,5 +93,41 @@ describe("extractToolCallsFromText", () => {
       limit: 50,
     });
     expect(stripToolCallMarkup(content)).not.toMatch(/invoke|DSML|fairlx_work_item_list/);
+  });
+});
+
+describe("normalizeAgentToolCall", () => {
+  it("unwraps github_link_repo when the model wraps it in mcp_call", () => {
+    const call = normalizeAgentToolCall({
+      id: "c1",
+      name: "mcp_call",
+      arguments: JSON.stringify({
+        server: "fairlx",
+        tool: "github_link_repo",
+        arguments: { owner: "Happyesss", repo: "stemlen-landing" },
+      }),
+    });
+    expect(call.name).toBe("github_link_repo");
+    expect(JSON.parse(call.arguments)).toEqual({ owner: "Happyesss", repo: "stemlen-landing" });
+  });
+
+  it("keeps Fairlx MCP tools inside mcp_call", () => {
+    const call = normalizeAgentToolCall(
+      {
+        id: "c1",
+        name: "mcp_call",
+        arguments: JSON.stringify({
+          server: "fairlx",
+          tool: "fairlx_work_item_list",
+          arguments: { projectId: "p1" },
+        }),
+      },
+      MCP,
+    );
+    expect(call.name).toBe("mcp_call");
+    expect(JSON.parse(call.arguments)).toMatchObject({
+      server: "fairlx",
+      tool: "fairlx_work_item_list",
+    });
   });
 });

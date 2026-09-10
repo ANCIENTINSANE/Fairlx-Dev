@@ -1,6 +1,6 @@
 import { ID, Databases, Query } from "node-appwrite";
-import { DATABASE_ID, PROJECT_ROLES_ID, PROJECT_MEMBERS_ID } from "@/config";
-import { ProjectMemberRole } from "@/features/project-teams/types";
+import { DATABASE_ID, MEMBERS_ID, PROJECT_ROLES_ID, PROJECT_MEMBERS_ID } from "@/config";
+import { ProjectMemberRole, ProjectMemberStatus } from "@/features/project-teams/types";
 import { ROLE_PERMISSIONS } from "@/lib/permissions/resolveUserProjectAccess";
 
 // =============================================================================
@@ -257,8 +257,10 @@ export async function assignProjectOwnerMembership(
                 projectId,
                 teamId: "", // No team initially - project members can be assigned to teams later
                 userId,
+                role: ProjectMemberRole.PROJECT_OWNER,
                 roleId: ownerRoleId,
                 roleName: "OWNER", // Denormalized for quick access
+                status: ProjectMemberStatus.ACTIVE,
                 joinedAt: new Date().toISOString(),
                 addedBy: userId, // Self-added as project creator
             }
@@ -278,6 +280,132 @@ export async function assignProjectOwnerMembership(
             membershipId: null,
             error: error instanceof Error ? error.message : "Unknown error",
         };
+    }
+}
+
+function projectRoleRank(name: string): number {
+    const key = name.toUpperCase().replace(/[^A-Z]/g, "");
+    if (key.includes("OWNER")) return 4;
+    if (key.includes("ADMIN")) return 3;
+    if (key.includes("VIEWER")) return 1;
+    return 2;
+}
+
+function isPrivilegedWorkspaceRole(role: string): boolean {
+    const key = role.trim().toUpperCase();
+    return key === "OWNER" || key === "ADMIN" || key === "WS_ADMIN";
+}
+
+function projectRoleForWorkspaceRole(workspaceRole: string): {
+    name: DefaultProjectRoleName;
+    enum: ProjectMemberRole;
+} {
+    const key = workspaceRole.trim().toUpperCase();
+    if (key === "OWNER") {
+        return { name: "OWNER", enum: ProjectMemberRole.PROJECT_OWNER };
+    }
+    return { name: "ADMIN", enum: ProjectMemberRole.PROJECT_ADMIN };
+}
+
+/**
+ * Workspace OWNER and ADMIN must appear on every project with the matching
+ * high role (OWNER / ADMIN). Idempotent — upgrades a lower role, never demotes.
+ */
+export async function ensurePrivilegedWorkspaceMembersOnProject(
+    databases: Databases,
+    projectId: string,
+    workspaceId: string
+): Promise<void> {
+    const seed = await seedProjectRoles(databases, projectId, workspaceId, "system");
+    const roles = await databases.listDocuments(
+        DATABASE_ID,
+        PROJECT_ROLES_ID,
+        [Query.equal("projectId", projectId), Query.limit(100)]
+    );
+    const roleByName = new Map(
+        roles.documents.map((role) => [String(role.name).toUpperCase(), role])
+    );
+    if (seed.ownerRoleId && !roleByName.has("OWNER")) {
+        const owner = roles.documents.find((role) => role.$id === seed.ownerRoleId);
+        if (owner) roleByName.set("OWNER", owner);
+    }
+
+    const workspaceMembers = await databases.listDocuments(
+        DATABASE_ID,
+        MEMBERS_ID,
+        [Query.equal("workspaceId", workspaceId), Query.limit(100)]
+    );
+
+    for (const member of workspaceMembers.documents) {
+        const workspaceRole = String(member.role ?? "");
+        if (!isPrivilegedWorkspaceRole(workspaceRole)) continue;
+        if (String(member.deletedAt ?? "").trim()) continue;
+        const userId = String(member.userId ?? "");
+        if (!userId) continue;
+
+        const wanted = projectRoleForWorkspaceRole(workspaceRole);
+        const wantedRole = roleByName.get(wanted.name);
+        if (!wantedRole) continue;
+
+        const existing = await databases.listDocuments(
+            DATABASE_ID,
+            PROJECT_MEMBERS_ID,
+            [
+                Query.equal("projectId", projectId),
+                Query.equal("userId", userId),
+                Query.limit(1),
+            ]
+        );
+
+        if (existing.total === 0) {
+            try {
+                await databases.createDocument(
+                    DATABASE_ID,
+                    PROJECT_MEMBERS_ID,
+                    ID.unique(),
+                    {
+                        workspaceId,
+                        projectId,
+                        teamId: "",
+                        userId,
+                        role: wanted.enum,
+                        roleId: wantedRole.$id,
+                        roleName: wanted.name,
+                        status: ProjectMemberStatus.ACTIVE,
+                        joinedAt: new Date().toISOString(),
+                        addedBy: userId,
+                    }
+                );
+            } catch (error) {
+                console.error(
+                    `[ensurePrivilegedWorkspaceMembersOnProject] Failed to add ${userId} as ${wanted.name} on ${projectId}:`,
+                    error
+                );
+            }
+            continue;
+        }
+
+        const current = existing.documents[0]!;
+        const currentName = String(current.roleName || current.role || "MEMBER");
+        if (projectRoleRank(currentName) >= projectRoleRank(wanted.name)) continue;
+        try {
+            await databases.updateDocument(
+                DATABASE_ID,
+                PROJECT_MEMBERS_ID,
+                current.$id,
+                {
+                    role: wanted.enum,
+                    roleId: wantedRole.$id,
+                    roleName: wanted.name,
+                    status: ProjectMemberStatus.ACTIVE,
+                }
+            );
+        } catch (error) {
+            console.error(
+                `[ensurePrivilegedWorkspaceMembersOnProject] Failed to upgrade ${userId} to ${wanted.name} on ${projectId}:`,
+                error
+            );
+        }
     }
 }
 
@@ -341,6 +469,8 @@ export async function seedProjectRolesAndAssignOwner(
             `[seedProjectRolesAndAssignOwner] Cannot assign owner - no owner role ID found for project ${projectId}`
         );
     }
+
+    await ensurePrivilegedWorkspaceMembersOnProject(databases, projectId, workspaceId);
 
     return seedResult;
 }

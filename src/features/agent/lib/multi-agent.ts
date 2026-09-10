@@ -24,7 +24,9 @@ export function briefingFromAgentContext(
     dueAt: item.dueDate,
     flagged: item.flagged,
     workspaceId: item.workspaceId,
+    projectId: item.projectId,
     createdAt: item.createdAt,
+    labels: item.labels,
   }));
   return generateDailyBriefing({
     userName: context.user.name,

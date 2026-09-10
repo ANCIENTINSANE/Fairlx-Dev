@@ -11,7 +11,7 @@ import { firstName, greetingForNow } from "../lib/agent-ui";
 import { isPersonalSessionMode } from "../lib/session-context";
 import { AgentCommandInput } from "./agent-command-input";
 import { AgentPageFrame } from "./agent-app-shell";
-import { DailyCockpit } from "./daily-cockpit";
+import { DailyCockpit, CockpitWorkItem } from "./daily-cockpit";
 import { useAgentUi } from "./agent-ui-context";
 import { useGetPersonalAgent } from "../api/use-personal-agent";
 import { profileIsTrained } from "../lib/personal-agent-status";
@@ -95,15 +95,24 @@ export function AgentHome() {
               {workItems.length === 0 ? (
                 <p className="text-[12px] text-muted-foreground py-1">Nothing assigned.</p>
               ) : (
-                <ul>
+                <ul className="space-y-2">
                   {workItems.slice(0, 5).map((item) => (
                     <li key={item.id}>
-                      <Link
-                        href={item.workspaceId ? `/workspaces/${item.workspaceId}/tasks/${item.id}` : "/agent/projects"}
-                        className="block rounded-md py-1.5 hover:bg-muted/50 -mx-1 px-1 transition-colors"
-                      >
-                        <span className="block text-[12px] text-foreground truncate">{item.title}</span>
-                      </Link>
+                      <CockpitWorkItem
+                        task={{
+                          id: item.id,
+                          key: item.key,
+                          title: item.title,
+                          status: item.status,
+                          priority: item.priority,
+                          type: item.type,
+                          workspaceId: item.workspaceId,
+                          projectId: item.projectId,
+                          dueAt: item.dueDate,
+                          labels: item.labels,
+                          flagged: item.flagged,
+                        }}
+                      />
                     </li>
                   ))}
                 </ul>

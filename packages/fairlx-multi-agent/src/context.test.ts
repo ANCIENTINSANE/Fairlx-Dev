@@ -33,6 +33,31 @@ describe("daily briefing", () => {
     });
     expect(ranked.topTasks.map((item) => item.id)).toEqual(["urg", "flag", "low"]);
 
+    const mine = generateDailyBriefing({
+      userName: "Ada",
+      personaRole: "tech_lead",
+      assignedWork: [
+        {
+          id: "s93",
+          key: "SCHO-93",
+          title: "SQL in tests",
+          status: "TODO",
+          priority: "URGENT",
+          type: "BUG",
+          dueAt: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+          labels: ["sec"],
+        },
+      ],
+    });
+    expect(mine.topTasks[0]).toMatchObject({
+      key: "SCHO-93",
+      priority: "URGENT",
+      labels: ["sec"],
+      type: "BUG",
+    });
+    expect(mine.priorities[0]).toMatch(/URGENT/);
+    expect(mine.priorities.join(" ")).not.toMatch(/No urgent deadlines/);
+
     const qa = generateDailyBriefing({
       userName: "Sam",
       personaRole: "qa",

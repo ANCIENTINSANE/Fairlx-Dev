@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  lookupWorkItem,
   mergeWorkItem,
   normalizePriority,
   normalizeStatus,
@@ -74,6 +75,17 @@ Initial proposed items:
       },
     ]);
   });
+
+  it("strips wrapping markdown from keys like **SCHO-93**", () => {
+    const parsed = splitMarkdownWorkItemTable(`
+| Key | Title | Status | Priority | Assignee |
+| --- | --- | --- | --- | --- |
+| **SCHO-93** | SQL in \`tests/e2e/school-admin.spec.ts\` | Todo | Urgent | Unassigned |
+| #**SCHO-96** | Changelog SQL | Todo | High | Unassigned |
+`);
+    expect(parsed?.rows.map((row) => row.key)).toEqual(["SCHO-93", "SCHO-96"]);
+    expect(parsed?.rows[0]?.title).toContain("tests/e2e/school-admin.spec.ts");
+  });
 });
 
 describe("mergeWorkItem", () => {
@@ -100,6 +112,56 @@ describe("mergeWorkItem", () => {
       priority: "MEDIUM",
       assignees: [{ name: "Surendra Mattaparthi", imageUrl: "https://cdn.example/s.png" }],
     });
+  });
+
+  it("lets tool assignees win over a markdown Unassigned cell", () => {
+    const merged = mergeWorkItem(
+      {
+        key: "CHO-93",
+        title: "SQL concatenated with user input",
+        status: "TODO",
+        priority: "HIGH",
+        unassigned: true,
+        assignees: [],
+      },
+      {
+        key: "SCHO-93",
+        title: "SQL concatenated with user input",
+        unassigned: false,
+        assignees: [{ name: "fogef" }],
+      },
+    );
+    expect(merged).toMatchObject({
+      key: "SCHO-93",
+      unassigned: false,
+      assignees: [{ name: "fogef" }],
+    });
+  });
+
+  it("lets a later unassign lookup clear a markdown assignee", () => {
+    const merged = mergeWorkItem(
+      {
+        key: "SCHO-93",
+        unassigned: false,
+        assignees: [{ name: "fogef" }],
+      },
+      {
+        key: "SCHO-93",
+        unassigned: true,
+        assignees: [],
+      },
+    );
+    expect(merged.unassigned).toBe(true);
+    expect(merged.assignees).toEqual([]);
+  });
+});
+
+describe("lookupWorkItem", () => {
+  it("matches a clipped CHO-93 key to SCHO-93", () => {
+    const map = new Map([
+      ["SCHO-93", { key: "SCHO-93", unassigned: false, assignees: [{ name: "fogef" }] }],
+    ]);
+    expect(lookupWorkItem(map, "CHO-93")?.assignees).toEqual([{ name: "fogef" }]);
   });
 });
 

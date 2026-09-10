@@ -56,11 +56,28 @@ export function stripEmojisAndSymbols(value: string): string {
 }
 
 export function stripCell(value: string): string {
-  return value
-    .replace(/^\*+|\*+$/g, "")
-    .replace(/^`+|`+$/g, "")
-    .replace(/^_+|_+$/g, "")
-    .trim();
+  let next = value.trim();
+  let prev = "";
+  while (next !== prev) {
+    prev = next;
+    next = next
+      .replace(/^\*+|\*+$/g, "")
+      .replace(/^`+|`+$/g, "")
+      .replace(/^_+|_+$/g, "")
+      .trim();
+  }
+  return next;
+}
+
+/** Pull SCHO-93 out of `#**SCHO-93**` / `**#SCHO-93**` so the table Key column is not raw markdown. */
+export function normalizeKeyCell(raw: string, fallbackIndex: number): string {
+  const cleaned = stripCell(raw);
+  const ticket = cleaned.match(/([A-Z][A-Z0-9]*-\d+)/i);
+  if (ticket?.[1]) return ticket[1].toUpperCase();
+  const hashed = cleaned.replace(/^#+/, "").trim();
+  if (/^\d+$/.test(hashed)) return `#${hashed}`;
+  if (!cleaned) return `#${fallbackIndex}`;
+  return cleaned.startsWith("#") ? cleaned : `#${cleaned}`;
 }
 
 function aliasKey(value: string): string {
@@ -145,7 +162,15 @@ function mergeAssignees(
 
 export function mergeWorkItem(base: AgentWorkItem, extra?: AgentWorkItem): AgentWorkItem {
   const source = extra ?? {};
-  const unassigned = source.unassigned ?? base.unassigned;
+  const extraAssignees = normalizeAssignees(source.assignees);
+  const extraSpeaksAssignees = extra !== undefined && (source.assignees !== undefined || source.unassigned !== undefined);
+  let assignees: AgentWorkItemAssignee[];
+  if (extraSpeaksAssignees) {
+    assignees = source.unassigned === true ? [] : extraAssignees.length ? mergeAssignees(base.assignees, source.assignees) : [];
+  } else {
+    assignees = mergeAssignees(base.assignees, source.assignees);
+  }
+  const unassigned = assignees.length === 0;
   return {
     key: source.key || base.key,
     title: source.title || base.title,
@@ -153,10 +178,30 @@ export function mergeWorkItem(base: AgentWorkItem, extra?: AgentWorkItem): Agent
     type: normalizeType(source.type || base.type),
     priority: normalizePriority(source.priority || base.priority),
     unassigned,
-    assignees: unassigned ? [] : mergeAssignees(base.assignees, source.assignees),
+    assignees: unassigned ? [] : assignees,
     labels: source.labels?.length ? source.labels : base.labels,
     description: source.description || base.description,
   };
+}
+
+/** Match SCHO-93 even when the markdown cell was clipped to CHO-93. */
+export function lookupWorkItem(
+  map: Map<string, AgentWorkItem> | undefined,
+  key?: string,
+): AgentWorkItem | undefined {
+  if (!map || !key) return undefined;
+  const needle = key.trim().toUpperCase();
+  if (!needle) return undefined;
+  const exact = map.get(needle);
+  if (exact) return exact;
+  for (const [stored, row] of map) {
+    if (stored.endsWith(needle) || needle.endsWith(stored)) return row;
+  }
+  return undefined;
+}
+
+function unwrapFencedTables(content: string): string {
+  return content.replace(/```(?:markdown|md|gfm)?\s*\n(?=[\s\S]*?\|[^\n]+\|)([\s\S]*?)```/gi, "$1");
 }
 
 export function splitMarkdownWorkItemTable(content: string): {
@@ -164,7 +209,7 @@ export function splitMarkdownWorkItemTable(content: string): {
   rows: AgentWorkItem[];
   after: string;
 } | null {
-  const lines = content.split("\n");
+  const lines = unwrapFencedTables(content).split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const header = splitPipeRow(lines[index] ?? "");
     if (!header) continue;
@@ -198,12 +243,8 @@ export function splitMarkdownWorkItemTable(content: string): {
       }
       const cells = splitPipeRow(line);
       if (!cells) break;
-      const rawKey = keyIdx >= 0 ? cells[keyIdx]?.trim() : numIdx >= 0 ? cells[numIdx]?.trim() : "";
-      const key = rawKey
-        ? rawKey.startsWith("#") || /^[A-Z0-9]+-\d+$/i.test(rawKey)
-          ? rawKey
-          : `#${rawKey}`
-        : `#${rows.length + 1}`;
+      const rawKey = keyIdx >= 0 ? cells[keyIdx] ?? "" : numIdx >= 0 ? cells[numIdx] ?? "" : "";
+      const key = normalizeKeyCell(rawKey, rows.length + 1);
       const assigneesRaw = assigneeIdx >= 0 ? cells[assigneeIdx] ?? "" : "";
       const unassigned = assigneeIdx < 0 || /unassigned/i.test(assigneesRaw) || !assigneesRaw.trim();
       const labelsRaw = labelsIdx >= 0 ? cells[labelsIdx] ?? "" : "";

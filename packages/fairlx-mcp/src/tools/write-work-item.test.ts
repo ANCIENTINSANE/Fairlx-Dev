@@ -79,7 +79,7 @@ function workItemRuntime(options?: {
       role: "ADMIN",
     }),
     hasProjectPermission: () => true,
-    validateStatusTransition: vi.fn(),
+    validateStatusTransition: vi.fn(async () => ({ allowed: true })),
   } as unknown as McpRuntime;
 
   return { runtime, workItems };
@@ -134,6 +134,106 @@ describe("fairlx_work_item_update", () => {
         assignees: [{ name: "fogef" }],
       },
     });
+  });
+
+  it("assigns to the signed-in user when assigneeIds is me", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      workItems: [
+        {
+          $id: "wi_1",
+          key: "SCHO-1",
+          title: "Document test coverage",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          status: "TODO",
+          assigneeIds: [],
+        },
+      ],
+      members: [
+        {
+          $id: "mem_admin",
+          workspaceId: "ws_1",
+          userId: "admin_1",
+          role: "OWNER",
+          displayName: "coollagers",
+          displayEmail: "owner@fairlx.dev",
+        },
+        {
+          $id: "mem_fogef",
+          workspaceId: "ws_1",
+          userId: "user_fogef",
+          role: "MEMBER",
+          displayName: "fogef",
+          displayEmail: "fogefe9321@94an.com",
+        },
+      ],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_update",
+      { workItemId: "SCHO-1", assigneeIds: ["me"] },
+      runtime,
+      auth,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(workItems[0]?.assigneeIds).toEqual(["mem_admin"]);
+    expect(JSON.parse(result.content[0]?.text ?? "{}")).toMatchObject({
+      assigned: true,
+      workItem: {
+        unassigned: false,
+        assignees: [{ name: "coollagers" }],
+      },
+    });
+  });
+
+  it("moves a card to the Assigned Kanban column from Assigned or assigned column", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      workItems: [
+        {
+          $id: "wi_1",
+          key: "SCHO-93",
+          title: "SQL concatenated with user input",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          status: "TODO",
+        },
+      ],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_update",
+      { workItemId: "SCHO-93", status: "Assigned column" },
+      runtime,
+      auth,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(workItems[0]?.status).toBe("ASSIGNED");
+    expect(JSON.parse(result.content[0]?.text ?? "{}")).toMatchObject({
+      workItem: { key: "SCHO-93", status: "ASSIGNED" },
+    });
+  });
+
+  it("moves many keys to ASSIGNED in one bulk_update", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      workItems: [
+        { $id: "wi_1", key: "SCHO-93", title: "A", projectId: "proj_1", workspaceId: "ws_1", status: "TODO" },
+        { $id: "wi_2", key: "SCHO-96", title: "B", projectId: "proj_1", workspaceId: "ws_1", status: "TODO" },
+        { $id: "wi_3", key: "SCHO-88", title: "C", projectId: "proj_1", workspaceId: "ws_1", status: "TODO" },
+      ],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_bulk_update",
+      { workItemIds: ["SCHO-93", "SCHO-96", "SCHO-88"], status: "Assigned" },
+      runtime,
+      auth,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(workItems.map((item) => item.status)).toEqual(["ASSIGNED", "ASSIGNED", "ASSIGNED"]);
+    expect(JSON.parse(result.content[0]?.text ?? "{}")).toMatchObject({ count: 3 });
   });
 
   it("sets startDate and dueDate so a timeline bar can move", async () => {

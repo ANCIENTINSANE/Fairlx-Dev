@@ -126,7 +126,7 @@ export interface McpRuntime {
     userId: string;
     projectId: string;
     memberRole?: string;
-  }) => Promise<{ allowed: boolean; reason?: string }>;
+  }) => Promise<{ allowed: boolean; reason?: string; message?: string }>;
   hashMcpToken: (plaintext: string) => string;
   lookupTokenByHash: (hash: string) => Promise<McpTokenRecord | null>;
   touchTokenLastUsed?: (tokenId: string) => Promise<void>;

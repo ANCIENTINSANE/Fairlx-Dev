@@ -19,8 +19,9 @@ import { getGithubAccountPublic, isPendingGithubRepo } from "@/features/github-i
 import { canManageProjectGithubIntegration } from "@/features/github-integration/lib/github-permissions";
 import { resolveUserProjectAccess } from "@/lib/permissions/resolveUserProjectAccess";
 import type { AgentContext } from "../types";
+import { assigneeIdSet, workItemAssignedTo } from "./assigned-work";
 
-type MemberDoc = Models.Document & { workspaceId: string; role?: string };
+type MemberDoc = Models.Document & { workspaceId: string; role?: string; userId?: string; deletedAt?: string | null };
 type WorkspaceDoc = Models.Document & {
   name: string;
   imageUrl?: string;
@@ -54,6 +55,7 @@ type WorkItemDoc = Models.Document & {
   labels?: string[];
   dueDate?: string;
   flagged?: boolean;
+  assigneeIds?: string[];
 };
 
 function parseCustomLabels(raw: unknown): Array<{ name: string; color?: string }> | undefined {
@@ -82,6 +84,62 @@ async function safeList(
   }
 }
 
+async function listAssignedWorkItems(
+  databases: Databases,
+  userId: string,
+  memberships: MemberDoc[],
+  projectIds: string[],
+): Promise<WorkItemDoc[]> {
+  const ids = assigneeIdSet({ userId, memberships });
+  const scopes = projectIds.filter(Boolean);
+  if (!ids.size || !scopes.length) return [];
+
+  const batches = await Promise.all(
+    scopes.map((projectId) => listAssignedInProject(databases, projectId, ids)),
+  );
+  const seen = new Set<string>();
+  const merged: WorkItemDoc[] = [];
+  for (const batch of batches) {
+    for (const item of batch) {
+      if (!item?.$id || seen.has(item.$id)) continue;
+      seen.add(item.$id);
+      merged.push(item);
+    }
+  }
+  return merged.sort((a, b) => String(b.$createdAt ?? "").localeCompare(String(a.$createdAt ?? "")));
+}
+
+async function listAssignedInProject(
+  databases: Databases,
+  projectId: string,
+  ids: Set<string>,
+): Promise<WorkItemDoc[]> {
+  const containsHits = await Promise.all(
+    [...ids].map((id) =>
+      safeList(databases, WORK_ITEMS_ID, [
+        Query.equal("projectId", projectId),
+        Query.contains("assigneeIds", id),
+        Query.limit(100),
+      ]),
+    ),
+  );
+  const matched = (containsHits.flat() as WorkItemDoc[]).filter((item) => workItemAssignedTo(item, ids));
+  if (matched.length) return matched;
+
+  const scanned: WorkItemDoc[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 5; page += 1) {
+    const queries = [Query.equal("projectId", projectId), Query.limit(100)];
+    if (cursor) queries.push(Query.cursorAfter(cursor));
+    const docs = (await safeList(databases, WORK_ITEMS_ID, queries)) as WorkItemDoc[];
+    scanned.push(...docs);
+    if (docs.length < 100) break;
+    cursor = docs[docs.length - 1]?.$id;
+    if (!cursor) break;
+  }
+  return scanned.filter((item) => workItemAssignedTo(item, ids));
+}
+
 export async function loadAgentContext(
   databases: Databases,
   user: { $id: string; name?: string; email?: string },
@@ -90,7 +148,7 @@ export async function loadAgentContext(
     Query.equal("userId", user.$id),
     Query.limit(100),
   ]);
-  const memberships = members.documents as MemberDoc[];
+  const memberships = (members.documents as MemberDoc[]).filter((doc) => !doc.deletedAt);
   const roleByWorkspace = new Map<string, string>();
   for (const membership of memberships) {
     if (membership.workspaceId && membership.role && !roleByWorkspace.has(membership.workspaceId)) {
@@ -115,14 +173,12 @@ export async function loadAgentContext(
       ])) as ProjectDoc[])
     : [];
 
-  const memberIds = memberships.map((member) => member.$id).filter(Boolean);
-  const workItems = memberIds.length
-    ? ((await safeList(databases, WORK_ITEMS_ID, [
-        Query.equal("assigneeIds", memberIds.length === 1 ? memberIds[0]! : memberIds),
-        Query.orderDesc("$createdAt"),
-        Query.limit(20),
-      ])) as WorkItemDoc[])
-    : [];
+  const workItems = await listAssignedWorkItems(
+    databases,
+    user.$id,
+    memberships,
+    projects.map((project) => project.$id),
+  );
 
   const notifications = await safeList(databases, NOTIFICATIONS_ID, [
     Query.equal("userId", user.$id),

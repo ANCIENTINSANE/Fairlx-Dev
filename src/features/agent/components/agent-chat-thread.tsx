@@ -1334,7 +1334,7 @@ export function AgentChatThread({
               </div>
             ) : null}
 
-            {turn.usage.some((event) => event.type === "llm_usage" || event.type === "context_meter") ? (
+            {turn.usage.some((event) => event.type === "llm_usage") ? (
               <AgentTurnUsageCard events={turn.usage} live={Boolean(isLast && turnRunning)} />
             ) : null}
           </div>
