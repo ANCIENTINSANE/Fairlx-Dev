@@ -4,17 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `packages/fairlx-mcp/README.md`
-- `packages/fairlx-mcp/src/catalog.test.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-11 | `076935d` | test: update Fairlx MCP catalog contract to 113 tools | ANCIENTINSANE |
 | 2026-09-11 | `92c6cf1` | docs: rewrite README around Fairlx+ and keep git history in changelog only | ANCIENTINSANE |
 | 2026-09-10 | `359aed0` | chore: bump version to 0.2.125 [skip ci] | github-actions[bot] |
 | 2026-09-11 | `086a4fa` | Merge pull request #320 from ANCIENTINSANE/main | Surendra Codes |
@@ -93,4 +87,4 @@ Files in this commit:
 | 2026-09-05 | `4d69739` | Merge stemlen/main into contrib branch for cross-repo contribution | ANCIENTINSANE |
 | 2026-09-05 | `e0a995a` | Ship leftover org invite, agent board, and docs-hook work. | ANCIENTINSANE |
 
-Last generated: 2026-09-11T09:19:25.768Z
+Last generated: 2026-09-11T09:28:02.921Z
