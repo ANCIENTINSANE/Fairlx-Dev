@@ -4,21 +4,11 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `.githooks/pre-commit`
-- `.githooks/pre-push`
-- `CONTRIBUTING.md`
-- `README.md`
-- `scripts/update-docs-from-git.mjs`
-- `scripts/update-docs-from-git.test.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-11 | `92c6cf1` | docs: rewrite README around Fairlx+ and keep git history in changelog only | ANCIENTINSANE |
 | 2026-09-10 | `359aed0` | chore: bump version to 0.2.125 [skip ci] | github-actions[bot] |
 | 2026-09-11 | `086a4fa` | Merge pull request #320 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-11 | `403791d` | Merge branch 'stemlen:main' into main | Surendra Codes |
@@ -95,6 +85,5 @@ Files in this commit:
 | 2026-09-05 | `77834c5` | Merge pull request #302 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync | Surendra Codes |
 | 2026-09-05 | `4d69739` | Merge stemlen/main into contrib branch for cross-repo contribution | ANCIENTINSANE |
 | 2026-09-05 | `e0a995a` | Ship leftover org invite, agent board, and docs-hook work. | ANCIENTINSANE |
-| 2026-09-05 | `7a39a96` | Raise agent model timeouts and pass attached specs to subject sub-agents. | ANCIENTINSANE |
 
-Last generated: 2026-09-11T09:07:39.640Z
+Last generated: 2026-09-11T09:07:49.637Z
