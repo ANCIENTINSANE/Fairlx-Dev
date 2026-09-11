@@ -4,11 +4,27 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `.githooks/pre-commit`
+- `.githooks/pre-push`
+- `CONTRIBUTING.md`
+- `README.md`
+- `scripts/update-docs-from-git.mjs`
+- `scripts/update-docs-from-git.test.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-10 | `359aed0` | chore: bump version to 0.2.125 [skip ci] | github-actions[bot] |
+| 2026-09-11 | `086a4fa` | Merge pull request #320 from ANCIENTINSANE/main | Surendra Codes |
+| 2026-09-11 | `403791d` | Merge branch 'stemlen:main' into main | Surendra Codes |
 | 2026-09-11 | `502e381` | fix: stop replanning when the user asks the agent to code | ANCIENTINSANE |
+| 2026-09-10 | `95fd802` | chore: bump version to 0.2.124 [skip ci] | github-actions[bot] |
+| 2026-09-11 | `a5664da` | Merge pull request #319 from ANCIENTINSANE/main | Surendra Codes |
 | 2026-09-11 | `57825f5` | feat: add automation loops, Slack agent ops, sandbox lifecycle, and live run workspace | ANCIENTINSANE |
 | 2026-09-10 | `b1e88d5` | chore: bump version to 0.2.123 [skip ci] | github-actions[bot] |
 | 2026-09-10 | `4ff1179` | Merge pull request #318 from Happyesss/main | Shashank Kumar Rathour |
@@ -80,11 +96,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-05 | `4d69739` | Merge stemlen/main into contrib branch for cross-repo contribution | ANCIENTINSANE |
 | 2026-09-05 | `e0a995a` | Ship leftover org invite, agent board, and docs-hook work. | ANCIENTINSANE |
 | 2026-09-05 | `7a39a96` | Raise agent model timeouts and pass attached specs to subject sub-agents. | ANCIENTINSANE |
-| 2026-09-04 | `f5a80e2` | chore: bump version to 0.2.98 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `fe8e336` | Merge pull request #300 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-09-04 | `13c0f8e` | feat: add Fairlx Agent harness with plugins, GitHub PRs, and isolated jobs | ANCIENTINSANE |
-| 2026-09-04 | `5374c1c` | chore: bump version to 0.2.97 [skip ci] | github-actions[bot] |
-| 2026-09-04 | `dd9c18e` | feat: enhance pending confirmation handling and improve write tool call detection | Happyesss |
-| 2026-09-04 | `a49f12d` | chore: bump version to 0.2.96 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-10T19:35:59.804Z
+Last generated: 2026-09-11T09:07:39.640Z
