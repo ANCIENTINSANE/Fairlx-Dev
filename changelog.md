@@ -4,6 +4,13 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
+## Unreleased
+
+Files in this commit:
+
+- `packages/fairlx-mcp/README.md`
+- `packages/fairlx-mcp/src/catalog.test.ts`
+
 ## Recent commits
 
 | Date | Commit | Message | Author |
@@ -86,4 +93,4 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-09-05 | `4d69739` | Merge stemlen/main into contrib branch for cross-repo contribution | ANCIENTINSANE |
 | 2026-09-05 | `e0a995a` | Ship leftover org invite, agent board, and docs-hook work. | ANCIENTINSANE |
 
-Last generated: 2026-09-11T09:07:49.637Z
+Last generated: 2026-09-11T09:19:25.768Z

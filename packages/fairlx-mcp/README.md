@@ -4,7 +4,7 @@ One Fairlx MCP server with:
 
 - Remote Streamable HTTP at `POST /api/mcp`
 - Local stdio CLI that proxies JSON-RPC to that HTTP endpoint
-- Skills, prompts, resources, and 40 tools
+- Skills, prompts, resources, and 113 tools
 
 This package cannot import Next.js `@/` modules. The Next.js app injects an `McpRuntime` at bind time.
 
